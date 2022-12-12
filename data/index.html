@@ -13,9 +13,20 @@
     <div class="card">
       <h2>Output - GPIO 2</h2>
       <p class="state">state: <span id="state">%STATE%</span></p>
-      <p><button id="button" class="button">Toggle</button></p>
+      <p><button id="toggle" class="button">Toggle</button></p>
+    </div>
+    <div class="card">
+      <h2>Relay One</h2>
+      <p class="state">state: <span id="relay1state">%RELAY1STATE%</span></p>
+      <p><button id="relay1toggle" class="button" %RELAY1DISABLED%>Toggle</button></p>
+    </div>
+    <div class="card">
+      <h2>Relay Two</h2>
+      <p class="state">state: <span id="relay2state">%RELAY2STATE%</span></p>
+      <p><button id="relay2toggle" class="button" %RELAY2DISABLED%>Toggle</button></p>
     </div>
   </div>
   <script src="script.js"></script>
 </body>
 </html>
+

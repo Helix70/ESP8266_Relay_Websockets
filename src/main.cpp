@@ -22,6 +22,9 @@
 uint32_t elapsed = 0;
 uint32_t timer = 0;
 
+#define COUNTDOWN_TIMEOUT_MS 5000
+uint32_t countdown = 0;
+
 // Create AsyncWebServer object on port 80
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
@@ -46,6 +49,8 @@ struct Led {
 // ----------------------------------------------------------------------------
 
 Led    onboard_led = { LED_BUILTIN, false };
+Led relay_1 = { 15, false };
+Led relay_2 = { 12, false };
 
 void initLittleFS() {
   if (!LittleFS.begin()) {
@@ -59,16 +64,48 @@ void initLittleFS() {
 }
 
 void notifyClients() {
-  ws.textAll(String(onboard_led.on));
+  Serial.println("notifying clients");
+
+  char buffer[40];
+  sprintf(
+    buffer, 
+    "{\"LED\":%s,\"RELAY1\":%s,\"RELAY2\":%s}",
+    onboard_led.on ? "true" : "false",
+    relay_1.on ? "true" : "false",
+    relay_2.on ? "true" : "false"
+    );
+  ws.textAll(buffer);
 }
 
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
+  Serial.printf("handle web socket message: %s\n", data);
   AwsFrameInfo *info = (AwsFrameInfo*)arg;
   if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
     data[len] = 0;
+    bool notify = false;
     if (strcmp((char*)data, "toggle") == 0) {
       onboard_led.on = !onboard_led.on;
       onboard_led.update();
+      notify = true;
+    }
+
+    if (relay_1.on || relay_2.on) {
+      // skip updates
+    }
+    else if (strcmp((char*)data, "relay1toggle") == 0) {
+      relay_1.on = !relay_1.on;
+      relay_1.update();
+      notify = true;
+      countdown = millis();
+    }
+    else if (strcmp((char*)data, "relay2toggle") == 0) {
+      relay_2.on = !relay_2.on;
+      relay_2.update();
+      notify = true;
+      countdown = millis();
+    }
+
+    if (notify) {
       notifyClients();
     }
   }
@@ -76,6 +113,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
 
 void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
              void *arg, uint8_t *data, size_t len) {
+    Serial.println("on event");
     switch (type) {
       case WS_EVT_CONNECT:
         Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
@@ -93,6 +131,7 @@ void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType 
 }
 
 void initWebSocket() {
+  Serial.println("init web socket");
   ws.onEvent(onEvent);
   server.addHandler(&ws);
 }
@@ -110,6 +149,7 @@ void initWiFi() {
 
 String processor(const String& var){
   Serial.println(var);
+
   if(var == "STATE"){
     if (onboard_led.on){
       return "ON";
@@ -117,6 +157,18 @@ String processor(const String& var){
     else{
       return "OFF";
     }
+  }
+  if (var == "RELAY1STATE") {
+    return relay_1.on ? "ON" : "OFF";
+  }
+  if (var == "RELAY2STATE") {
+    return relay_2.on ? "ON" : "OFF";
+  }
+  if (var == "RELAY1DISABLED") {
+    return relay_2.on ? "disabled" : "";
+  }
+  if (var == "RELAY2DISABLED") {
+    return relay_1.on ? "disabled" : "";
   }
 
   return String();
@@ -140,11 +192,13 @@ void setup(){
 
 // Route for root / web page
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    Serial.println("on /");
     request->send(LittleFS, "/index.html", "text/html",false,processor);
   });
   server.serveStatic("/", LittleFS, "/");
-  
+
   // Start server
+  Serial.println("starting server");
   server.begin();
 }
 
@@ -153,12 +207,20 @@ void loop() {
   elapsed = millis();
   if ((elapsed - timer) > 5000) {
     onboard_led.on = !onboard_led.on;
-    //ledState = !ledState;
     timer = elapsed;
     notifyClients();
   }
 
+  if ((elapsed - countdown) > COUNTDOWN_TIMEOUT_MS && countdown != 0) {
+    relay_1.on = false;
+    relay_2.on = false;
+    countdown = 0;
+    notifyClients();
+    relay_1.update();
+    relay_2.update();
+  }
+
   ws.cleanupClients();
   onboard_led.update();
-  //digitalWrite(ledPin, ledState);
 }
+
