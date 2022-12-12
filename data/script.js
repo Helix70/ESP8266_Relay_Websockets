@@ -16,22 +16,40 @@ function onClose(event) {
   setTimeout(initWebSocket, 2000);
 }
 function onMessage(event) {
-  var state;
-  if (event.data == "1"){
-    state = "ON";
-  }
-  else{
-    state = "OFF";
-  }
+  msg = JSON.parse(event.data);
+  console.log("Recieved message: ", msg);
+
+  const state = msg.LED ? "ON" : "OFF";
+
   document.getElementById('state').innerHTML = state;
+  updateRelays(msg);
 }
+
+function updateRelays(event) {
+  const relay1state = msg.RELAY1 ? "ON" : "OFF";
+  const relay2state = msg.RELAY2 ? "ON" : "OFF";
+  document.getElementById('relay1state').innerHTML = relay1state;
+  document.getElementById('relay2state').innerHTML = relay2state;
+  document.getElementById('relay1toggle').disabled = msg.RELAY1 || msg.RELAY2;
+  document.getElementById('relay2toggle').disabled = msg.RELAY1 || msg.RELAY2;
+}
+
 function onLoad(event) {
   initWebSocket();
-  initButton();
+  initButtons();
 }
-function initButton() {
-  document.getElementById('button').addEventListener('click', toggle);
+function initButtons() {
+  document.getElementById('toggle').addEventListener('click', toggle);
+  document.getElementById('relay1toggle').addEventListener('click', toggle);
+  document.getElementById('relay2toggle').addEventListener('click', toggle);
 }
-function toggle(){
-  websocket.send('toggle');
+
+function toggle (callee) {
+  updateRelays({
+    RELAY1: callee.srcElement.id == 'relay1toggle',
+    RELAY2: callee.srcElement.id == 'relay2toggle',
+  });
+  console.log("sending message: ", callee.srcElement.id);
+  websocket.send(callee.srcElement.id);
 }
+
