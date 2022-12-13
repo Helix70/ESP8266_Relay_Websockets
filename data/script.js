@@ -17,7 +17,7 @@ function onClose(event) {
 }
 function onMessage(event) {
   msg = JSON.parse(event.data);
-  console.log("Recieved message: ", msg);
+  console.log("Received message: ", msg);
 
   const state = msg.LED ? "ON" : "OFF";
 

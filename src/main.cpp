@@ -33,14 +33,27 @@ AsyncWebSocket ws("/ws");
 // Definition of the LED component
 // ----------------------------------------------------------------------------
 
-struct Led {
+struct OutputPin {
     // state variables
-    uint8_t pin;
-    bool    on;
+    const uint8_t pin;
+    uint8_t  on;
+    const uint8_t on_state;   // LOW active or HIGH active
 
     // methods
     void update() {
         digitalWrite(pin, on ? HIGH : LOW);
+    }
+
+    void low() {
+      on = !on_state;
+    }
+
+    void high() {
+      on = on_state;
+    }
+
+    void toggle() {
+      on = !on;
     }
 };
 
@@ -48,9 +61,18 @@ struct Led {
 // LittleFS initialization
 // ----------------------------------------------------------------------------
 
-Led    onboard_led = { LED_BUILTIN, false };
-Led relay_1 = { 15, false };
-Led relay_2 = { 12, false };
+OutputPin onboard_led = { LED_BUILTIN, false, HIGH };
+
+OutputPin relays[] = {
+  { 5, false, HIGH },
+  { 4, false, HIGH },
+  { 0, false, HIGH },
+  { 15, false, HIGH },
+  { 13, false, HIGH },
+  { 12, false, HIGH },
+  { 14, false, HIGH },
+  { 16, false, HIGH }
+};
 
 void initLittleFS() {
   if (!LittleFS.begin()) {
@@ -66,41 +88,42 @@ void initLittleFS() {
 void notifyClients() {
   Serial.println("notifying clients");
 
-  char buffer[40];
+  char buffer[50];
   sprintf(
     buffer, 
     "{\"LED\":%s,\"RELAY1\":%s,\"RELAY2\":%s}",
     onboard_led.on ? "true" : "false",
-    relay_1.on ? "true" : "false",
-    relay_2.on ? "true" : "false"
+    relays[0].on ? "true" : "false",
+    relays[1].on ? "true" : "false"
     );
   ws.textAll(buffer);
 }
 
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
-  Serial.printf("handle web socket message: %s\n", data);
+  char buffer[len+1];   
+  snprintf(buffer, len+1, "%s", data);  // convert char array to null terminated
+  Serial.printf("handle web socket message: %s\n", buffer);
   AwsFrameInfo *info = (AwsFrameInfo*)arg;
   if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
-    data[len] = 0;
     bool notify = false;
-    if (strcmp((char*)data, "toggle") == 0) {
+    if (strcmp((char*)buffer, "toggle") == 0) {
       onboard_led.on = !onboard_led.on;
       onboard_led.update();
       notify = true;
     }
 
-    if (relay_1.on || relay_2.on) {
+    if (relays[0].on || relays[1].on) {
       // skip updates
     }
-    else if (strcmp((char*)data, "relay1toggle") == 0) {
-      relay_1.on = !relay_1.on;
-      relay_1.update();
+    else if (strcmp((char*)buffer, "relay1toggle") == 0) {
+      relays[0].toggle();
+      relays[0].update();
       notify = true;
       countdown = millis();
     }
-    else if (strcmp((char*)data, "relay2toggle") == 0) {
-      relay_2.on = !relay_2.on;
-      relay_2.update();
+    else if (strcmp((char*)buffer, "relay2toggle") == 0) {
+      relays[1].toggle();
+      relays[1].update();
       notify = true;
       countdown = millis();
     }
@@ -159,31 +182,37 @@ String processor(const String& var){
     }
   }
   if (var == "RELAY1STATE") {
-    return relay_1.on ? "ON" : "OFF";
+    return relays[0].on ? "ON" : "OFF";
   }
   if (var == "RELAY2STATE") {
-    return relay_2.on ? "ON" : "OFF";
+    return relays[1].on ? "ON" : "OFF";
   }
   if (var == "RELAY1DISABLED") {
-    return relay_2.on ? "disabled" : "";
+    return relays[1].on ? "disabled" : "";
   }
   if (var == "RELAY2DISABLED") {
-    return relay_1.on ? "disabled" : "";
+    return relays[0].on ? "disabled" : "";
   }
 
   return String();
 }
 
 void setup(){
+  uint8_t i;
+
   // Serial port for debugging purposes
   Serial.begin(115200);
 
   pinMode(onboard_led.pin, OUTPUT);
-  onboard_led.on = LOW;
+  onboard_led.on = !onboard_led.on_state;
   onboard_led.update();
-  //pinMode(ledPin, OUTPUT);
-  //digitalWrite(ledPin, LOW);
-  
+
+  for (i=0; i<8; i++) {
+    pinMode(relays[i].pin, OUTPUT);
+    relays[i].low();
+    relays[i].update();
+  }
+
   initLittleFS();
   // Connect to Wi-Fi
   initWiFi();
@@ -200,9 +229,11 @@ void setup(){
   // Start server
   Serial.println("starting server");
   server.begin();
+  notifyClients();
 }
 
 void loop() {
+  uint8_t i;
 
   elapsed = millis();
   if ((elapsed - timer) > 5000) {
@@ -212,15 +243,17 @@ void loop() {
   }
 
   if ((elapsed - countdown) > COUNTDOWN_TIMEOUT_MS && countdown != 0) {
-    relay_1.on = false;
-    relay_2.on = false;
+    relays[0].low();
+    relays[1].low();
     countdown = 0;
     notifyClients();
-    relay_1.update();
-    relay_2.update();
   }
 
   ws.cleanupClients();
+
+  for (i=0; i<8; i++) {
+    relays[i].update();
+  }
   onboard_led.update();
 }
-
+
