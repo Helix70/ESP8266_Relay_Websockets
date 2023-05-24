@@ -1,0 +1,62 @@
+<!DOCTYPE HTML><html>
+<head>
+  <title>ESP Web Server</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+<body>
+  <div class="topnav">
+    <h1>ESP WebSocket Server</h1>
+  </div>
+  <div class="content">
+    <div class="card">
+      <h2>LED</h2>
+      <p class="state">state: <span id="state">%STATE%</span></p>
+      <p><button id="toggle" class="button">Toggle</button></p>
+    </div>
+    <div class="card">
+      <h2>Relay One</h2>
+      <p class="state">state: <span id="relay1state">%RELAY1STATE%</span></p>
+      <p><button id="relay1toggle" class="button" %RELAY1DISABLED%>Toggle</button></p>
+    </div>
+    <div class="card">
+      <h2>Relay Two</h2>
+      <p class="state">state: <span id="relay2state">%RELAY2STATE%</span></p>
+      <p><button id="relay2toggle" class="button" %RELAY2DISABLED%>Toggle</button></p>
+    </div>
+    <div class="card">
+      <h2>Relay Three</h2>
+      <p class="state">state: <span id="relay3state">%RELAY3STATE%</span></p>
+      <p><button id="relay3toggle" class="button" %RELAY3DISABLED%>Toggle</button></p>
+    </div>
+    <div class="card">
+      <h2>Relay Four</h2>
+      <p class="state">state: <span id="relay4state">%RELAY4STATE%</span></p>
+      <p><button id="relay4toggle" class="button" %RELAY4DISABLED%>Toggle</button></p>
+    </div>
+    <div class="card">
+      <h2>Relay Five</h2>
+      <p class="state">state: <span id="relay5state">%RELAY5STATE%</span></p>
+      <p><button id="relay5toggle" class="button" %RELAY5DISABLED%>Toggle</button></p>
+    </div>
+    <div class="card">
+      <h2>Relay Six</h2>
+      <p class="state">state: <span id="relay6state">%RELAY6STATE%</span></p>
+      <p><button id="relay6toggle" class="button" %RELAY6DISABLED%>Toggle</button></p>
+    </div>
+    <div class="card">
+      <h2>Relay Seven</h2>
+      <p class="state">state: <span id="relay7state">%RELAY7STATE%</span></p>
+      <p><button id="relay7toggle" class="button" %RELAY7DISABLED%>Toggle</button></p>
+    </div>
+    <div class="card">
+      <h2>Relay Eight</h2>
+      <p class="state">state: <span id="relay8state">%RELAY8STATE%</span></p>
+      <p><button id="relay8toggle" class="button" %RELAY8DISABLED%>Toggle</button></p>
+    </div>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>
+

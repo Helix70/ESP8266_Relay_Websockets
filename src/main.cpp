@@ -115,91 +115,61 @@ void notifyClients()
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
 {
   char buffer[len + 1];
-  Serial.printf("len=%d\n",len);
+  Serial.printf("len=%d\n", len);
   snprintf(buffer, len + 1, "%s", data); // convert char array to null terminated
   Serial.printf("handle web socket message: %s\n", buffer);
   AwsFrameInfo *info = (AwsFrameInfo *)arg;
   if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT)
   {
     bool notify = false;
-    if (strcmp((char *)buffer, "toggle") == 0)
-    {
-      onboard_led.on = !onboard_led.on;
-      onboard_led.update();
-      notify = true;
-    }
 
-    if (relays[0].on || relays[1].on)
-    {
-      // skip updates
-    }
-    else if (strcmp((char *)buffer, "relay1toggle") == 0)
+    if (strcmp((char *)buffer, "relay1toggle") == 0)
     {
       relays[0].toggle();
       relays[0].update();
       notify = true;
-      countdown = millis();
     }
     else if (strcmp((char *)buffer, "relay2toggle") == 0)
     {
       relays[1].toggle();
       relays[1].update();
       notify = true;
-      countdown = millis();
     }
-
-    if (strcmp((char *)buffer, "relay3toggle") == 0)
+    else if (strcmp((char *)buffer, "relay3toggle") == 0)
     {
       relays[2].toggle();
       relays[2].update();
       notify = true;
-      countdown = millis();
     }
     else if (strcmp((char *)buffer, "relay4toggle") == 0)
     {
       relays[3].toggle();
       relays[3].update();
       notify = true;
-      countdown = millis();
-    }
-
-
-    if (relays[4].on || relays[5].on)
-    {
-      // skip updates
     }
     else if (strcmp((char *)buffer, "relay5toggle") == 0)
     {
       relays[4].toggle();
       relays[4].update();
       notify = true;
-      countdown = millis();
     }
     else if (strcmp((char *)buffer, "relay6toggle") == 0)
     {
       relays[5].toggle();
       relays[5].update();
       notify = true;
-      countdown = millis();
-    }
-
-    if (relays[6].on || relays[7].on)
-    {
-      // skip updates
     }
     else if (strcmp((char *)buffer, "relay7toggle") == 0)
     {
       relays[6].toggle();
       relays[6].update();
       notify = true;
-      countdown = millis();
     }
     else if (strcmp((char *)buffer, "relay8toggle") == 0)
     {
       relays[7].toggle();
       relays[7].update();
       notify = true;
-      countdown = millis();
     }
 
     if (notify)
@@ -239,6 +209,7 @@ void initWebSocket()
 
 void initWiFi()
 {
+  WiFi.config(ip, dns, gateway, subnet);
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   Serial.printf("Trying to connect [%s] ", WiFi.macAddress().c_str());
@@ -375,9 +346,10 @@ void loop()
   {
     onboard_led.on = !onboard_led.on;
     timer = elapsed;
-    notifyClients();
+    //notifyClients();
   }
 
+/*
   if ((elapsed - countdown) > COUNTDOWN_TIMEOUT_MS && countdown != 0)
   {
     relays[0].low();
@@ -385,6 +357,7 @@ void loop()
     countdown = 0;
     notifyClients();
   }
+*/
 
   ws.cleanupClients();
 
