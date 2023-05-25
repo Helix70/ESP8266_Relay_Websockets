@@ -32,6 +32,22 @@ function onMessage(event) {
   msg = JSON.parse(event.data);
   console.log("Received message: ", msg);
 
+  const keys = Object.keys(msg);
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    console.log(key, msg[key]);
+    if (key.slice(0,5) == "RELAY") {
+      let btnName = "#relaytoggle" + key.slice(5,key.length);
+      setButtonOnOff(btnName,msg[key]);
+    }
+    else if (key.slice(0,7) == "DISABLE") {
+      let btnName = "#relaytoggle" + key.slice(7,key.length);
+      setButtonDisabledEnabled(btnName,msg[key]);
+    }    
+  }
+
+
+
   function Iterate(data)
   {
     $.each(data,function(key,val) {
