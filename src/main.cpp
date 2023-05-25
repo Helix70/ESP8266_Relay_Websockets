@@ -123,53 +123,21 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
   {
     bool notify = false;
 
-    if (strcmp((char *)buffer, "relay1toggle") == 0)
+    int relayNum;
+    // check for relayxtoggle or relayxxtoggle
+    if (var.startsWith("relay"))
     {
-      relays[0].toggle();
-      relays[0].update();
-      notify = true;
-    }
-    else if (strcmp((char *)buffer, "relay2toggle") == 0)
-    {
-      relays[1].toggle();
-      relays[1].update();
-      notify = true;
-    }
-    else if (strcmp((char *)buffer, "relay3toggle") == 0)
-    {
-      relays[2].toggle();
-      relays[2].update();
-      notify = true;
-    }
-    else if (strcmp((char *)buffer, "relay4toggle") == 0)
-    {
-      relays[3].toggle();
-      relays[3].update();
-      notify = true;
-    }
-    else if (strcmp((char *)buffer, "relay5toggle") == 0)
-    {
-      relays[4].toggle();
-      relays[4].update();
-      notify = true;
-    }
-    else if (strcmp((char *)buffer, "relay6toggle") == 0)
-    {
-      relays[5].toggle();
-      relays[5].update();
-      notify = true;
-    }
-    else if (strcmp((char *)buffer, "relay7toggle") == 0)
-    {
-      relays[6].toggle();
-      relays[6].update();
-      notify = true;
-    }
-    else if (strcmp((char *)buffer, "relay8toggle") == 0)
-    {
-      relays[7].toggle();
-      relays[7].update();
-      notify = true;
+      if (var.endsWith("toggle"))
+      {
+        // extract the relay number
+        relayNum = var.substring(5, var.length - 11).toInt();
+        if ((relayNum > 0) && (relayNum < NUM_RELAYS))
+        {
+          relays[relayNum - 1].toggle();
+          relays[relayNum - 1].update();
+          notify = true;
+        }
+      }
     }
 
     if (notify)
@@ -225,76 +193,22 @@ String processor(const String &var)
 {
   Serial.println(var);
 
-  if (var == "STATE")
+  int relayNum, relayIndex;
+  // check for RELAYxSTATE or RELAYxxSTATE
+  if (var.startsWith("RELAY"))
   {
-    if (onboard_led.on)
+    if (var.endsWith("STATE"))
     {
-      return "ON";
+      // extract the relay number
+      relayNum = var.substring(5, var.length - 10).toInt();
+      if ((relayNum > 0) && (relayNum < NUM_RELAYS))
+      {
+        relayIndex = relayNum - 1;
+        return relays[relayIndex].on ? "ON" : "OFF";
+      }
     }
-    else
-    {
-      return "OFF";
-    }
-  }
-  if (var == "RELAY1STATE")
-  {
-    return relays[0].on ? "ON" : "OFF";
-  }
-  if (var == "RELAY2STATE")
-  {
-    return relays[1].on ? "ON" : "OFF";
-  }
-  if (var == "RELAY3STATE")
-  {
-    return relays[2].on ? "ON" : "OFF";
-  }
-  if (var == "RELAY4STATE")
-  {
-    return relays[3].on ? "ON" : "OFF";
-  }
-  if (var == "RELAY5STATE")
-  {
-    return relays[4].on ? "ON" : "OFF";
-  }
-  if (var == "RELAY6STATE")
-  {
-    return relays[5].on ? "ON" : "OFF";
-  }
-  if (var == "RELAY7STATE")
-  {
-    return relays[6].on ? "ON" : "OFF";
-  }
-  if (var == "RELAY8STATE")
-  {
-    return relays[7].on ? "ON" : "OFF";
   }
 
-  if (var == "RELAY1DISABLED")
-  {
-    return relays[1].on ? "disabled" : "";
-  }
-  if (var == "RELAY2DISABLED")
-  {
-    return relays[0].on ? "disabled" : "";
-  }
-
-  if (var == "RELAY5DISABLED")
-  {
-    return relays[5].on ? "disabled" : "";
-  }
-  if (var == "RELAY6DISABLED")
-  {
-    return relays[4].on ? "disabled" : "";
-  }
-
-  if (var == "RELAY7DISABLED")
-  {
-    return relays[7].on ? "disabled" : "";
-  }
-  if (var == "RELAY8DISABLED")
-  {
-    return relays[6].on ? "disabled" : "";
-  }
   return String();
 }
 
@@ -346,18 +260,18 @@ void loop()
   {
     onboard_led.on = !onboard_led.on;
     timer = elapsed;
-    //notifyClients();
+    // notifyClients();
   }
 
-/*
-  if ((elapsed - countdown) > COUNTDOWN_TIMEOUT_MS && countdown != 0)
-  {
-    relays[0].low();
-    relays[1].low();
-    countdown = 0;
-    notifyClients();
-  }
-*/
+  /*
+    if ((elapsed - countdown) > COUNTDOWN_TIMEOUT_MS && countdown != 0)
+    {
+      relays[0].low();
+      relays[1].low();
+      countdown = 0;
+      notifyClients();
+    }
+  */
 
   ws.cleanupClients();
 
