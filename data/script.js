@@ -17,15 +17,16 @@ function onClose(event) {
 }
 
 function setButtonOnOff(selector, value) {
+  console.log('selector:' + selector + ' value:' + value);
   if (value) document.querySelector(selector).classList.add('on');
   else document.querySelector(selector).classList.remove('on');
 }
 
 function setButtonDisabledEnabled(selector, value) {
-  if (value) $(selector).prop('disabled',true);
-  else $(selector).prop('disabled',false);
-  //if (value) document.querySelector(selector).prop('disabled',true);
-  //else document.querySelector(selector).prop('disabled',false);
+  //if (value) $(selector).prop('disabled',true);
+  //else $(selector).prop('disabled',false);
+  if (value) document.querySelector(selector).disabled = true;
+  else document.querySelector(selector).disabled = false;
 }
 
 function onMessage(event) {
@@ -36,49 +37,16 @@ function onMessage(event) {
   for (let i = 0; i < keys.length; i++) {
     const key = keys[i];
     console.log(key, msg[key]);
-    if (key.slice(0,5) == "RELAY") {
-      let btnName = "#relaytoggle" + key.slice(5,key.length);
-      setButtonOnOff(btnName,msg[key]);
+    if (key.slice(0, 5) == "RELAY") {
+      let btnName = "#relay" + key.slice(5, key.length) + "toggle";
+      setButtonOnOff(btnName, msg[key]);
     }
-    else if (key.slice(0,7) == "DISABLE") {
-      let btnName = "#relaytoggle" + key.slice(7,key.length);
-      setButtonDisabledEnabled(btnName,msg[key]);
-    }    
-  }
-
-
-
-  function Iterate(data)
-  {
-    $.each(data,function(key,val) {
-      if (key.slice(0,5) == "RELAY") {
-        let btnName = "#relaytoggle" + key.slice(5,key.length);
-        setButtonOnOff(btnName,val);
-      }
-      else if (key.slice(0,7) == "DISABLE") {
-        let btnName = "#relaytoggle" + key.slice(7,key.length);
-        setButtonDisabledEnabled(btnName,val);
-      }
-    })
-  }
-
-  //updateRelays(msg);
-}
-
-/*
-function updateRelays(_msg) {
-  if (typeof(_msg.RELAY8)== "boolean") {
-    setButtonOnOff("#relay1toggle", _msg.RELAY1);
-    setButtonOnOff("#relay2toggle", _msg.RELAY2);
-    setButtonOnOff("#relay3toggle", _msg.RELAY3);
-    setButtonOnOff("#relay4toggle", _msg.RELAY4);
-    setButtonOnOff("#relay5toggle", _msg.RELAY5);
-    setButtonOnOff("#relay6toggle", _msg.RELAY6);
-    setButtonOnOff("#relay7toggle", _msg.RELAY7);
-    setButtonOnOff("#relay8toggle", _msg.RELAY8);
+    else if (key.slice(0, 7) == "DISABLE") {
+      let btnName = "#relay" + key.slice(7, key.length) + "toggle";
+      setButtonDisabledEnabled(btnName, msg[key]);
+    }
   }
 }
-*/
 
 function onLoad(event) {
   initWebSocket();
@@ -94,10 +62,12 @@ function initButtons() {
   document.getElementById('relay6toggle').addEventListener('click', toggle);
   document.getElementById('relay7toggle').addEventListener('click', toggle);
   document.getElementById('relay8toggle').addEventListener('click', toggle);
+  document.getElementById('alloff').addEventListener('click', toggle);
+  document.getElementById('home').addEventListener('click', toggle);
 }
 
 function toggle(callee) {
-  callee=callee.srcElement.closest(".button")
+  callee = callee.srcElement.closest(".button")
   console.log("sending message: ", callee.id);
   websocket.send(callee.id);
 }

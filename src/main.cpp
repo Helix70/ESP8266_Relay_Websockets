@@ -115,23 +115,38 @@ void notifyClients()
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
 {
   char buffer[len + 1];
+  String str;
+
   Serial.printf("len=%d\n", len);
   snprintf(buffer, len + 1, "%s", data); // convert char array to null terminated
   Serial.printf("handle web socket message: %s\n", buffer);
+  str = buffer;
   AwsFrameInfo *info = (AwsFrameInfo *)arg;
   if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT)
   {
     bool notify = false;
-
+    Serial.println(str);
     int relayNum;
     // check for relayxtoggle or relayxxtoggle
-    if (var.startsWith("relay"))
+    if (str == "home") {
+      // do nothing, just refresh
+      notify = true;
+    }
+    else if (str == "alloff") {
+      for (relayNum = 1; relayNum <= NUM_RELAYS; relayNum++)
+      {
+          relays[relayNum - 1].low();
+          relays[relayNum - 1].update();
+      }
+      notify = true;
+    }
+    else if (str.startsWith("relay"))
     {
-      if (var.endsWith("toggle"))
+      if (str.endsWith("toggle"))
       {
         // extract the relay number
-        relayNum = var.substring(5, var.length - 11).toInt();
-        if ((relayNum > 0) && (relayNum < NUM_RELAYS))
+        relayNum = str.substring(5, str.length() + 5 - 11).toInt();
+        if ((relayNum > 0) && (relayNum <= NUM_RELAYS))
         {
           relays[relayNum - 1].toggle();
           relays[relayNum - 1].update();
@@ -200,7 +215,7 @@ String processor(const String &var)
     if (var.endsWith("STATE"))
     {
       // extract the relay number
-      relayNum = var.substring(5, var.length - 10).toInt();
+      relayNum = var.substring(5, var.length() + 5 - 10).toInt();
       if ((relayNum > 0) && (relayNum < NUM_RELAYS))
       {
         relayIndex = relayNum - 1;
