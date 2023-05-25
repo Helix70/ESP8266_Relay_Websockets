@@ -15,33 +15,54 @@ function onClose(event) {
   console.log('Connection closed');
   setTimeout(initWebSocket, 2000);
 }
-function onMessage(event) {
-  msg = JSON.parse(event.data);
-  console.log("Received message: ", msg);
 
-  const state = msg.LED ? "ON" : "OFF";
-
-  //document.getElementById('state').innerHTML = state;
-  updateRelays(msg);
-}
-
-function setButton(selector, value) {
+function setButtonOnOff(selector, value) {
   if (value) document.querySelector(selector).classList.add('on');
   else document.querySelector(selector).classList.remove('on');
 }
 
+function setButtonDisabledEnabled(selector, value) {
+  if (value) $(selector).prop('disabled',true);
+  else $(selector).prop('disabled',false);
+  //if (value) document.querySelector(selector).prop('disabled',true);
+  //else document.querySelector(selector).prop('disabled',false);
+}
+
+function onMessage(event) {
+  msg = JSON.parse(event.data);
+  console.log("Received message: ", msg);
+
+  function Iterate(data)
+  {
+    $.each(data,function(key,val) {
+      if (key.slice(0,5) == "RELAY") {
+        let btnName = "#relaytoggle" + key.slice(5,key.length);
+        setButtonOnOff(btnName,val);
+      }
+      else if (key.slice(0,7) == "DISABLE") {
+        let btnName = "#relaytoggle" + key.slice(7,key.length);
+        setButtonDisabledEnabled(btnName,val);
+      }
+    })
+  }
+
+  //updateRelays(msg);
+}
+
+/*
 function updateRelays(_msg) {
   if (typeof(_msg.RELAY8)== "boolean") {
-  setButton("#relay1toggle", _msg.RELAY1);
-  setButton("#relay2toggle", _msg.RELAY2);
-  setButton("#relay3toggle", _msg.RELAY3);
-  setButton("#relay4toggle", _msg.RELAY4);
-  setButton("#relay5toggle", _msg.RELAY5);
-  setButton("#relay6toggle", _msg.RELAY6);
-  setButton("#relay7toggle", _msg.RELAY7);
-  setButton("#relay8toggle", _msg.RELAY8);
+    setButtonOnOff("#relay1toggle", _msg.RELAY1);
+    setButtonOnOff("#relay2toggle", _msg.RELAY2);
+    setButtonOnOff("#relay3toggle", _msg.RELAY3);
+    setButtonOnOff("#relay4toggle", _msg.RELAY4);
+    setButtonOnOff("#relay5toggle", _msg.RELAY5);
+    setButtonOnOff("#relay6toggle", _msg.RELAY6);
+    setButtonOnOff("#relay7toggle", _msg.RELAY7);
+    setButtonOnOff("#relay8toggle", _msg.RELAY8);
   }
 }
+*/
 
 function onLoad(event) {
   initWebSocket();
