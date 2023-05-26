@@ -19,6 +19,9 @@
 // const char* ssid = "REPLACE_WITH_YOUR_SSID";
 // const char* password = "REPLACE_WITH_YOUR_PASSWORD";
 
+#define NUM_RELAYS 8
+//#define DO_DELAY 1    // uncomment for a 6 second delay at startup
+
 uint32_t elapsed = 0;
 uint32_t timer = 0;
 
@@ -44,7 +47,10 @@ struct OutputPin
   // methods
   void update()
   {
-    digitalWrite(pin, on ? HIGH : LOW);
+    if (pin != 255)
+    {
+      digitalWrite(pin, on ? HIGH : LOW);
+    }
   }
 
   void low()
@@ -61,6 +67,11 @@ struct OutputPin
   {
     on = !on;
   }
+
+  uint8_t state()
+  {
+    return on;
+  }
 };
 
 // ----------------------------------------------------------------------------
@@ -69,8 +80,7 @@ struct OutputPin
 
 OutputPin onboard_led = {LED_BUILTIN, false, HIGH, "LED"};
 
-#define NUM_RELAYS 8
-
+#if NUM_RELAYS == 8
 OutputPin relays[] = {
     {5, false, HIGH, "RELAY1"},
     {4, false, HIGH, "RELAY2"},
@@ -80,6 +90,33 @@ OutputPin relays[] = {
     {12, false, HIGH, "RELAY6"},
     {14, false, HIGH, "RELAY7"},
     {16, false, HIGH, "RELAY8"}};
+#elif NUM_RELAYS == 16
+OutputPin relays[] = {
+    {255, false, HIGH, "RELAY1"},
+    {255, false, HIGH, "RELAY2"},
+    {255, false, HIGH, "RELAY3"},
+    {255, false, HIGH, "RELAY4"},
+    {255, false, HIGH, "RELAY5"},
+    {255, false, HIGH, "RELAY6"},
+    {255, false, HIGH, "RELAY7"},
+    {255, false, HIGH, "RELAY8"},
+    {255, false, HIGH, "RELAY9"},
+    {255, false, HIGH, "RELAY10"},
+    {255, false, HIGH, "RELAY11"},
+    {255, false, HIGH, "RELAY12"},
+    {255, false, HIGH, "RELAY13"},
+    {255, false, HIGH, "RELAY14"},
+    {255, false, HIGH, "RELAY15"},
+    {255, false, HIGH, "RELAY16"}};
+
+const int latchPin = 12;                // Latch Pin of 74hc595
+const int clockPin = 13;                // Clock  Pin of 74hc595
+const int dataPin = 14;                 // Data  Pin of 74hc595
+int oePin = 5;                          // Oe Pin of 74hc595
+const int numRegisters = 2;             // Number of 74hc595 on the board
+byte outputData[numRegisters];          // the bytes used to shift out the data
+
+#endif
 
 void initLittleFS()
 {
@@ -112,6 +149,35 @@ void notifyClients()
   ws.textAll(buffer);
 }
 
+#if NUM_RELAYS == 16
+void writeRelaysToShiftRegister()
+{
+  // set the output data bytes based on the relay state array
+  for (int i = 0; i < NUM_RELAYS; i++)
+  {
+    int regNum = i / 8;
+    int bitNum = i % 8;
+    if (relays[i].state())
+    {
+      bitSet(outputData[regNum], bitNum);
+    }
+    else
+    {
+      bitClear(outputData[regNum], bitNum);
+    }
+  }
+
+  digitalWrite(latchPin, LOW);
+  for (int i = numRegisters; i > 0; i--)
+  {
+    shiftOut(dataPin, clockPin, MSBFIRST, outputData[i - 1]);
+  }
+  digitalWrite(dataPin, LOW);
+  digitalWrite(clockPin, LOW);
+  digitalWrite(latchPin, HIGH);
+}
+#endif
+
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
 {
   char buffer[len + 1];
@@ -128,15 +194,17 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
     Serial.println(str);
     int relayNum;
     // check for relayxtoggle or relayxxtoggle
-    if (str == "home") {
+    if (str == "home")
+    {
       // do nothing, just refresh
       notify = true;
     }
-    else if (str == "alloff") {
+    else if (str == "alloff")
+    {
       for (relayNum = 1; relayNum <= NUM_RELAYS; relayNum++)
       {
-          relays[relayNum - 1].low();
-          relays[relayNum - 1].update();
+        relays[relayNum - 1].low();
+        relays[relayNum - 1].update();
       }
       notify = true;
     }
@@ -157,6 +225,9 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
 
     if (notify)
     {
+#if NUM_RELAYS == 16
+      writeRelaysToShiftRegister();
+#endif
       notifyClients();
     }
   }
@@ -170,6 +241,7 @@ void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType 
   {
   case WS_EVT_CONNECT:
     Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+    notifyClients();
     break;
   case WS_EVT_DISCONNECT:
     Serial.printf("WebSocket client #%u disconnected\n", client->id());
@@ -192,16 +264,58 @@ void initWebSocket()
 
 void initWiFi()
 {
-  WiFi.config(ip, dns, gateway, subnet);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  Serial.printf("Trying to connect [%s] ", WiFi.macAddress().c_str());
-  while (WiFi.status() != WL_CONNECTED)
+  int xc = 0;
+  int attempts = 1;
+  Serial.printf("\n\n");
+  #if DO_DELAY
+  Serial.print("Delaying start ");
+  while (xc < 120)
   {
     Serial.print(".");
     delay(500);
+    xc++;
   }
-  Serial.printf(" %s\n", WiFi.localIP().toString().c_str());
+  #endif
+  Serial.println("*");
+
+  WiFi.config(ip, dns, gateway, subnet);
+  WiFi.mode(WIFI_STA);
+
+  while ((WiFi.status() != WL_CONNECTED) && (attempts <= 5))
+  {
+    WiFi.disconnect();
+    WiFi.begin(ssid, password);
+    Serial.printf("Trying to connect [%s], attempt %d.", WiFi.macAddress().c_str(), attempts);
+
+    xc = 0;
+    attempts++;
+    while ((WiFi.status() != WL_CONNECTED) && (xc < 60))
+    {
+      Serial.print(".");
+      delay(500);
+      xc++;
+    }
+    Serial.println("*");
+  }
+
+  Serial.println("");
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    Serial.println("Status=WL_CONNECTED");
+    Serial.print("CONNECTED To: ");
+    Serial.println(ssid);
+    Serial.print("IP Address: http://");
+    Serial.println(WiFi.localIP().toString().c_str());
+    WiFi.softAPdisconnect(true);
+  }
+  else
+  {
+    WiFi.disconnect();
+    Serial.println("Status= NOT WL_CONNECTED");
+    Serial.println("Rebooting....");
+    delay(500);
+    ESP.restart();
+  }
 }
 
 String processor(const String &var)
@@ -241,10 +355,28 @@ void setup()
   // initialise relays
   for (i = 0; i < NUM_RELAYS; i++)
   {
-    pinMode(relays[i].pin, OUTPUT);
     relays[i].low();
+#if NUM_RELAYS == 8
+    pinMode(relays[i].pin, OUTPUT);
     relays[i].update();
+#endif
   }
+
+#if NUM_RELAYS == 16
+  digitalWrite(oePin, HIGH); // disable output
+  pinMode(oePin, OUTPUT);
+
+  digitalWrite(latchPin, HIGH); // latch idles high
+  pinMode(latchPin, OUTPUT);
+
+  digitalWrite(clockPin, LOW); // clock idles low
+  pinMode(clockPin, OUTPUT);
+
+  digitalWrite(dataPin, LOW); // data idles low
+  pinMode(dataPin, OUTPUT);
+
+  digitalWrite(oePin, LOW); // enable output
+#endif
 
   // Mount Filesystem
   initLittleFS();
@@ -253,29 +385,36 @@ void setup()
 
   initWebSocket();
 
+#if NUM_RELAYS == 8
   // Route for root / web page
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
             {
     Serial.println("on /");
     request->send(LittleFS, "/index.html", "text/html",false,processor); });
+#elif NUM_RELAYS == 16
+  // Route for root / web page
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
+    Serial.println("on /");
+    request->send(LittleFS, "/index16.html", "text/html",false,processor); });
+#endif
+
   server.serveStatic("/", LittleFS, "/");
 
   // Start server
   Serial.println("starting server");
   server.begin();
-  notifyClients();
+  // notifyClients();
 }
 
 void loop()
 {
-  uint8_t i;
-
   elapsed = millis();
   if ((elapsed - timer) > 5000)
   {
     onboard_led.on = !onboard_led.on;
+    onboard_led.update();
     timer = elapsed;
-    // notifyClients();
   }
 
   /*
@@ -289,10 +428,4 @@ void loop()
   */
 
   ws.cleanupClients();
-
-  for (i = 0; i < 8; i++)
-  {
-    relays[i].update();
-  }
-  onboard_led.update();
 }

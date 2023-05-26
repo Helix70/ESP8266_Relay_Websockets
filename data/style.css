@@ -25,7 +25,7 @@ table {
 }
 
 td {
-  padding: 5px;
+  padding: 2px;
   -moz-border-radius: 9px;
   -webkit-border-radius: 9px;
 }
@@ -46,7 +46,7 @@ td {
 
 .button {
   padding: 10px 10px;
-  font-size: 22px;
+  font-size: 20px;
   text-align: center;
   outline: none;
   color: #fff;
@@ -60,7 +60,7 @@ td {
   -ms-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
-  width: 80%;
+  width: 90%;
 }
 
 .button:active {
