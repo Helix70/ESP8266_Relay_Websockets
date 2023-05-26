@@ -20,12 +20,14 @@ body {
 table {
   text-align: center;
   width: 100%;
+  border-radius: 7px;
   -moz-border-radius: 7px;
   -webkit-border-radius: 7px;
 }
 
 td {
   padding: 2px;
+  border-radius: 9px;
   -moz-border-radius: 9px;
   -webkit-border-radius: 9px;
 }
@@ -86,15 +88,17 @@ td {
 }
 
 .button.on {
-  background-color: #cf270d; 
+  background-color: #cf2700; 
 }
 
 .button:disabled
 {
-  background-color: #095052;
+  color: #808080;
+  background-color: #094647;
 }
 
 .button.on:disabled
 {
-  background-color: #701909;
+  color: #808080;
+  background-color: #6e1400;
 }

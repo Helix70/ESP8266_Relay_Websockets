@@ -20,10 +20,11 @@
 // const char* password = "REPLACE_WITH_YOUR_PASSWORD";
 
 #define NUM_RELAYS 8
-//#define DO_DELAY 1    // uncomment for a 6 second delay at startup
+// #define DO_DELAY 1    // uncomment for a 6 second delay at startup
 
 uint32_t elapsed = 0;
 uint32_t timer = 0;
+uint32_t latched_timer = 0;
 
 #define COUNTDOWN_TIMEOUT_MS 5000
 uint32_t countdown = 0;
@@ -31,6 +32,7 @@ uint32_t countdown = 0;
 // Create AsyncWebServer object on port 80
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
+char buffer[512];
 
 // ----------------------------------------------------------------------------
 // Definition of the LED component
@@ -42,7 +44,7 @@ struct OutputPin
   const uint8_t pin;
   uint8_t on;
   const uint8_t on_state; // LOW active or HIGH active
-  const char *label;
+  uint8_t disabled;
 
   // methods
   void update()
@@ -74,49 +76,68 @@ struct OutputPin
   }
 };
 
-// ----------------------------------------------------------------------------
-// LittleFS initialization
-// ----------------------------------------------------------------------------
+struct Latch
+{
+  const uint8_t relay_num;
+  const uint8_t latched_num;
+  const uint8_t timeout;
+  uint8_t counter;
+};
 
-OutputPin onboard_led = {LED_BUILTIN, false, HIGH, "LED"};
+OutputPin onboard_led = {LED_BUILTIN, false, HIGH, false};
 
 #if NUM_RELAYS == 8
 OutputPin relays[] = {
-    {5, false, HIGH, "RELAY1"},
-    {4, false, HIGH, "RELAY2"},
-    {0, false, HIGH, "RELAY3"},
-    {15, false, HIGH, "RELAY4"},
-    {13, false, HIGH, "RELAY5"},
-    {12, false, HIGH, "RELAY6"},
-    {14, false, HIGH, "RELAY7"},
-    {16, false, HIGH, "RELAY8"}};
+    {5, false, HIGH, false},
+    {4, false, HIGH, false},
+    {0, false, HIGH, false},
+    {15, false, HIGH, false},
+    {13, false, HIGH, false},
+    {12, false, HIGH, false},
+    {14, false, HIGH, false},
+    {16, false, HIGH, false}};
 #elif NUM_RELAYS == 16
 OutputPin relays[] = {
-    {255, false, HIGH, "RELAY1"},
-    {255, false, HIGH, "RELAY2"},
-    {255, false, HIGH, "RELAY3"},
-    {255, false, HIGH, "RELAY4"},
-    {255, false, HIGH, "RELAY5"},
-    {255, false, HIGH, "RELAY6"},
-    {255, false, HIGH, "RELAY7"},
-    {255, false, HIGH, "RELAY8"},
-    {255, false, HIGH, "RELAY9"},
-    {255, false, HIGH, "RELAY10"},
-    {255, false, HIGH, "RELAY11"},
-    {255, false, HIGH, "RELAY12"},
-    {255, false, HIGH, "RELAY13"},
-    {255, false, HIGH, "RELAY14"},
-    {255, false, HIGH, "RELAY15"},
-    {255, false, HIGH, "RELAY16"}};
+    {255, false, HIGH, false},
+    {255, false, HIGH, false},
+    {255, false, HIGH, false},
+    {255, false, HIGH, false},
+    {255, false, HIGH, false},
+    {255, false, HIGH, false},
+    {255, false, HIGH, false},
+    {255, false, HIGH, false},
+    {255, false, HIGH, false},
+    {255, false, HIGH, false},
+    {255, false, HIGH, false},
+    {255, false, HIGH, false},
+    {255, false, HIGH, false},
+    {255, false, HIGH, false},
+    {255, false, HIGH, false},
+    {255, false, HIGH, false}};
 
-const int latchPin = 12;                // Latch Pin of 74hc595
-const int clockPin = 13;                // Clock  Pin of 74hc595
-const int dataPin = 14;                 // Data  Pin of 74hc595
-int oePin = 5;                          // Oe Pin of 74hc595
-const int numRegisters = 2;             // Number of 74hc595 on the board
-byte outputData[numRegisters];          // the bytes used to shift out the data
+const int latchPin = 12;       // Latch Pin of 74hc595
+const int clockPin = 13;       // Clock  Pin of 74hc595
+const int dataPin = 14;        // Data  Pin of 74hc595
+int oePin = 5;                 // Oe Pin of 74hc595
+const int numRegisters = 2;    // Number of 74hc595 on the board
+byte outputData[numRegisters]; // the bytes used to shift out the data
 
 #endif
+
+Latch latched_relays[] = {
+    {1, 2, 0}, // 1
+    {2, 1, 0}, // 2
+    {3, 4, 2}, // 3
+    {4, 3, 5}, // 4
+    {5, 6, 0}, // 5
+    {6, 5, 0}, // 6
+    {7, 8, 0}, // 7
+    {8, 7, 0}, // 8
+};
+
+// ----------------------------------------------------------------------------
+// LittleFS initialization
+// ----------------------------------------------------------------------------
 
 void initLittleFS()
 {
@@ -136,16 +157,21 @@ void notifyClients()
 {
   Serial.println("notifying clients");
 
-  char buffer[(((NUM_RELAYS + 1) * 15) + 2)];
   char temp[20];
 
-  sprintf(buffer, "{\"%s\":%s", onboard_led.label, onboard_led.on ? "true" : "false");
+  sprintf(buffer, "{\"LED\":%s", onboard_led.on ? "true" : "false");
   for (int i = 0; i < NUM_RELAYS; i++)
   {
-    sprintf(temp, ",\"%s\":%s", relays[i].label, relays[i].on ? "true" : "false");
+    sprintf(temp, ",\"RELAY%d\":%s", (i + 1), relays[i].on ? "true" : "false");
+    strcat(buffer, temp);
+  }
+  for (int i = 0; i < NUM_RELAYS; i++)
+  {
+    sprintf(temp, ",\"DISABLE%d\":%s", (i + 1), relays[i].disabled ? "true" : "false");
     strcat(buffer, temp);
   }
   strcat(buffer, "}");
+  // Serial.println(buffer);
   ws.textAll(buffer);
 }
 
@@ -177,6 +203,29 @@ void writeRelaysToShiftRegister()
   digitalWrite(latchPin, HIGH);
 }
 #endif
+
+void handleLatch(uint8_t _relayNum)
+{
+  uint8_t index;
+
+  if ((_relayNum > 0) && (_relayNum <= NUM_RELAYS))
+  {
+    index = _relayNum - 1;
+    if (latched_relays[index].timeout != 0)
+    {
+      if ((latched_relays[index].relay_num > 0) && (latched_relays[index].relay_num <= NUM_RELAYS))
+      {
+        relays[index].disabled = 1;
+        latched_relays[index].counter = latched_relays[index].timeout;
+      }
+      if ((latched_relays[index].latched_num > 0) && (latched_relays[index].latched_num <= NUM_RELAYS))
+      {
+        relays[latched_relays[index].latched_num-1].disabled = 1;
+        latched_relays[latched_relays[index].latched_num-1].counter = latched_relays[index].timeout;
+      }
+    }
+  }
+}
 
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
 {
@@ -220,6 +269,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
           relays[relayNum - 1].update();
           notify = true;
         }
+        handleLatch(relayNum);
       }
     }
 
@@ -267,7 +317,7 @@ void initWiFi()
   int xc = 0;
   int attempts = 1;
   Serial.printf("\n\n");
-  #if DO_DELAY
+#if DO_DELAY
   Serial.print("Delaying start ");
   while (xc < 120)
   {
@@ -275,7 +325,7 @@ void initWiFi()
     delay(500);
     xc++;
   }
-  #endif
+#endif
   Serial.println("*");
 
   WiFi.config(ip, dns, gateway, subnet);
@@ -409,12 +459,46 @@ void setup()
 
 void loop()
 {
+  uint8_t i;
+  bool notify = false;
+
   elapsed = millis();
   if ((elapsed - timer) > 5000)
   {
     onboard_led.on = !onboard_led.on;
     onboard_led.update();
     timer = elapsed;
+  }
+
+  // handle latched buttons
+  elapsed = millis();
+  if ((elapsed - latched_timer) > 1000)
+  {
+    latched_timer = elapsed;
+    for (i = 0; i < NUM_RELAYS; i++)
+    {
+      if (latched_relays[i].counter)
+      {
+        latched_relays[i].counter--;
+        if (latched_relays[i].counter == 0)
+        {
+          relays[i].low();
+#if NUM_RELAYS == 8
+          relays[i].update();
+#endif          
+          relays[i].disabled = false;
+          notify = true;
+        }
+      }
+    }
+  }
+
+  if (notify)
+  {
+#if NUM_RELAYS == 16
+      writeRelaysToShiftRegister();
+#endif
+    notifyClients();
   }
 
   /*
