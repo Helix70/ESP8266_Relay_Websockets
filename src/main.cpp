@@ -19,8 +19,8 @@
 // const char* ssid = "REPLACE_WITH_YOUR_SSID";
 // const char* password = "REPLACE_WITH_YOUR_PASSWORD";
 
-#define NUM_RELAYS 8
-// #define DO_DELAY 1    // uncomment for a 6 second delay at startup
+#define NUM_RELAYS 16
+#define DO_DELAY 1    // uncomment for a 60 second delay at startup
 
 uint32_t elapsed = 0;
 uint32_t timer = 0;
@@ -32,7 +32,7 @@ uint32_t countdown = 0;
 // Create AsyncWebServer object on port 80
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
-char buffer[512];
+char buffer[1024];
 
 // ----------------------------------------------------------------------------
 // Definition of the LED component
@@ -124,17 +124,39 @@ byte outputData[numRegisters]; // the bytes used to shift out the data
 
 #endif
 
+#if NUM_RELAYS == 8
+// relay number, latched relay number, timeout (seconds)
 Latch latched_relays[] = {
     {1, 2, 0}, // 1
     {2, 1, 0}, // 2
-    {3, 4, 2}, // 3
-    {4, 3, 5}, // 4
+    {3, 4, 10}, // 3
+    {4, 3, 10}, // 4
+    {5, 6, 0}, // 5
+    {6, 5, 0}, // 6
+    {7, 8, 0}, // 7
+    {8, 7, 0} // 8
+};
+#elif NUM_RELAYS == 16
+// relay number, latched relay number, timeout (seconds)
+Latch latched_relays[] = {
+    {1, 2, 0}, // 1
+    {2, 1, 0}, // 2
+    {3, 4, 0}, // 3
+    {4, 3, 0}, // 4
     {5, 6, 0}, // 5
     {6, 5, 0}, // 6
     {7, 8, 0}, // 7
     {8, 7, 0}, // 8
+    {9, 10, 0}, // 9
+    {10, 9, 0}, // 10
+    {11, 12, 0}, // 11
+    {12, 11, 0}, // 12
+    {13, 14, 0}, // 13
+    {14, 13, 0}, // 14
+    {15, 16, 0}, // 15
+    {16, 15, 0} // 16
 };
-
+#endif
 // ----------------------------------------------------------------------------
 // LittleFS initialization
 // ----------------------------------------------------------------------------
