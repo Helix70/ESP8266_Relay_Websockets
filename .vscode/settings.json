@@ -3,5 +3,6 @@
         "*.c": "c",
         "*.h": "c",
         "string": "cpp"
-    }
+    },
+    "cmake.configureOnOpen": false
 }
