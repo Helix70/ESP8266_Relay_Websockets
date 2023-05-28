@@ -7,6 +7,7 @@
 
 // Import required libraries
 #include <Arduino.h>
+#include <ArduinoOTA.h>
 #include "LittleFS.h"
 
 #include <ESP8266WiFi.h>
@@ -16,11 +17,12 @@
 #include "credentials.h"
 
 // Replace with your network credentials
-// const char* ssid = "REPLACE_WITH_YOUR_SSID";
-// const char* password = "REPLACE_WITH_YOUR_PASSWORD";
-
-#define NUM_RELAYS 16
-#define DO_DELAY 1    // uncomment for a 60 second delay at startup
+//const char* ssid = "YOUR_SSID";
+//const char* password = "YOUR_PASSWORD";
+//IPAddress ip(192, 168, 1, 65);
+//IPAddress dns(192, 168, 1, 1);
+//IPAddress gateway(192, 168, 1, 1);
+//IPAddress subnet(255, 255, 255, 0);
 
 uint32_t elapsed = 0;
 uint32_t timer = 0;
@@ -181,7 +183,7 @@ void notifyClients()
 
   char temp[20];
 
-  sprintf(buffer, "{\"LED\":%s", onboard_led.on ? "true" : "false");
+  sprintf(buffer, "{ \"LED\":false");
   for (int i = 0; i < NUM_RELAYS; i++)
   {
     sprintf(temp, ",\"RELAY%d\":%s", (i + 1), relays[i].on ? "true" : "false");
@@ -193,7 +195,7 @@ void notifyClients()
     strcat(buffer, temp);
   }
   strcat(buffer, "}");
-  // Serial.println(buffer);
+  //Serial.println(buffer);
   ws.textAll(buffer);
 }
 
@@ -479,6 +481,11 @@ void setup()
   Serial.println("starting server");
   server.begin();
   // notifyClients();
+
+  /**
+   * Enable OTA update
+   */
+  ArduinoOTA.begin();
 }
 
 void loop()
@@ -536,4 +543,7 @@ void loop()
   */
 
   ws.cleanupClients();
+
+    // Check for over the air update request and (if present) flash it
+  ArduinoOTA.handle();
 }
