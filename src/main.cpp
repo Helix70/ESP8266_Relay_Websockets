@@ -17,12 +17,12 @@
 #include "credentials.h"
 
 // Replace with your network credentials
-//const char* ssid = "YOUR_SSID";
-//const char* password = "YOUR_PASSWORD";
-//IPAddress ip(192, 168, 1, 65);
-//IPAddress dns(192, 168, 1, 1);
-//IPAddress gateway(192, 168, 1, 1);
-//IPAddress subnet(255, 255, 255, 0);
+// const char* ssid = "YOUR_SSID";
+// const char* password = "YOUR_PASSWORD";
+// IPAddress ip(192, 168, 1, 65);
+// IPAddress dns(192, 168, 1, 1);
+// IPAddress gateway(192, 168, 1, 1);
+// IPAddress subnet(255, 255, 255, 0);
 
 uint32_t elapsed = 0;
 uint32_t timer = 0;
@@ -136,29 +136,32 @@ Latch latched_relays[] = {
     {5, 6, 0}, // 5
     {6, 5, 0}, // 6
     {7, 8, 0}, // 7
-    {8, 7, 0} // 8
+    {8, 7, 0}  // 8
 };
 #elif NUM_RELAYS == 16
 // relay number, latched relay number, timeout (seconds)
 Latch latched_relays[] = {
-    {1, 2, 0}, // 1
-    {2, 1, 0}, // 2
-    {3, 4, 0}, // 3
-    {4, 3, 0}, // 4
-    {5, 6, 0}, // 5
-    {6, 5, 0}, // 6
-    {7, 8, 0}, // 7
-    {8, 7, 0}, // 8
-    {9, 10, 0}, // 9
-    {10, 9, 0}, // 10
+    {1, 2, 0},   // 1
+    {2, 1, 0},   // 2
+    {3, 4, 0},   // 3
+    {4, 3, 0},   // 4
+    {5, 6, 0},   // 5
+    {6, 5, 0},   // 6
+    {7, 8, 0},   // 7
+    {8, 7, 0},   // 8
+    {9, 10, 0},  // 9
+    {10, 9, 0},  // 10
     {11, 12, 0}, // 11
     {12, 11, 0}, // 12
     {13, 14, 0}, // 13
     {14, 13, 0}, // 14
     {15, 16, 0}, // 15
-    {16, 15, 0} // 16
+    {16, 15, 0}  // 16
 };
 #endif
+
+uint8_t interlocked_buttons[] = {1, 2, 3, 4, 5, 6};
+
 // ----------------------------------------------------------------------------
 // LittleFS initialization
 // ----------------------------------------------------------------------------
@@ -195,7 +198,7 @@ void notifyClients()
     strcat(buffer, temp);
   }
   strcat(buffer, "}");
-  //Serial.println(buffer);
+  // Serial.println(buffer);
   ws.textAll(buffer);
 }
 
@@ -244,8 +247,30 @@ void handleLatch(uint8_t _relayNum)
       }
       if ((latched_relays[index].latched_num > 0) && (latched_relays[index].latched_num <= NUM_RELAYS))
       {
-        relays[latched_relays[index].latched_num-1].disabled = 1;
-        latched_relays[latched_relays[index].latched_num-1].counter = latched_relays[index].timeout;
+        relays[latched_relays[index].latched_num - 1].disabled = 1;
+        latched_relays[latched_relays[index].latched_num - 1].counter = latched_relays[index].timeout;
+      }
+    }
+  }
+}
+
+void handleInterlock(uint8_t _relayNum)
+{
+  uint8_t i, index;
+  index = _relayNum - 1;
+
+  if ((_relayNum > 0) && (_relayNum <= NUM_RELAYS))
+  {
+    // check if the relay is turning on
+    if (relays[index].on == 0)
+    {
+      for (i = 0; i < sizeof(interlocked_buttons); i++)
+      {
+        if (interlocked_buttons[i] != _relayNum)
+        {
+          relays[interlocked_buttons[i] - 1].low();
+          relays[interlocked_buttons[i] - 1].update();
+        }
       }
     }
   }
@@ -289,11 +314,12 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         relayNum = str.substring(5, str.length() + 5 - 11).toInt();
         if ((relayNum > 0) && (relayNum <= NUM_RELAYS))
         {
+          handleLatch(relayNum);
+          handleInterlock(relayNum);
           relays[relayNum - 1].toggle();
           relays[relayNum - 1].update();
           notify = true;
         }
-        handleLatch(relayNum);
       }
     }
 
@@ -516,7 +542,7 @@ void loop()
           relays[i].low();
 #if NUM_RELAYS == 8
           relays[i].update();
-#endif          
+#endif
           relays[i].disabled = false;
           notify = true;
         }
@@ -527,7 +553,7 @@ void loop()
   if (notify)
   {
 #if NUM_RELAYS == 16
-      writeRelaysToShiftRegister();
+    writeRelaysToShiftRegister();
 #endif
     notifyClients();
   }
@@ -544,6 +570,6 @@ void loop()
 
   ws.cleanupClients();
 
-    // Check for over the air update request and (if present) flash it
+  // Check for over the air update request and (if present) flash it
   ArduinoOTA.handle();
 }
