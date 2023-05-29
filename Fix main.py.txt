@@ -1,0 +1,20 @@
+Fix ESP8288 main.py:
+
+if upload_protocol == "espota":
+    if not env.subst("$UPLOAD_PORT"):
+        sys.stderr.write(
+            "Error: Please specify IP address or host name of ESP device "
+            "using `upload_port` for build environment or use "
+            "global `--upload-port` option.\n"
+            "See https://docs.platformio.org/page/platforms/"
+            "espressif8266.html#over-the-air-ota-update\n")
+    env.Replace(
+        UPLOADER=join(
+            platform.get_package_dir("framework-arduinoespressif8266") or "",
+            "tools", "espota.py"),
+        UPLOADERFLAGS=["--debug", "--progress", "-i", "$UPLOAD_PORT"],
+        UPLOADCMD='"$PYTHONEXE" "$UPLOADER" $UPLOADERFLAGS -f $SOURCE'
+    )
+    if "uploadfsota" in COMMAND_LINE_TARGETS:
+        env.Append(UPLOADERFLAGS=["-s"])
+    upload_actions = [env.VerboseAction("$UPLOADCMD", "Uploading $SOURCE")]
