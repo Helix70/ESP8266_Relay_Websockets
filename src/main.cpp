@@ -97,14 +97,14 @@ OutputPin onboard_led = {LED_BUILTIN, false, HIGH, false};
 
 #if NUM_RELAYS == 8
 OutputPin relays[] = {
-    {5, false, HIGH, false},
-    {4, false, HIGH, false},
-    {0, false, HIGH, false},
-    {15, false, HIGH, false},
-    {13, false, HIGH, false},
-    {12, false, HIGH, false},
+    {16, false, HIGH, false},
     {14, false, HIGH, false},
-    {16, false, HIGH, false}};
+    {12, false, HIGH, false},
+    {13, false, HIGH, false},
+    {15, false, HIGH, false},
+    {0, false, HIGH, false},
+    {4, false, HIGH, false},
+    {5, false, HIGH, false}};
 #elif NUM_RELAYS == 16
 OutputPin relays[] = {
     {255, false, HIGH, false},
@@ -133,6 +133,7 @@ byte outputData[numRegisters]; // the bytes used to shift out the data
 
 #endif
 
+#if DO_LATCHED == 1
 #if NUM_RELAYS == 8
 // relay number, latched relay number, timeout (seconds)
 Latch latched_relays[] = {
@@ -166,8 +167,11 @@ Latch latched_relays[] = {
     {16, 15, 0}  // 16
 };
 #endif
+#endif
 
+#if DO_INTERLOCKED == 1
 uint8_t interlocked_buttons[] = {1, 2, 3, 4, 5, 6};
+#endif
 
 // ----------------------------------------------------------------------------
 // LittleFS initialization
@@ -238,6 +242,7 @@ void writeRelaysToShiftRegister()
 }
 #endif
 
+#if DO_LATCHED == 1
 void handleLatch(uint8_t _relayNum)
 {
   uint8_t index;
@@ -260,7 +265,9 @@ void handleLatch(uint8_t _relayNum)
     }
   }
 }
+#endif
 
+#if DO_INTERLOCKED == 1
 void handleInterlock(uint8_t _relayNum)
 {
   uint8_t i, index;
@@ -282,6 +289,7 @@ void handleInterlock(uint8_t _relayNum)
     }
   }
 }
+#endif
 
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
 {
@@ -321,8 +329,12 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         relayNum = str.substring(5, str.length() + 5 - 11).toInt();
         if ((relayNum > 0) && (relayNum <= NUM_RELAYS))
         {
+#if DO_LATCHED == 1          
           handleLatch(relayNum);
+#endif          
+#if DO_INTERLOCKED == 1
           handleInterlock(relayNum);
+#endif          
           relays[relayNum - 1].toggle();
           relays[relayNum - 1].update();
           notify = true;
@@ -554,9 +566,6 @@ void setup()
 
 void loop()
 {
-  uint8_t i;
-  bool notify = false;
-
   elapsed = millis();
   if ((elapsed - timer) > 5000)
   {
@@ -565,6 +574,10 @@ void loop()
     timer = elapsed;
   }
 
+#if DO_LATCHED == 1
+  bool notify = false;
+  uint8_t i;
+  
   // handle latched buttons
   elapsed = millis();
   if ((elapsed - latched_timer) > 1000)
@@ -595,6 +608,7 @@ void loop()
 #endif
     notifyClients();
   }
+#endif
 
   /*
     if ((elapsed - countdown) > COUNTDOWN_TIMEOUT_MS && countdown != 0)
