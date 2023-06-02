@@ -158,8 +158,8 @@ byte outputData[numRegisters]; // the bytes used to shift out the data
 Latch latched_relays[] = {
     {1, 2, 0}, // 1
     {2, 1, 0}, // 2
-    {3, 4, 0}, // 3
-    {4, 3, 0}, // 4
+    {3, 4, 10}, // 3
+    {4, 3, 10}, // 4
     {5, 6, 0}, // 5
     {6, 5, 0}, // 6
     {7, 8, 0}, // 7
@@ -189,7 +189,7 @@ Latch latched_relays[] = {
 #endif
 
 #if DO_INTERLOCKED == 1
-uint8_t interlocked_buttons[] = {1, 2, 3, 4, 5, 6};
+uint8_t interlocked_buttons[] = {1, 2, 3, 4, 5, 6, 7, 8};
 #endif
 
 // ----------------------------------------------------------------------------
