@@ -16,6 +16,9 @@
 #elif defined(ESP32)
 #include <WiFi.h>
 #include <AsyncTCP.h>
+#include <esp_pm.h>
+#include <esp_wifi.h>
+#include <esp_wifi_types.h>
 #endif
 
 #include <ESPAsyncWebServer.h>
@@ -85,6 +88,7 @@ struct OutputPin
   }
 };
 
+#if DO_LATCHED == 1
 struct Latch
 {
   const uint8_t relay_num;
@@ -92,10 +96,12 @@ struct Latch
   const uint8_t timeout;
   uint8_t counter;
 };
-
-OutputPin onboard_led = {LED_BUILTIN, false, HIGH, false};
+#endif
 
 #if NUM_RELAYS == 8
+#if defined(ESP8266)
+OutputPin onboard_led = {LED_BUILTIN, false, HIGH, false};
+
 OutputPin relays[] = {
     {16, false, HIGH, false},
     {14, false, HIGH, false},
@@ -105,6 +111,19 @@ OutputPin relays[] = {
     {0, false, HIGH, false},
     {4, false, HIGH, false},
     {5, false, HIGH, false}};
+#elif defined(ESP32)
+OutputPin onboard_led = {23, false, HIGH, false};
+
+OutputPin relays[] = {
+    {32, false, HIGH, false},
+    {33, false, HIGH, false},
+    {25, false, HIGH, false},
+    {26, false, HIGH, false},
+    {27, false, HIGH, false},
+    {14, false, HIGH, false},
+    {12, false, HIGH, false},
+    {13, false, HIGH, false}};
+#endif
 #elif NUM_RELAYS == 16
 OutputPin relays[] = {
     {255, false, HIGH, false},
@@ -329,12 +348,12 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         relayNum = str.substring(5, str.length() + 5 - 11).toInt();
         if ((relayNum > 0) && (relayNum <= NUM_RELAYS))
         {
-#if DO_LATCHED == 1          
+#if DO_LATCHED == 1
           handleLatch(relayNum);
-#endif          
+#endif
 #if DO_INTERLOCKED == 1
           handleInterlock(relayNum);
-#endif          
+#endif
           relays[relayNum - 1].toggle();
           relays[relayNum - 1].update();
           notify = true;
@@ -399,7 +418,12 @@ void initWiFi()
 
   WiFi.config(ip, dns, gateway, subnet);
   WiFi.mode(WIFI_STA);
-
+  
+  // make ESP32 as responsive as the ESP8266 by turning off WiFi power saving
+  #if defined(ESP32)
+  esp_wifi_set_ps(WIFI_PS_NONE);
+  #endif
+  
   while ((WiFi.status() != WL_CONNECTED) && (attempts <= 5))
   {
     WiFi.disconnect();
@@ -525,9 +549,7 @@ void setup()
   // Start server
   Serial.println("starting server");
 
-  // AsyncElegantOTA.begin(&server);
   server.begin();
-  // notifyClients();
 
   /**
    * Enable OTA update
@@ -536,7 +558,7 @@ void setup()
                      {
     String type;
     if (ArduinoOTA.getCommand() == U_FLASH) {
-      type = "sketch";
+      type = "firmware";
     } 
     else 
     { // U_FS
@@ -544,7 +566,12 @@ void setup()
     }
         // NOTE: if updating FS this would be the place to unmount FS using FS.end()
     LittleFS.end();
-    Serial.println("Start updating " + type); });
+    Serial.println("Start updating " + type); 
+    // Disable client connections    
+    ws.enable(false);
+
+    // Close them
+    ws.closeAll(); });
 
   ArduinoOTA.onEnd([]()
                    { Serial.println("\nEnd"); });
@@ -577,7 +604,7 @@ void loop()
 #if DO_LATCHED == 1
   bool notify = false;
   uint8_t i;
-  
+
   // handle latched buttons
   elapsed = millis();
   if ((elapsed - latched_timer) > 1000)
@@ -609,16 +636,6 @@ void loop()
     notifyClients();
   }
 #endif
-
-  /*
-    if ((elapsed - countdown) > COUNTDOWN_TIMEOUT_MS && countdown != 0)
-    {
-      relays[0].low();
-      relays[1].low();
-      countdown = 0;
-      notifyClients();
-    }
-  */
 
   ws.cleanupClients();
 
