@@ -189,7 +189,7 @@ Latch latched_relays[] = {
 #endif
 
 #if DO_INTERLOCKED == 1
-uint8_t interlocked_buttons[] = {1, 2, 3, 4, 5, 6, 7, 8};
+uint8_t interlocked_buttons[] = {1, 2, 3, 4, 5, 6, 8};
 #endif
 
 // ----------------------------------------------------------------------------
