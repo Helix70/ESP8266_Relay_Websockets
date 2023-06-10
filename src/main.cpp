@@ -596,11 +596,12 @@ void setup()
 void loop()
 {
   elapsed = millis();
-  if ((elapsed - timer) > 5000)
+  if ((elapsed - timer) > 2000)
   {
     onboard_led.on = !onboard_led.on;
     onboard_led.update();
     timer = elapsed;
+    Serial.printf("WiFi Signal Strength: %d\n", WiFi.RSSI());
   }
 
 #if DO_LATCHED == 1
