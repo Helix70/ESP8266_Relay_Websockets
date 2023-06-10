@@ -125,6 +125,8 @@ OutputPin relays[] = {
     {13, false, HIGH, false}};
 #endif
 #elif NUM_RELAYS == 16
+OutputPin onboard_led = {LED_BUILTIN, false, HIGH, false};
+
 OutputPin relays[] = {
     {255, false, HIGH, false},
     {255, false, HIGH, false},
