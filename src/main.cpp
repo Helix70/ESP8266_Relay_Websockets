@@ -46,6 +46,9 @@ AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 char buffer[1024];
 
+#define DELAY_INTERVAL_MS 50 // check  exery 50ms
+#define DELAY_COUNTER (1000 / DELAY_INTERVAL_MS)
+
 // ----------------------------------------------------------------------------
 // Definition of the LED component
 // ----------------------------------------------------------------------------
@@ -57,6 +60,7 @@ struct OutputPin
   uint8_t on;
   const uint8_t on_state; // LOW active or HIGH active
   uint8_t disabled;
+  uint8_t last;
 
   // methods
   void update()
@@ -87,16 +91,6 @@ struct OutputPin
     return on;
   }
 };
-
-#if DO_LATCHED == 1
-struct Latch
-{
-  const uint8_t relay_num;
-  const uint8_t latched_num;
-  const uint8_t timeout;
-  uint8_t counter;
-};
-#endif
 
 #if NUM_RELAYS == 8
 #if defined(ESP8266)
@@ -155,17 +149,25 @@ byte outputData[numRegisters]; // the bytes used to shift out the data
 #endif
 
 #if DO_LATCHED == 1
+struct Latch
+{
+  const uint8_t relay_num;
+  const uint8_t latched_num;
+  const uint8_t timeout;
+  uint16_t counter;
+};
+
 #if NUM_RELAYS == 8
 // relay number, latched relay number, timeout (seconds)
 Latch latched_relays[] = {
-    {1, 2, 0}, // 1
-    {2, 1, 0}, // 2
+    {1, 2, 0},  // 1
+    {2, 1, 0},  // 2
     {3, 4, 10}, // 3
     {4, 3, 10}, // 4
-    {5, 6, 0}, // 5
-    {6, 5, 0}, // 6
-    {7, 8, 0}, // 7
-    {8, 7, 0}  // 8
+    {5, 6, 0},  // 5
+    {6, 5, 0},  // 6
+    {7, 8, 0},  // 7
+    {8, 7, 0}   // 8
 };
 #elif NUM_RELAYS == 16
 // relay number, latched relay number, timeout (seconds)
@@ -192,6 +194,49 @@ Latch latched_relays[] = {
 
 #if DO_INTERLOCKED == 1
 uint8_t interlocked_buttons[] = {1, 2, 3, 4, 5, 6, 8};
+#endif
+
+#if DO_PULSED
+struct Pulse
+{
+  const uint8_t relay_num;
+  const uint8_t timeout;
+  uint16_t counter;
+};
+
+#if NUM_RELAYS == 8
+// relay number, timeout (seconds)
+Pulse pulsed_relays[] = {
+    {1, 1}, // 1
+    {2, 1}, // 2
+    {3, 1}, // 3
+    {4, 1}, // 4
+    {5, 1}, // 5
+    {6, 1}, // 6
+    {7, 1}, // 7
+    {8, 1}  // 8
+};
+#elif NUM_RELAYS == 16
+// relay number, timeout (seconds)
+Pulse pulsed_relays[] = {
+    {1, 1},  // 1
+    {2, 1},  // 2
+    {3, 1},  // 3
+    {4, 1},  // 4
+    {5, 1},  // 5
+    {6, 1},  // 6
+    {7, 1},  // 7
+    {8, 1},  // 8
+    {9, 1},  // 9
+    {10, 1}, // 10
+    {11, 1}, // 11
+    {12, 1}, // 12
+    {13, 1}, // 13
+    {14, 1}, // 14
+    {15, 1}, // 15
+    {16, 1}  // 16
+};
+#endif
 #endif
 
 // ----------------------------------------------------------------------------
@@ -276,12 +321,12 @@ void handleLatch(uint8_t _relayNum)
       if ((latched_relays[index].relay_num > 0) && (latched_relays[index].relay_num <= NUM_RELAYS))
       {
         relays[index].disabled = 1;
-        latched_relays[index].counter = latched_relays[index].timeout;
+        latched_relays[index].counter = (latched_relays[index].timeout * DELAY_COUNTER);
       }
       if ((latched_relays[index].latched_num > 0) && (latched_relays[index].latched_num <= NUM_RELAYS))
       {
         relays[latched_relays[index].latched_num - 1].disabled = 1;
-        latched_relays[latched_relays[index].latched_num - 1].counter = latched_relays[index].timeout;
+        latched_relays[latched_relays[index].latched_num - 1].counter = (latched_relays[index].timeout * DELAY_COUNTER);
       }
     }
   }
@@ -306,6 +351,37 @@ void handleInterlock(uint8_t _relayNum)
           relays[interlocked_buttons[i] - 1].low();
           relays[interlocked_buttons[i] - 1].update();
         }
+      }
+    }
+  }
+}
+#endif
+
+#if DO_PULSED
+void handlePulsed(uint8_t _relayNum)
+{
+  uint8_t i;
+  uint8_t index;
+
+  if ((_relayNum > 0) && (_relayNum <= NUM_RELAYS))
+  {
+    for (i = 1; i <= NUM_RELAYS; i++)
+    {
+      index = i - 1;
+      if (i == _relayNum)
+      {
+        if (pulsed_relays[index].timeout != 0)
+        {
+          if ((pulsed_relays[index].relay_num > 0) && (pulsed_relays[index].relay_num <= NUM_RELAYS))
+          {
+            relays[index].last = 1;
+            pulsed_relays[index].counter = (pulsed_relays[index].timeout * DELAY_COUNTER);
+          }
+        }
+      }
+      else
+      {
+        relays[index].last = 0;
       }
     }
   }
@@ -355,6 +431,9 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
 #endif
 #if DO_INTERLOCKED == 1
           handleInterlock(relayNum);
+#endif
+#if DO_PULSED == 1
+          handlePulsed(relayNum);
 #endif
           relays[relayNum - 1].toggle();
           relays[relayNum - 1].update();
@@ -420,12 +499,12 @@ void initWiFi()
 
   WiFi.config(ip, dns, gateway, subnet);
   WiFi.mode(WIFI_STA);
-  
-  // make ESP32 as responsive as the ESP8266 by turning off WiFi power saving
-  #if defined(ESP32)
+
+// make ESP32 as responsive as the ESP8266 by turning off WiFi power saving
+#if defined(ESP32)
   esp_wifi_set_ps(WIFI_PS_NONE);
-  #endif
-  
+#endif
+
   while ((WiFi.status() != WL_CONNECTED) && (attempts <= 5))
   {
     WiFi.disconnect();
@@ -501,10 +580,12 @@ void setup()
   for (i = 0; i < NUM_RELAYS; i++)
   {
     relays[i].low();
+    relays[i].disabled = 0;
+    relays[i].last = 0;
 #if NUM_RELAYS == 8
     pinMode(relays[i].pin, OUTPUT);
-    relays[i].update();
 #endif
+    relays[i].update();
   }
 
 #if NUM_RELAYS == 16
@@ -604,32 +685,47 @@ void loop()
     Serial.printf("WiFi Signal Strength: %d\n", WiFi.RSSI());
   }
 
-#if DO_LATCHED == 1
   bool notify = false;
   uint8_t i;
 
-  // handle latched buttons
-  elapsed = millis();
-  if ((elapsed - latched_timer) > 1000)
+#if (DO_LATCHED || DO_PULSED)
+  if ((elapsed - latched_timer) > DELAY_INTERVAL_MS)
   {
     latched_timer = elapsed;
+
+    // handle latched buttons
     for (i = 0; i < NUM_RELAYS; i++)
     {
+
+#if DO_LATCHED
       if (latched_relays[i].counter)
       {
         latched_relays[i].counter--;
         if (latched_relays[i].counter == 0)
         {
           relays[i].low();
-#if NUM_RELAYS == 8
           relays[i].update();
-#endif
           relays[i].disabled = false;
           notify = true;
         }
       }
-    }
-  }
+#endif // DO_LATCHED
+
+#if DO_PULSED
+      if (pulsed_relays[i].counter)
+      {
+        pulsed_relays[i].counter--;
+        if (pulsed_relays[i].counter == 0)
+        {
+          relays[i].low();
+          relays[i].update();
+          notify = true;
+        }
+      }
+#endif // DO_PULSED
+    }  // for loop
+  }    // latched_timer
+#endif // (DO_LATCHED || DO_PULSED)
 
   if (notify)
   {
@@ -638,7 +734,6 @@ void loop()
 #endif
     notifyClients();
   }
-#endif
 
   ws.cleanupClients();
 
