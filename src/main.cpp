@@ -22,7 +22,7 @@
 #endif
 
 #include <ESPAsyncWebServer.h>
-// #include <AsyncElegantOTA.h>
+#include <ArduinoJson.h>
 
 #include "credentials.h"
 
@@ -259,23 +259,22 @@ void initLittleFS()
 
 void notifyClients()
 {
+  DynamicJsonDocument JSONdoc(1024);
+
   Serial.println("notifying clients");
 
-  char temp[20];
+  JsonArray array = JSONdoc.createNestedArray("buttons");
+  for (int i = 0; i < NUM_RELAYS; i++)
+  {
+    JsonObject button = array.createNestedObject();
+    button["id"] = i + 1;
+    button["on"] = relays[i].on;
+    button["disabled"] = relays[i].disabled;
+    button["last"] = relays[i].last;
+  }
+  serializeJson(JSONdoc, buffer);
 
-  sprintf(buffer, "{ \"LED\":false");
-  for (int i = 0; i < NUM_RELAYS; i++)
-  {
-    sprintf(temp, ",\"RELAY%d\":%s", (i + 1), relays[i].on ? "true" : "false");
-    strcat(buffer, temp);
-  }
-  for (int i = 0; i < NUM_RELAYS; i++)
-  {
-    sprintf(temp, ",\"DISABLE%d\":%s", (i + 1), relays[i].disabled ? "true" : "false");
-    strcat(buffer, temp);
-  }
-  strcat(buffer, "}");
-  // Serial.println(buffer);
+  Serial.println(buffer);
   ws.textAll(buffer);
 }
 
@@ -418,27 +417,24 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
       }
       notify = true;
     }
-    else if (str.startsWith("relay"))
+    else if (str.startsWith("button"))
     {
-      if (str.endsWith("toggle"))
+      // extract the relay number
+      relayNum = str.substring(6, str.length()).toInt();
+      if ((relayNum > 0) && (relayNum <= NUM_RELAYS))
       {
-        // extract the relay number
-        relayNum = str.substring(5, str.length() + 5 - 11).toInt();
-        if ((relayNum > 0) && (relayNum <= NUM_RELAYS))
-        {
 #if DO_LATCHED == 1
-          handleLatch(relayNum);
+        handleLatch(relayNum);
 #endif
 #if DO_INTERLOCKED == 1
-          handleInterlock(relayNum);
+        handleInterlock(relayNum);
 #endif
 #if DO_PULSED == 1
-          handlePulsed(relayNum);
+        handlePulsed(relayNum);
 #endif
-          relays[relayNum - 1].toggle();
-          relays[relayNum - 1].update();
-          notify = true;
-        }
+        relays[relayNum - 1].toggle();
+        relays[relayNum - 1].update();
+        notify = true;
       }
     }
 
@@ -542,28 +538,25 @@ void initWiFi()
   }
 }
 
-String processor(const String &var)
-{
-  Serial.println(var);
+// String processor(const String &var)
+// {
+//   Serial.println(var);
 
-  int relayNum, relayIndex;
-  // check for RELAYxSTATE or RELAYxxSTATE
-  if (var.startsWith("RELAY"))
-  {
-    if (var.endsWith("STATE"))
-    {
-      // extract the relay number
-      relayNum = var.substring(5, var.length() + 5 - 10).toInt();
-      if ((relayNum > 0) && (relayNum < NUM_RELAYS))
-      {
-        relayIndex = relayNum - 1;
-        return relays[relayIndex].on ? "ON" : "OFF";
-      }
-    }
-  }
+//   int relayNum, relayIndex;
+//   // check for buttonx or buttonxx
+//   if (var.startsWith("button"))
+//   {
+//       // extract the button number substring(startindex,endindex)
+//       relayNum = var.substring(6, var.length()).toInt();
+//       if ((relayNum > 0) && (relayNum < NUM_RELAYS))
+//       {
+//         relayIndex = relayNum - 1;
+//         return relays[relayIndex].on ? "ON" : "OFF";
+//       }
+//   }
 
-  return String();
-}
+//   return String();
+// }
 
 void setup()
 {
@@ -618,13 +611,13 @@ void setup()
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
             {
     Serial.println("on /");
-    request->send(LittleFS, "/index.html", "text/html",false,processor); });
+    request->send(LittleFS, "/index.html", "text/html",false,nullptr); });
 #elif NUM_RELAYS == 16
   // Route for root / web page
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
             {
     Serial.println("on /");
-    request->send(LittleFS, "/index16.html", "text/html",false,processor); });
+    request->send(LittleFS, "/index16.html", "text/html",false,nullptr); });
 #endif
 
   server.serveStatic("/", LittleFS, "/");

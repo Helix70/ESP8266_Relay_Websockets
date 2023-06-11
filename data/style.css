@@ -47,13 +47,13 @@ td {
 }
 
 .button {
-  padding: 10px 10px;
+  padding: 5px 5px;
   font-size: 20px;
   text-align: center;
   outline: none;
   color: #fff;
   background-color: #0f8b8d;
-  border: none;
+  border: solid 8px #0f8b8d;
   border-radius: 5px;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
@@ -71,6 +71,10 @@ td {
   transform: translateY(2px);
 }
 
+.button.last {
+  border: solid 8px  #cf2700;
+}
+
 .button .off {
   display: block;
 }
@@ -81,6 +85,7 @@ td {
 
 .button.on .on {
   display: block;
+  border: solid 8px  #cf2700;
 }
 
 .button.on .off {
