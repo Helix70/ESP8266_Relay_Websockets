@@ -213,7 +213,7 @@ Pulse pulsed_relays[] = {
     {4, 1}, // 4
     {5, 1}, // 5
     {6, 1}, // 6
-    {7, 1}, // 7
+    {7, 0}, // 7
     {8, 1}  // 8
 };
 #elif NUM_RELAYS == 16
@@ -337,18 +337,29 @@ void handleInterlock(uint8_t _relayNum)
 {
   uint8_t i, index;
   index = _relayNum - 1;
+  bool doit = false;
 
   if ((_relayNum > 0) && (_relayNum <= NUM_RELAYS))
   {
-    // check if the relay is turning on
-    if (relays[index].on == 0)
+    for (i = 0; i < sizeof(interlocked_buttons); i++)
     {
-      for (i = 0; i < sizeof(interlocked_buttons); i++)
+      if (interlocked_buttons[i] == _relayNum)
       {
-        if (interlocked_buttons[i] != _relayNum)
+        doit = true;
+      }
+    }
+    if (doit)
+    {
+      // check if the relay is turning on
+      if (relays[index].on == 0)
+      {
+        for (i = 0; i < sizeof(interlocked_buttons); i++)
         {
-          relays[interlocked_buttons[i] - 1].low();
-          relays[interlocked_buttons[i] - 1].update();
+          if (interlocked_buttons[i] != _relayNum)
+          {
+            relays[interlocked_buttons[i] - 1].low();
+            relays[interlocked_buttons[i] - 1].update();
+          }
         }
       }
     }
@@ -364,23 +375,26 @@ void handlePulsed(uint8_t _relayNum)
 
   if ((_relayNum > 0) && (_relayNum <= NUM_RELAYS))
   {
-    for (i = 1; i <= NUM_RELAYS; i++)
+    if (pulsed_relays[_relayNum - 1].timeout != 0)
     {
-      index = i - 1;
-      if (i == _relayNum)
+      for (i = 1; i <= NUM_RELAYS; i++)
       {
+        index = i - 1;
         if (pulsed_relays[index].timeout != 0)
         {
-          if ((pulsed_relays[index].relay_num > 0) && (pulsed_relays[index].relay_num <= NUM_RELAYS))
+          if (i == _relayNum)
           {
-            relays[index].last = 1;
-            pulsed_relays[index].counter = (pulsed_relays[index].timeout * DELAY_COUNTER);
+            if ((pulsed_relays[index].relay_num > 0) && (pulsed_relays[index].relay_num <= NUM_RELAYS))
+            {
+              relays[index].last = 1;
+              pulsed_relays[index].counter = (pulsed_relays[index].timeout * DELAY_COUNTER);
+            }
+          }
+          else
+          {
+            relays[index].last = 0;
           }
         }
-      }
-      else
-      {
-        relays[index].last = 0;
       }
     }
   }
