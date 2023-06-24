@@ -44,7 +44,7 @@ uint32_t countdown = 0;
 // Create AsyncWebServer object on port 80
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
-char buffer[1024];
+char buffer[2048];
 
 #define DELAY_INTERVAL_MS 50 // check  exery 50ms
 #define DELAY_COUNTER (1000 / DELAY_INTERVAL_MS)
@@ -160,10 +160,10 @@ struct Latch
 #if NUM_RELAYS == 8
 // relay number, latched relay number, timeout (seconds)
 Latch latched_relays[] = {
-    {1, 2, 0},  // 1
-    {2, 1, 0},  // 2
-    {3, 4, 10}, // 3
-    {4, 3, 10}, // 4
+    {1, 0, 0},  // 1
+    {2, 0, 2},  // 2
+    {3, 0, 0}, // 3
+    {4, 0, 0}, // 4
     {5, 6, 0},  // 5
     {6, 5, 0},  // 6
     {7, 8, 0},  // 7
@@ -209,12 +209,12 @@ struct Pulse
 Pulse pulsed_relays[] = {
     {1, 1}, // 1
     {2, 1}, // 2
-    {3, 1}, // 3
-    {4, 1}, // 4
-    {5, 1}, // 5
-    {6, 1}, // 6
+    {3, 0}, // 3
+    {4, 0}, // 4
+    {5, 0}, // 5
+    {6, 0}, // 6
     {7, 0}, // 7
-    {8, 1}  // 8
+    {8, 0}  // 8
 };
 #elif NUM_RELAYS == 16
 // relay number, timeout (seconds)
@@ -259,7 +259,7 @@ void initLittleFS()
 
 void notifyClients()
 {
-  DynamicJsonDocument JSONdoc(1024);
+  DynamicJsonDocument JSONdoc(2048);
 
   Serial.println("notifying clients");
 
@@ -274,7 +274,7 @@ void notifyClients()
   }
   serializeJson(JSONdoc, buffer);
 
-  Serial.println(buffer);
+  //Serial.println(buffer);
   ws.textAll(buffer);
 }
 
@@ -693,9 +693,10 @@ void loop()
   }
 
   bool notify = false;
-  uint8_t i;
 
 #if (DO_LATCHED || DO_PULSED)
+  uint8_t i;
+
   if ((elapsed - latched_timer) > DELAY_INTERVAL_MS)
   {
     latched_timer = elapsed;
