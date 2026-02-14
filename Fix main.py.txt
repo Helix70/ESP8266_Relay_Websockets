@@ -1,4 +1,4 @@
-Fix ESP8288 main.py:
+Fix ESP8266 main.py:
 
 if upload_protocol == "espota":
     if not env.subst("$UPLOAD_PORT"):
