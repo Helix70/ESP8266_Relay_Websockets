@@ -49,6 +49,13 @@
     <div class="config-card">
       <h3>Relay Modes</h3>
 
+      <label for="hardwareVariantSelect" class="config-input-label">Hardware Variant:</label>
+      <select id="hardwareVariantSelect" class="config-input">
+        <option value="8relay">8 Relay (GPIO board)</option>
+        <option value="16relay">16 Relay (Shift register board)</option>
+      </select>
+      <p class="config-note">Select the board type used by this firmware. Changing this setting requires restart.</p>
+
       <label class="config-checkbox-label">
         <input type="checkbox" id="doDelayCheckbox" class="config-checkbox">
         Enable Startup Delay

@@ -16,7 +16,6 @@
 #elif defined(ESP32)
 #include <WiFi.h>
 #include <AsyncTCP.h>
-#include <Preferences.h>
 #include <esp_pm.h>
 #include <esp_wifi.h>
 #include <esp_wifi_types.h>
@@ -24,6 +23,11 @@
 
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
+
+#include "config_store.h"
+#include "provisioning_portal.h"
+#include "serial_provision.h"
+#include "storage_utils.h"
 
 #ifndef OTA_HOSTNAME
 #define OTA_HOSTNAME "relay-board"
@@ -59,15 +63,6 @@ bool provisioningScanInitialized = false;
 uint32_t provisioningScanStartedAt = 0;
 String provisioningScanPayload = "{\"ssids\":[],\"scanning\":false}";
 
-#if defined(ESP32)
-portMUX_TYPE provisioningScanMux = portMUX_INITIALIZER_UNLOCKED;
-#define PROVISIONING_LOCK() portENTER_CRITICAL(&provisioningScanMux)
-#define PROVISIONING_UNLOCK() portEXIT_CRITICAL(&provisioningScanMux)
-#else
-#define PROVISIONING_LOCK() noInterrupts()
-#define PROVISIONING_UNLOCK() interrupts()
-#endif
-
 IPAddress boardIp;
 IPAddress boardDns;
 IPAddress boardGateway;
@@ -87,262 +82,7 @@ uint32_t pendingRestartAt = 0;
 bool saveBoardConfig();
 void initWiFi();
 void notifyClients();
-void startProvisioningScan();
-void pollProvisioningScan();
-
-String sanitizeSsidForJson(const String &raw)
-{
-  String cleaned;
-  cleaned.reserve(raw.length());
-
-  for (size_t i = 0; i < raw.length(); i++)
-  {
-    uint8_t c = (uint8_t)raw[i];
-    if (c >= 32 && c <= 126)
-    {
-      cleaned += (char)c;
-    }
-    else
-    {
-      cleaned += '?';
-    }
-  }
-
-  if (cleaned.length() > kMaxSsidLength)
-  {
-    cleaned = cleaned.substring(0, kMaxSsidLength);
-  }
-
-  return cleaned;
-}
-
-String getProvisioningApName()
-{
-#if defined(ESP32)
-  uint64_t mac = ESP.getEfuseMac();
-  uint32_t id = (uint32_t)(mac & 0xFFFFFFu);
-#elif defined(ESP8266)
-  uint32_t id = ESP.getChipId() & 0xFFFFFFu;
-#else
-  uint32_t id = 0x123456u;
-#endif
-
-  char name[32];
-  snprintf(name, sizeof(name), "RelaySetup-%06lX", (unsigned long)id);
-  return String(name);
-}
-
-String getProvisioningHtml()
-{
-  String html;
-  html.reserve(4096);
-  html += "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>";
-  html += "<title>Wi-Fi Provisioning</title>";
-  html += "<style>body{font-family:Arial,sans-serif;background:#eef2f7;margin:0;padding:24px;}";
-  html += ".card{max-width:640px;margin:0 auto;background:#fff;border-radius:12px;padding:20px;box-shadow:0 8px 24px rgba(0,0,0,.12);}";
-  html += "h1{margin:0 0 6px 0;font-size:24px;}p{color:#444;}label{display:block;margin:14px 0 6px;font-weight:600;}";
-  html += "input,select,button{width:100%;padding:10px;border:1px solid #ccd3de;border-radius:8px;font-size:16px;box-sizing:border-box;}";
-  html += "button{background:#0b5ed7;color:#fff;border:none;cursor:pointer;margin-top:14px;}button.secondary{background:#5c636a;margin-top:8px;}";
-  html += "small{color:#666;}#status{margin-top:12px;font-weight:600;}</style></head><body>";
-  html += "<div class='card'><h1>Configure Wi-Fi</h1><p>Select an SSID from scan results or enter one manually.</p>";
-  html += "<label for='ssidSelect'>Scanned SSIDs</label><select id='ssidSelect'><option value=''>Scanning...</option></select>";
-  html += "<button class='secondary' type='button' onclick='scan(true)'>Rescan</button>";
-  html += "<label for='ssidInput'>SSID (manual or selected)</label><input id='ssidInput' maxlength='32' placeholder='Wi-Fi SSID'>";
-  html += "<label for='pwdInput'>Password</label><input id='pwdInput' maxlength='64' type='password' placeholder='Leave blank for open network'>";
-  html += "<button type='button' onclick='saveCfg()'>Save and Reboot</button><div id='status'></div><small>After save, this device will reboot and join your Wi-Fi network.</small></div>";
-  html += "<script>const s=document.getElementById('ssidSelect');const i=document.getElementById('ssidInput');const p=document.getElementById('pwdInput');const st=document.getElementById('status');";
-  html += "s.addEventListener('change',()=>{if(s.value)i.value=s.value;});";
-  html += "function scan(force){try{const u='/scan?t='+Date.now()+(force?'&rescan=1':'');const xhr=new XMLHttpRequest();xhr.open('GET',u,true);xhr.onreadystatechange=function(){if(xhr.readyState!==4)return;s.innerHTML='';if(xhr.status<200||xhr.status>=300){s.innerHTML='<option value="">Scan failed</option>';st.textContent='Scan request failed: HTTP '+xhr.status;return;}let d={};try{d=JSON.parse(xhr.responseText||'{}');}catch(e){s.innerHTML='<option value="">Scan failed</option>';st.textContent='Scan parse/error: '+e;return;}if(d.scanning){s.innerHTML='<option value="">Scanning...</option>';st.textContent='Scanning...';setTimeout(function(){scan(false);},900);return;}const list=Array.isArray(d.ssids)?d.ssids:[];if(!list.length){s.innerHTML='<option value="">No SSIDs found</option>';st.textContent='No SSIDs found. Enter one manually.';return;}s.innerHTML='<option value="">Choose SSID...</option>';let visible=0;let hidden=0;list.forEach(function(x){const name=(x&&typeof x==='object')?String(x.ssid||''):String(x||'');const rssi=(x&&typeof x==='object'&&x.rssi!==undefined)?x.rssi:'?';const display=name.length?name:'(hidden network)';if(name.length)visible++;else hidden++;const o=document.createElement('option');o.value=name;o.textContent=display+' ('+rssi+' dBm)';s.appendChild(o);});st.textContent='Scan complete: '+visible+' visible, '+hidden+' hidden';};xhr.onerror=function(){s.innerHTML='<option value="">Scan failed</option>';st.textContent='Scan request failed.';};xhr.send();}catch(e){s.innerHTML='<option value="">Scan failed</option>';st.textContent='Scan error: '+e;}}";
-  html += "async function saveCfg(){const ssid=i.value.trim();if(!ssid){st.textContent='SSID is required.';return;}st.textContent='Saving...';const body=`ssid=${encodeURIComponent(ssid)}&password=${encodeURIComponent(p.value)}`;const r=await fetch('/save',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});const d=await r.json();if(d.ok){st.textContent='Saved. Rebooting...';}else{st.textContent='Save failed: '+(d.error||'unknown');}}scan(true);</script></body></html>";
-  return html;
-}
-
-void startProvisioningScan()
-{
-  if (!provisioningMode)
-  {
-    return;
-  }
-
-  PROVISIONING_LOCK();
-  provisioningScanInitialized = true;
-  provisioningScanRequested = true;
-  provisioningScanPayload = "{\"ssids\":[],\"scanning\":true}";
-  PROVISIONING_UNLOCK();
-}
-
-void pollProvisioningScan()
-{
-  PROVISIONING_LOCK();
-  bool canRun = provisioningMode && !provisioningScanRunning && provisioningScanRequested;
-  if (canRun)
-  {
-    provisioningScanRunning = true;
-    provisioningScanRequested = false;
-    provisioningScanStartedAt = millis();
-  }
-  PROVISIONING_UNLOCK();
-
-  if (!canRun)
-  {
-    return;
-  }
-
-  Serial.println("Provisioning scan started");
-
-  WiFi.scanDelete();
-  int scanState = WiFi.scanNetworks(false, true);
-
-  DynamicJsonDocument doc(4096);
-  JsonArray arr = doc.createNestedArray("ssids");
-  doc["scanning"] = false;
-  int visibleCount = 0;
-  int hiddenCount = 0;
-
-  if (scanState > 0)
-  {
-    for (int i = 0; i < scanState; i++)
-    {
-      String rawSsidName = WiFi.SSID(i);
-      String ssidName = sanitizeSsidForJson(rawSsidName);
-
-      if (rawSsidName.length() > 0)
-      {
-        visibleCount++;
-      }
-      else
-      {
-        hiddenCount++;
-      }
-
-      JsonObject row = arr.createNestedObject();
-      row["ssid"] = ssidName;
-      row["rssi"] = WiFi.RSSI(i);
-    }
-  }
-
-  doc["count"] = scanState > 0 ? scanState : 0;
-  doc["visibleCount"] = visibleCount;
-  doc["hiddenCount"] = hiddenCount;
-
-  WiFi.scanDelete();
-  String updatedPayload;
-  serializeJson(doc, updatedPayload);
-
-  PROVISIONING_LOCK();
-  provisioningScanPayload = updatedPayload;
-  provisioningScanRunning = false;
-  PROVISIONING_UNLOCK();
-
-  Serial.printf("Provisioning scan complete: %d results (%d visible, %d hidden)\n",
-                scanState > 0 ? scanState : 0, visibleCount, hiddenCount);
-}
-
-void startProvisioningPortal()
-{
-  provisioningMode = true;
-  reportSignalStrength = false;
-
-  WiFi.disconnect();
-  WiFi.mode(WIFI_AP_STA);
-
-  String apName = getProvisioningApName();
-  WiFi.softAP(apName.c_str());
-
-  Serial.println("Wi-Fi credentials are not configured.");
-  Serial.printf("Provisioning AP started: %s\n", apName.c_str());
-  Serial.printf("Connect to AP and open: http://%s/\n", WiFi.softAPIP().toString().c_str());
-  Serial.println("To configure over serial, enter: reset_wifi");
-
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
-    Serial.printf("Provisioning HTTP GET / from %s\n", request->client()->remoteIP().toString().c_str());
-    AsyncWebServerResponse *response = request->beginResponse(200, "text/html", getProvisioningHtml());
-    response->addHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
-    response->addHeader("Pragma", "no-cache");
-    request->send(response); });
-
-  server.on("/ping", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send(200, "text/plain", "ok"); });
-
-  // Common captive portal probe URLs.
-  server.on("/generate_204", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->redirect("/"); });
-  server.on("/hotspot-detect.html", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->redirect("/"); });
-  server.on("/connecttest.txt", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->redirect("/"); });
-  server.on("/fwlink", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->redirect("/"); });
-
-  server.on("/scan", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
-    Serial.printf("Provisioning HTTP GET /scan from %s\n", request->client()->remoteIP().toString().c_str());
-    bool rescan = request->hasParam("rescan");
-
-    bool running = false;
-    bool initialized = false;
-    PROVISIONING_LOCK();
-    running = provisioningScanRunning;
-    initialized = provisioningScanInitialized;
-    PROVISIONING_UNLOCK();
-
-    if (!running && (rescan || !initialized))
-    {
-      startProvisioningScan();
-    }
-
-    String payloadCopy;
-    PROVISIONING_LOCK();
-    payloadCopy = provisioningScanPayload;
-    PROVISIONING_UNLOCK();
-
-    AsyncWebServerResponse *response = request->beginResponse(200, "application/json", payloadCopy);
-    response->addHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
-    response->addHeader("Pragma", "no-cache");
-    request->send(response); });
-
-  server.on("/save", HTTP_POST, [](AsyncWebServerRequest *request)
-            {
-    Serial.printf("Provisioning HTTP POST /save from %s\n", request->client()->remoteIP().toString().c_str());
-    String newSsid = "";
-    String newPassword = "";
-
-    if (request->hasParam("ssid", true))
-      newSsid = request->getParam("ssid", true)->value();
-    if (request->hasParam("password", true))
-      newPassword = request->getParam("password", true)->value();
-
-    newSsid.trim();
-    if (newSsid.length() == 0)
-    {
-      request->send(400, "application/json", "{\"ok\":false,\"error\":\"ssid required\"}");
-      return;
-    }
-
-    if (newSsid.length() > kMaxSsidLength)
-      newSsid = newSsid.substring(0, kMaxSsidLength);
-    if (newPassword.length() > kMaxPasswordLength)
-      newPassword = newPassword.substring(0, kMaxPasswordLength);
-
-    wifiSsid = newSsid;
-    wifiPassword = newPassword;
-
-    if (!saveBoardConfig())
-    {
-      request->send(500, "application/json", "{\"ok\":false,\"error\":\"save failed\"}");
-      return;
-    }
-
-    request->send(200, "application/json", "{\"ok\":true}");
-    pendingRestart = true;
-    pendingRestartAt = millis() + 1500; });
-
-  server.onNotFound([](AsyncWebServerRequest *request)
-                    { request->redirect("/"); });
-
-  server.begin();
-}
+void applyHardwareVariantPinsAndModes();
 
 #define DELAY_INTERVAL_MS 50 // check  exery 50ms
 #define DELAY_COUNTER (1000 / DELAY_INTERVAL_MS)
@@ -353,14 +93,12 @@ void startProvisioningPortal()
 
 struct OutputPin
 {
-  // state variables
-  const uint8_t pin;
+  uint8_t pin;
   uint8_t on;
-  const uint8_t on_state; // LOW active or HIGH active
+  const uint8_t on_state;
   uint8_t disabled;
   uint8_t last;
 
-  // methods
   void update()
   {
     if (pin != 255)
@@ -369,25 +107,10 @@ struct OutputPin
     }
   }
 
-  void low()
-  {
-    on = !on_state;
-  }
-
-  void high()
-  {
-    on = on_state;
-  }
-
-  void toggle()
-  {
-    on = !on;
-  }
-
-  uint8_t state()
-  {
-    return on;
-  }
+  void low() { on = !on_state; }
+  void high() { on = on_state; }
+  void toggle() { on = !on; }
+  uint8_t state() { return on; }
 };
 
 struct RelayLabel
@@ -396,573 +119,131 @@ struct RelayLabel
   String off;
 };
 
-RelayLabel relayLabels[NUM_RELAYS];
+static const uint8_t MAX_RELAYS = 16;
+static const char *kVariant8Relay = "8relay";
+static const char *kVariant16Relay = "16relay";
 
-#if NUM_RELAYS == 8
+String hardwareVariant = kVariant8Relay;
+uint8_t relayCount = 8;
+bool useShiftRegister = false;
+
+RelayLabel relayLabels[MAX_RELAYS];
+
 #if defined(ESP8266)
 OutputPin onboard_led = {LED_BUILTIN, false, HIGH, false};
-
-OutputPin relays[] = {
-    {16, false, HIGH, false},
-    {14, false, HIGH, false},
-    {12, false, HIGH, false},
-    {13, false, HIGH, false},
-    {15, false, HIGH, false},
-    {0, false, HIGH, false},
-    {4, false, HIGH, false},
-    {5, false, HIGH, false}};
 #elif defined(ESP32)
 OutputPin onboard_led = {23, false, HIGH, false};
-
-OutputPin relays[] = {
-    {32, false, HIGH, false},
-    {33, false, HIGH, false},
-    {25, false, HIGH, false},
-    {26, false, HIGH, false},
-    {27, false, HIGH, false},
-    {14, false, HIGH, false},
-    {12, false, HIGH, false},
-    {13, false, HIGH, false}};
 #endif
-#elif NUM_RELAYS == 16
-OutputPin onboard_led = {LED_BUILTIN, false, HIGH, false};
 
-OutputPin relays[] = {
-    {255, false, HIGH, false},
-    {255, false, HIGH, false},
-    {255, false, HIGH, false},
-    {255, false, HIGH, false},
-    {255, false, HIGH, false},
-    {255, false, HIGH, false},
-    {255, false, HIGH, false},
-    {255, false, HIGH, false},
-    {255, false, HIGH, false},
-    {255, false, HIGH, false},
-    {255, false, HIGH, false},
-    {255, false, HIGH, false},
-    {255, false, HIGH, false},
-    {255, false, HIGH, false},
-    {255, false, HIGH, false},
-    {255, false, HIGH, false}};
+OutputPin relays[MAX_RELAYS] = {
+  {255, false, HIGH, false}, {255, false, HIGH, false}, {255, false, HIGH, false}, {255, false, HIGH, false},
+  {255, false, HIGH, false}, {255, false, HIGH, false}, {255, false, HIGH, false}, {255, false, HIGH, false},
+  {255, false, HIGH, false}, {255, false, HIGH, false}, {255, false, HIGH, false}, {255, false, HIGH, false},
+  {255, false, HIGH, false}, {255, false, HIGH, false}, {255, false, HIGH, false}, {255, false, HIGH, false}};
 
-const int latchPin = 12;       // Latch Pin of 74hc595
-const int clockPin = 13;       // Clock  Pin of 74hc595
-const int dataPin = 14;        // Data  Pin of 74hc595
-int oePin = 5;                 // Oe Pin of 74hc595
-const int numRegisters = 2;    // Number of 74hc595 on the board
-byte outputData[numRegisters]; // the bytes used to shift out the data
-
-#endif
+const int latchPin = 12;
+const int clockPin = 13;
+const int dataPin = 14;
+int oePin = 5;
+const int numRegisters = 2;
+byte outputData[numRegisters];
 
 struct Latch
 {
-  const uint8_t relay_num;
-  const uint8_t latched_num;
-  const uint8_t timeout;
+  uint8_t relay_num;
+  uint8_t latched_num;
+  uint8_t timeout;
   uint16_t counter;
 };
 
-#if NUM_RELAYS == 8
-// relay number, latched relay number, timeout (seconds)
-Latch latched_relays[] = {
-    {1, 0, 0},  // 1
-    {2, 0, 2},  // 2
-    {3, 0, 0}, // 3
-    {4, 0, 0}, // 4
-    {5, 6, 0},  // 5
-    {6, 5, 0},  // 6
-    {7, 8, 0},  // 7
-    {8, 7, 0}   // 8
-};
-#elif NUM_RELAYS == 16
-// relay number, latched relay number, timeout (seconds)
-Latch latched_relays[] = {
-    {1, 2, 0},   // 1
-    {2, 1, 0},   // 2
-    {3, 4, 0},   // 3
-    {4, 3, 0},   // 4
-    {5, 6, 0},   // 5
-    {6, 5, 0},   // 6
-    {7, 8, 0},   // 7
-    {8, 7, 0},   // 8
-    {9, 10, 0},  // 9
-    {10, 9, 0},  // 10
-    {11, 12, 0}, // 11
-    {12, 11, 0}, // 12
-    {13, 14, 0}, // 13
-    {14, 13, 0}, // 14
-    {15, 16, 0}, // 15
-    {16, 15, 0}  // 16
-};
-#endif
+Latch latched_relays[MAX_RELAYS] = {
+    {1, 2, 0, 0}, {2, 1, 0, 0}, {3, 4, 0, 0}, {4, 3, 0, 0},
+    {5, 6, 0, 0}, {6, 5, 0, 0}, {7, 8, 0, 0}, {8, 7, 0, 0},
+    {9, 10, 0, 0}, {10, 9, 0, 0}, {11, 12, 0, 0}, {12, 11, 0, 0},
+    {13, 14, 0, 0}, {14, 13, 0, 0}, {15, 16, 0, 0}, {16, 15, 0, 0}};
 
 uint8_t interlocked_buttons[] = {1, 2, 3, 4, 5, 6, 8};
 
 struct Pulse
 {
-  const uint8_t relay_num;
-  const uint8_t timeout;
+  uint8_t relay_num;
+  uint8_t timeout;
   uint16_t counter;
 };
 
-#if NUM_RELAYS == 8
-// relay number, timeout (seconds)
-Pulse pulsed_relays[] = {
-    {1, 1}, // 1
-    {2, 1}, // 2
-    {3, 0}, // 3
-    {4, 0}, // 4
-    {5, 0}, // 5
-    {6, 0}, // 6
-    {7, 0}, // 7
-    {8, 0}  // 8
-};
-#elif NUM_RELAYS == 16
-// relay number, timeout (seconds)
-Pulse pulsed_relays[] = {
-    {1, 1},  // 1
-    {2, 1},  // 2
-    {3, 1},  // 3
-    {4, 1},  // 4
-    {5, 1},  // 5
-    {6, 1},  // 6
-    {7, 1},  // 7
-    {8, 1},  // 8
-    {9, 1},  // 9
-    {10, 1}, // 10
-    {11, 1}, // 11
-    {12, 1}, // 12
-    {13, 1}, // 13
-    {14, 1}, // 14
-    {15, 1}, // 15
-    {16, 1}  // 16
-};
-#endif
+Pulse pulsed_relays[MAX_RELAYS] = {
+    {1, 1, 0}, {2, 1, 0}, {3, 1, 0}, {4, 1, 0},
+    {5, 1, 0}, {6, 1, 0}, {7, 1, 0}, {8, 1, 0},
+    {9, 1, 0}, {10, 1, 0}, {11, 1, 0}, {12, 1, 0},
+    {13, 1, 0}, {14, 1, 0}, {15, 1, 0}, {16, 1, 0}};
 
-// ----------------------------------------------------------------------------
-// LittleFS initialization
-// ----------------------------------------------------------------------------
-
-void initLittleFS()
+void applyHardwareVariantPinsAndModes()
 {
-  if (!LittleFS.begin())
+  if (hardwareVariant == kVariant16Relay)
   {
-    Serial.println("Cannot mount LittleFS volume...");
-    while (1)
+    relayCount = 16;
+    useShiftRegister = true;
+    for (uint8_t i = 0; i < MAX_RELAYS; i++)
     {
-      onboard_led.on = millis() % 200 < 50;
-      onboard_led.update();
+      relays[i].pin = 255;
     }
-  }
-  Serial.println("LittleFS volume mounted...");
-}
-
-String defaultRelayOnLabel(uint8_t relayNum)
-{
-  return "Relay " + String(relayNum) + " On";
-}
-
-String defaultRelayOffLabel(uint8_t relayNum)
-{
-  return "Relay " + String(relayNum) + " Off";
-}
-
-String clampRelayLabel(const String &label, uint8_t relayNum, bool isOnLabel)
-{
-  String cleaned = label;
-  cleaned.trim();
-
-  if (cleaned.length() == 0)
-  {
-    return isOnLabel ? defaultRelayOnLabel(relayNum) : defaultRelayOffLabel(relayNum);
-  }
-
-  if (cleaned.length() > kMaxRelayLabelLength)
-  {
-    cleaned = cleaned.substring(0, kMaxRelayLabelLength);
-  }
-
-  return cleaned;
-}
-
-void assignRelayLabels(uint8_t relayNum, const String &requestedOnLabel, const String &requestedOffLabel)
-{
-  String normalizedOff = clampRelayLabel(requestedOffLabel, relayNum, false);
-  String normalizedOn = requestedOnLabel;
-  normalizedOn.trim();
-
-  // If ON is blank, treat it as the same as OFF.
-  if (normalizedOn.length() == 0)
-  {
-    normalizedOn = normalizedOff;
-  }
-  else
-  {
-    normalizedOn = clampRelayLabel(normalizedOn, relayNum, true);
-  }
-
-  relayLabels[relayNum - 1].on = normalizedOn;
-  relayLabels[relayNum - 1].off = normalizedOff;
-}
-
-void setDefaultRelayLabels()
-{
-  for (uint8_t i = 0; i < NUM_RELAYS; i++)
-  {
-    relayLabels[i].on = defaultRelayOnLabel(i + 1);
-    relayLabels[i].off = defaultRelayOffLabel(i + 1);
-  }
-}
-
-bool saveRelayLabels()
-{
-#ifdef ESP32
-  Preferences prefs;
-  if (!prefs.begin("labels", false))
-  {
-    Serial.println("ERROR: Failed to open NVS labels namespace");
-    return false;
-  }
-  char key[8];
-  for (uint8_t i = 0; i < NUM_RELAYS; i++)
-  {
-    snprintf(key, sizeof(key), "on_%d", i);
-    prefs.putString(key, relayLabels[i].on);
-    snprintf(key, sizeof(key), "off_%d", i);
-    prefs.putString(key, relayLabels[i].off);
-  }
-  prefs.end();
-  Serial.println("Saved relay labels to NVS");
-  return true;
-#else
-  StaticJsonDocument<4096> doc;
-  JsonArray labels = doc.createNestedArray("labels");
-
-  for (uint8_t i = 0; i < NUM_RELAYS; i++)
-  {
-    JsonObject label = labels.createNestedObject();
-    label["on"] = relayLabels[i].on;
-    label["off"] = relayLabels[i].off;
-  }
-
-  File file = LittleFS.open(kRelayLabelsPath, "w");
-  if (!file)
-  {
-    Serial.println("Failed to open relay labels file for writing");
-    return false;
-  }
-
-  if (serializeJson(doc, file) == 0)
-  {
-    Serial.println("Failed to write relay labels file");
-    file.close();
-    return false;
-  }
-
-  file.close();
-  Serial.println("Saved relay labels");
-  return true;
-#endif
-}
-
-void loadRelayLabels()
-{
-  setDefaultRelayLabels();
-
-#ifdef ESP32
-  Preferences prefs;
-  if (!prefs.begin("labels", true))
-  {
-    Serial.println("NVS labels namespace empty, using defaults");
-    return;
-  }
-  char key[8];
-  bool anyFound = false;
-  for (uint8_t i = 0; i < NUM_RELAYS; i++)
-  {
-    snprintf(key, sizeof(key), "on_%d", i);
-    if (prefs.isKey(key))
+    for (uint8_t i = 0; i < MAX_RELAYS; i++)
     {
-      anyFound = true;
-      assignRelayLabels(i + 1, prefs.getString(key, ""), relayLabels[i].off);
-    }
-    snprintf(key, sizeof(key), "off_%d", i);
-    if (prefs.isKey(key))
-    {
-      anyFound = true;
-      assignRelayLabels(i + 1, relayLabels[i].on, prefs.getString(key, ""));
-    }
-  }
-  prefs.end();
-  if (anyFound)
-    Serial.println("Loaded relay labels from NVS");
-  else
-    Serial.println("NVS labels not found, using defaults");
-#else
-  if (!LittleFS.exists(kRelayLabelsPath))
-  {
-    Serial.println("Relay labels file not found, using defaults");
-    return;
-  }
-
-  File file = LittleFS.open(kRelayLabelsPath, "r");
-  if (!file)
-  {
-    Serial.println("Failed to open relay labels file for reading, using defaults");
-    return;
-  }
-
-  StaticJsonDocument<4096> doc;
-  DeserializationError error = deserializeJson(doc, file);
-  file.close();
-
-  if (error)
-  {
-    Serial.printf("Failed to parse relay labels file (%s), using defaults\n", error.c_str());
-    return;
-  }
-
-  JsonArray labels = doc["labels"].as<JsonArray>();
-  if (labels.isNull())
-  {
-    Serial.println("Relay labels file missing labels array, using defaults");
-    return;
-  }
-
-  uint8_t count = labels.size() < NUM_RELAYS ? labels.size() : NUM_RELAYS;
-  for (uint8_t i = 0; i < count; i++)
-  {
-    JsonObject label = labels[i];
-    if (label.isNull())
-    {
-      continue;
-    }
-
-    assignRelayLabels(i + 1, String(label["on"] | ""), String(label["off"] | ""));
-  }
-
-  Serial.println("Loaded relay labels");
-#endif
-}
-
-String defaultBoardName()
-{
-  return "Relay Board";
-}
-
-uint32_t getCryptoSeed()
-{
-#if defined(ESP32)
-  uint64_t mac = ESP.getEfuseMac();
-  return (uint32_t)(mac ^ (mac >> 32) ^ 0xA5A55A5Au);
-#elif defined(ESP8266)
-  return ESP.getChipId() ^ 0xA5A55A5Au;
-#else
-  return 0x5A5AA5A5u;
-#endif
-}
-
-String hexEncode(const uint8_t *data, size_t len)
-{
-  static const char *hex = "0123456789ABCDEF";
-  String out;
-  out.reserve(len * 2);
-  for (size_t i = 0; i < len; i++)
-  {
-    out += hex[(data[i] >> 4) & 0x0F];
-    out += hex[data[i] & 0x0F];
-  }
-  return out;
-}
-
-int hexNibble(char c)
-{
-  if (c >= '0' && c <= '9') return c - '0';
-  if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
-  if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
-  return -1;
-}
-
-bool hexDecode(const String &hexText, String &decoded)
-{
-  decoded = "";
-  if ((hexText.length() % 2) != 0)
-  {
-    return false;
-  }
-
-  decoded.reserve(hexText.length() / 2);
-  for (size_t i = 0; i < hexText.length(); i += 2)
-  {
-    int hi = hexNibble(hexText[i]);
-    int lo = hexNibble(hexText[i + 1]);
-    if (hi < 0 || lo < 0)
-    {
-      decoded = "";
-      return false;
-    }
-    decoded += (char)((hi << 4) | lo);
-  }
-  return true;
-}
-
-String encryptConfigSecret(const String &plain)
-{
-  if (plain.length() == 0)
-  {
-    return "";
-  }
-
-  uint32_t seed = getCryptoSeed();
-  const size_t len = plain.length();
-  uint8_t *buf = (uint8_t *)malloc(len);
-  if (!buf)
-  {
-    return "";
-  }
-
-  for (size_t i = 0; i < len; i++)
-  {
-    uint8_t keyByte = (uint8_t)((seed >> ((i % 4) * 8)) & 0xFF);
-    buf[i] = ((uint8_t)plain[i]) ^ keyByte ^ (uint8_t)(0x3Du + (i * 17u));
-  }
-
-  String encoded = hexEncode(buf, len);
-  free(buf);
-  return encoded;
-}
-
-String decryptConfigSecret(const String &encoded)
-{
-  if (encoded.length() == 0)
-  {
-    return "";
-  }
-
-  String cipher;
-  if (!hexDecode(encoded, cipher))
-  {
-    return "";
-  }
-
-  uint32_t seed = getCryptoSeed();
-  String plain;
-  plain.reserve(cipher.length());
-  for (size_t i = 0; i < cipher.length(); i++)
-  {
-    uint8_t keyByte = (uint8_t)((seed >> ((i % 4) * 8)) & 0xFF);
-    plain += (char)(((uint8_t)cipher[i]) ^ keyByte ^ (uint8_t)(0x3Du + (i * 17u)));
-  }
-  return plain;
-}
-
-String readSerialLineBlocking()
-{
-  String line;
-  while (true)
-  {
-    while (Serial.available() > 0)
-    {
-      char c = (char)Serial.read();
-      if (c == '\r')
-      {
-        continue;
-      }
-      if (c == '\n')
-      {
-        return line;
-      }
-      line += c;
-    }
-    delay(10);
-    yield();
-  }
-}
-
-bool runSerialWiFiProvisioningWizard()
-{
-  Serial.println("\n=== Wi-Fi provisioning ===");
-  Serial.println("Scanning for SSIDs...");
-  reportSignalStrength = false;
-
-  WiFi.mode(WIFI_STA);
-  int scanCount = WiFi.scanNetworks();
-
-  if (scanCount > 0)
-  {
-    for (int i = 0; i < scanCount; i++)
-    {
-      Serial.printf("%d) %s (RSSI %d dBm)\n", i + 1, WiFi.SSID(i).c_str(), WiFi.RSSI(i));
+      latched_relays[i].relay_num = i + 1;
+      latched_relays[i].latched_num = ((i % 2) == 0) ? (i + 2) : i;
+      latched_relays[i].timeout = 0;
+      latched_relays[i].counter = 0;
+      pulsed_relays[i].relay_num = i + 1;
+      pulsed_relays[i].timeout = 1;
+      pulsed_relays[i].counter = 0;
     }
   }
   else
   {
-    Serial.println("No SSIDs found by scan. You can still enter one manually.");
-  }
+    hardwareVariant = kVariant8Relay;
+    relayCount = 8;
+    useShiftRegister = false;
 
-  Serial.println("Enter SSID number from the list, or type SSID text directly:");
-  String ssidInput = readSerialLineBlocking();
-  ssidInput.trim();
-  if (ssidInput.length() == 0)
-  {
-    Serial.println("No SSID provided. Aborting Wi-Fi provisioning.");
-    WiFi.scanDelete();
-    return false;
-  }
-
-  String selectedSsid;
-  bool numericChoice = true;
-  for (size_t i = 0; i < ssidInput.length(); i++)
-  {
-    if (!isDigit((unsigned char)ssidInput[i]))
+#if defined(ESP8266)
+    uint8_t pins8[8] = {16, 14, 12, 13, 15, 0, 4, 5};
+#else
+    uint8_t pins8[8] = {32, 33, 25, 26, 27, 14, 12, 13};
+#endif
+    for (uint8_t i = 0; i < 8; i++)
     {
-      numericChoice = false;
-      break;
+      relays[i].pin = pins8[i];
+    }
+    for (uint8_t i = 8; i < MAX_RELAYS; i++)
+    {
+      relays[i].pin = 255;
+    }
+
+    uint8_t latchedPair[8] = {0, 0, 0, 0, 6, 5, 8, 7};
+    uint8_t latchedTimeout[8] = {0, 2, 0, 0, 0, 0, 0, 0};
+    uint8_t pulseTimeout[8] = {1, 1, 0, 0, 0, 0, 0, 0};
+    for (uint8_t i = 0; i < 8; i++)
+    {
+      latched_relays[i].relay_num = i + 1;
+      latched_relays[i].latched_num = latchedPair[i];
+      latched_relays[i].timeout = latchedTimeout[i];
+      latched_relays[i].counter = 0;
+      pulsed_relays[i].relay_num = i + 1;
+      pulsed_relays[i].timeout = pulseTimeout[i];
+      pulsed_relays[i].counter = 0;
+    }
+    for (uint8_t i = 8; i < MAX_RELAYS; i++)
+    {
+      latched_relays[i].relay_num = i + 1;
+      latched_relays[i].latched_num = 0;
+      latched_relays[i].timeout = 0;
+      latched_relays[i].counter = 0;
+      pulsed_relays[i].relay_num = i + 1;
+      pulsed_relays[i].timeout = 0;
+      pulsed_relays[i].counter = 0;
     }
   }
-
-  if (numericChoice && scanCount > 0)
-  {
-    int choice = ssidInput.toInt();
-    if (choice >= 1 && choice <= scanCount)
-    {
-      selectedSsid = WiFi.SSID(choice - 1);
-    }
-  }
-
-  if (selectedSsid.length() == 0)
-  {
-    selectedSsid = ssidInput;
-  }
-
-  if (selectedSsid.length() > kMaxSsidLength)
-  {
-    selectedSsid = selectedSsid.substring(0, kMaxSsidLength);
-  }
-
-  WiFi.scanDelete();
-
-  Serial.printf("Selected SSID: %s\n", selectedSsid.c_str());
-  Serial.println("Enter Wi-Fi password (empty for open network):");
-  String enteredPassword = readSerialLineBlocking();
-
-  if (enteredPassword.length() > kMaxPasswordLength)
-  {
-    enteredPassword = enteredPassword.substring(0, kMaxPasswordLength);
-  }
-
-  wifiSsid = selectedSsid;
-  wifiPassword = enteredPassword;
-
-  if (!saveBoardConfig())
-  {
-    Serial.println("Failed to save Wi-Fi credentials to configuration");
-    return false;
-  }
-
-  Serial.println("Wi-Fi credentials saved to configuration.");
-  return true;
 }
+
 
 void handleSerialCommand(const String &rawCommand)
 {
@@ -1048,201 +329,6 @@ void processSerialCommands()
   }
 }
 
-bool saveBoardConfig()
-{
-#ifdef ESP32
-  Preferences prefs;
-  if (!prefs.begin("board", false))
-  {
-    Serial.println("ERROR: Failed to open NVS board namespace");
-    return false;
-  }
-  prefs.putString("name", boardName);
-  prefs.putBool("doDelay",       doDelay);
-  prefs.putUShort("delaySec", startupDelaySeconds);
-  prefs.putBool("doLatched",     doLatched);
-  prefs.putBool("doInterlocked", doInterlocked);
-  prefs.putBool("doPulsed",      doPulsed);
-  prefs.putBool("useStatic",     useStaticIp);
-  prefs.putString("wifiSsidEnc", encryptConfigSecret(wifiSsid));
-  prefs.putString("wifiPwdEnc", encryptConfigSecret(wifiPassword));
-  if (useStaticIp)
-  {
-    prefs.putString("ip",      boardIp.toString());
-    prefs.putString("dns",     boardDns.toString());
-    prefs.putString("gateway", boardGateway.toString());
-    prefs.putString("subnet",  boardSubnet.toString());
-    Serial.printf("saveBoardConfig: saving static IP %s\n", boardIp.toString().c_str());
-  }
-  else
-  {
-    if (prefs.isKey("ip")) prefs.remove("ip");
-    if (prefs.isKey("dns")) prefs.remove("dns");
-    if (prefs.isKey("gateway")) prefs.remove("gateway");
-    if (prefs.isKey("subnet")) prefs.remove("subnet");
-    Serial.println("saveBoardConfig: saving DHCP mode");
-  }
-  prefs.end();
-  Serial.printf("Saved board config to NVS: name=%s, dhcp=%d\n", boardName.c_str(), !useStaticIp);
-  return true;
-#else
-  StaticJsonDocument<1536> doc;
-  doc["name"] = boardName;
-  doc["doDelay"] = doDelay;
-  doc["startupDelaySeconds"] = startupDelaySeconds;
-  doc["doLatched"] = doLatched;
-  doc["doInterlocked"] = doInterlocked;
-  doc["doPulsed"] = doPulsed;
-  doc["wifiSsidEnc"] = encryptConfigSecret(wifiSsid);
-  doc["wifiPwdEnc"] = encryptConfigSecret(wifiPassword);
-
-  if (useStaticIp)
-  {
-    JsonObject ipConfig = doc.createNestedObject("ipConfig");
-    ipConfig["ip"] = boardIp.toString();
-    ipConfig["dns"] = boardDns.toString();
-    ipConfig["gateway"] = boardGateway.toString();
-    ipConfig["subnet"] = boardSubnet.toString();
-  }
-  else
-  {
-    doc["ipConfig"] = nullptr;
-  }
-
-  File file = LittleFS.open(kBoardConfigPath, "w");
-  if (!file) return false;
-
-  size_t bytesWritten = serializeJson(doc, file);
-  file.close();
-  if (bytesWritten == 0) return false;
-
-  Serial.printf("Saved board config: name=%s, dhcp=%d\n", boardName.c_str(), !useStaticIp);
-  return true;
-#endif
-}
-
-void loadBoardConfig()
-{
-  boardName = defaultBoardName();
-  useStaticIp = false;
-  doDelay = false;
-  startupDelaySeconds = 60;
-  doLatched = false;
-  doInterlocked = false;
-  doPulsed = false;
-  wifiSsid = "";
-  wifiPassword = "";
-
-#ifdef ESP32
-  Preferences prefs;
-  if (!prefs.begin("board", true))
-  {
-    Serial.println("NVS board namespace empty, using defaults");
-    return;
-  }
-
-  if (prefs.isKey("name"))
-  {
-    String name = prefs.getString("name", "");
-    name.trim();
-    if (name.length() > kMaxBoardNameLength)
-      name = name.substring(0, kMaxBoardNameLength);
-    if (name.length() > 0)
-      boardName = name;
-  }
-
-  doDelay       = prefs.getBool("doDelay",       false);
-  startupDelaySeconds = prefs.getUShort("delaySec", 60);
-  doLatched     = prefs.getBool("doLatched",     false);
-  doInterlocked = prefs.getBool("doInterlocked", false);
-  doPulsed      = prefs.getBool("doPulsed",      false);
-  if (prefs.isKey("wifiSsidEnc"))
-    wifiSsid = decryptConfigSecret(prefs.getString("wifiSsidEnc", ""));
-  if (prefs.isKey("wifiPwdEnc"))
-    wifiPassword = decryptConfigSecret(prefs.getString("wifiPwdEnc", ""));
-
-  if (wifiSsid.length() > kMaxSsidLength)
-    wifiSsid = wifiSsid.substring(0, kMaxSsidLength);
-  if (wifiPassword.length() > kMaxPasswordLength)
-    wifiPassword = wifiPassword.substring(0, kMaxPasswordLength);
-
-  if (prefs.getBool("useStatic", false))
-  {
-    String ipStr      = prefs.getString("ip",      "");
-    String dnsStr     = prefs.getString("dns",     "");
-    String gatewayStr = prefs.getString("gateway", "");
-    String subnetStr  = prefs.getString("subnet",  "");
-
-    if (ipStr.length() > 0 && boardIp.fromString(ipStr) &&
-        dnsStr.length() > 0 && boardDns.fromString(dnsStr) &&
-        gatewayStr.length() > 0 && boardGateway.fromString(gatewayStr) &&
-        subnetStr.length() > 0 && boardSubnet.fromString(subnetStr))
-    {
-      useStaticIp = true;
-      Serial.printf("Loaded static IP: %s\n", boardIp.toString().c_str());
-    }
-  }
-
-  prefs.end();
-  Serial.printf("Loaded board config from NVS: name=%s, dhcp=%d, doDelay=%d, startupDelaySeconds=%u, doLatched=%d, doInterlocked=%d, doPulsed=%d, wifiSsidSet=%d\n",
-                boardName.c_str(), !useStaticIp, doDelay, startupDelaySeconds, doLatched, doInterlocked, doPulsed, wifiSsid.length() > 0);
-#else
-  if (!LittleFS.exists(kBoardConfigPath))
-  {
-    Serial.printf("Board config file not found, using defaults\n");
-    return;
-  }
-
-  File file = LittleFS.open(kBoardConfigPath, "r");
-  if (!file) return;
-
-  StaticJsonDocument<1536> doc;
-  DeserializationError error = deserializeJson(doc, file);
-  file.close();
-
-  if (error)
-  {
-    Serial.printf("Failed to parse board config (%s), using defaults\n", error.c_str());
-    return;
-  }
-
-  String name = doc["name"];
-  if (name.length() > 0)
-  {
-    name.trim();
-    if (name.length() > kMaxBoardNameLength)
-      name = name.substring(0, kMaxBoardNameLength);
-    boardName = name;
-  }
-
-  if (doc.containsKey("doDelay"))       doDelay       = doc["doDelay"]       | false;
-  if (doc.containsKey("startupDelaySeconds")) startupDelaySeconds = doc["startupDelaySeconds"] | 60;
-  if (doc.containsKey("doLatched"))     doLatched     = doc["doLatched"]     | false;
-  if (doc.containsKey("doInterlocked")) doInterlocked = doc["doInterlocked"] | false;
-  if (doc.containsKey("doPulsed"))      doPulsed      = doc["doPulsed"]      | false;
-  wifiSsid = decryptConfigSecret(String(doc["wifiSsidEnc"] | ""));
-  wifiPassword = decryptConfigSecret(String(doc["wifiPwdEnc"] | ""));
-  if (wifiSsid.length() > kMaxSsidLength)
-    wifiSsid = wifiSsid.substring(0, kMaxSsidLength);
-  if (wifiPassword.length() > kMaxPasswordLength)
-    wifiPassword = wifiPassword.substring(0, kMaxPasswordLength);
-
-  JsonObject ipConfig = doc["ipConfig"];
-  if (!ipConfig.isNull())
-  {
-    String ipStr = ipConfig["ip"], dnsStr = ipConfig["dns"],
-           gatewayStr = ipConfig["gateway"], subnetStr = ipConfig["subnet"];
-    if (ipStr.length() > 0 && boardIp.fromString(ipStr) &&
-        dnsStr.length() > 0 && boardDns.fromString(dnsStr) &&
-        gatewayStr.length() > 0 && boardGateway.fromString(gatewayStr) &&
-        subnetStr.length() > 0 && boardSubnet.fromString(subnetStr))
-      useStaticIp = true;
-  }
-
-  Serial.printf("Loaded board config: name=%s, dhcp=%d, doDelay=%d, startupDelaySeconds=%u, wifiSsidSet=%d\n", boardName.c_str(), !useStaticIp, doDelay, startupDelaySeconds, wifiSsid.length() > 0);
-#endif
-}
-
 int parseRelayNumberFromCommand(const String &command)
 {
   if (command.startsWith("button"))
@@ -1266,7 +352,7 @@ void notifyClients()
   Serial.println("notifying clients");
 
   JsonArray array = JSONdoc.createNestedArray("buttons");
-  for (int i = 0; i < NUM_RELAYS; i++)
+  for (int i = 0; i < relayCount; i++)
   {
     JsonObject button = array.createNestedObject();
     button["id"] = i + 1;
@@ -1295,6 +381,8 @@ void notifyClients()
   JSONdoc["doLatched"] = doLatched;
   JSONdoc["doInterlocked"] = doInterlocked;
   JSONdoc["doPulsed"] = doPulsed;
+  JSONdoc["hardwareVariant"] = hardwareVariant;
+  JSONdoc["relayCount"] = relayCount;
 
   String payload;
   serializeJson(JSONdoc, payload);
@@ -1303,11 +391,10 @@ void notifyClients()
   ws.textAll(payload);
 }
 
-#if NUM_RELAYS == 16
 void writeRelaysToShiftRegister()
 {
   // set the output data bytes based on the relay state array
-  for (int i = 0; i < NUM_RELAYS; i++)
+  for (int i = 0; i < relayCount; i++)
   {
     int regNum = i / 8;
     int bitNum = i % 8;
@@ -1330,23 +417,22 @@ void writeRelaysToShiftRegister()
   digitalWrite(clockPin, LOW);
   digitalWrite(latchPin, HIGH);
 }
-#endif
 
 void handleLatch(uint8_t _relayNum)
 {
   uint8_t index;
 
-  if ((_relayNum > 0) && (_relayNum <= NUM_RELAYS))
+  if ((_relayNum > 0) && (_relayNum <= relayCount))
   {
     index = _relayNum - 1;
     if (latched_relays[index].timeout != 0)
     {
-      if ((latched_relays[index].relay_num > 0) && (latched_relays[index].relay_num <= NUM_RELAYS))
+      if ((latched_relays[index].relay_num > 0) && (latched_relays[index].relay_num <= relayCount))
       {
         relays[index].disabled = 1;
         latched_relays[index].counter = (latched_relays[index].timeout * DELAY_COUNTER);
       }
-      if ((latched_relays[index].latched_num > 0) && (latched_relays[index].latched_num <= NUM_RELAYS))
+      if ((latched_relays[index].latched_num > 0) && (latched_relays[index].latched_num <= relayCount))
       {
         relays[latched_relays[index].latched_num - 1].disabled = 1;
         latched_relays[latched_relays[index].latched_num - 1].counter = (latched_relays[index].timeout * DELAY_COUNTER);
@@ -1361,7 +447,7 @@ void handleInterlock(uint8_t _relayNum)
   index = _relayNum - 1;
   bool doit = false;
 
-  if ((_relayNum > 0) && (_relayNum <= NUM_RELAYS))
+  if ((_relayNum > 0) && (_relayNum <= relayCount))
   {
     for (i = 0; i < sizeof(interlocked_buttons); i++)
     {
@@ -1393,18 +479,18 @@ void handlePulsed(uint8_t _relayNum)
   uint8_t i;
   uint8_t index;
 
-  if ((_relayNum > 0) && (_relayNum <= NUM_RELAYS))
+  if ((_relayNum > 0) && (_relayNum <= relayCount))
   {
     if (pulsed_relays[_relayNum - 1].timeout != 0)
     {
-      for (i = 1; i <= NUM_RELAYS; i++)
+      for (i = 1; i <= relayCount; i++)
       {
         index = i - 1;
         if (pulsed_relays[index].timeout != 0)
         {
           if (i == _relayNum)
           {
-            if ((pulsed_relays[index].relay_num > 0) && (pulsed_relays[index].relay_num <= NUM_RELAYS))
+            if ((pulsed_relays[index].relay_num > 0) && (pulsed_relays[index].relay_num <= relayCount))
             {
               relays[index].last = 1;
               pulsed_relays[index].counter = (pulsed_relays[index].timeout * DELAY_COUNTER);
@@ -1447,7 +533,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         if (cmd == "setLabel")
         {
           relayNum = command["relay"] | 0;
-          if ((relayNum > 0) && (relayNum <= NUM_RELAYS))
+          if ((relayNum > 0) && (relayNum <= relayCount))
           {
             assignRelayLabels(relayNum, String(command["on"] | ""), String(command["off"] | ""));
             saveRelayLabels();
@@ -1461,7 +547,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
 
           if (!labels.isNull())
           {
-            uint8_t count = labels.size() < NUM_RELAYS ? labels.size() : NUM_RELAYS;
+            uint8_t count = labels.size() < relayCount ? labels.size() : relayCount;
             for (uint8_t i = 0; i < count; i++)
             {
               JsonObject label = labels[i];
@@ -1471,7 +557,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
               }
 
               relayNum = label["relay"] | (i + 1);
-              if ((relayNum > 0) && (relayNum <= NUM_RELAYS))
+              if ((relayNum > 0) && (relayNum <= relayCount))
               {
                 assignRelayLabels(relayNum, String(label["on"] | ""), String(label["off"] | ""));
                 changed = true;
@@ -1583,7 +669,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
     }
     else if (str == "alloff")
     {
-      for (relayNum = 1; relayNum <= NUM_RELAYS; relayNum++)
+      for (relayNum = 1; relayNum <= relayCount; relayNum++)
       {
         relays[relayNum - 1].low();
         relays[relayNum - 1].update();
@@ -1593,7 +679,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
     else
     {
       relayNum = parseRelayNumberFromCommand(str);
-      if ((relayNum > 0) && (relayNum <= NUM_RELAYS))
+      if ((relayNum > 0) && (relayNum <= relayCount))
       {
         if (doLatched)
           handleLatch(relayNum);
@@ -1609,9 +695,10 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
 
     if (notify)
     {
-#if NUM_RELAYS == 16
-      writeRelaysToShiftRegister();
-#endif
+  if (useShiftRegister)
+  {
+    writeRelaysToShiftRegister();
+  }
       notifyClients();
     }
   }
@@ -1802,7 +889,7 @@ void initWiFi()
 //   {
 //       // extract the button number substring(startindex,endindex)
 //       relayNum = var.substring(6, var.length()).toInt();
-//       if ((relayNum > 0) && (relayNum < NUM_RELAYS))
+//       if ((relayNum > 0) && (relayNum < relayCount))
 //       {
 //         relayIndex = relayNum - 1;
 //         return relays[relayIndex].on ? "ON" : "OFF";
@@ -1823,40 +910,43 @@ void setup()
   onboard_led.on = !onboard_led.on_state;
   onboard_led.update();
 
-  // initialise relays
-  for (i = 0; i < NUM_RELAYS; i++)
-  {
-    relays[i].low();
-    relays[i].disabled = 0;
-    relays[i].last = 0;
-#if NUM_RELAYS == 8
-    pinMode(relays[i].pin, OUTPUT);
-#endif
-    relays[i].update();
-  }
-
-#if NUM_RELAYS == 16
-  digitalWrite(oePin, HIGH); // disable output
-  pinMode(oePin, OUTPUT);
-
-  digitalWrite(latchPin, HIGH); // latch idles high
-  pinMode(latchPin, OUTPUT);
-
-  digitalWrite(clockPin, LOW); // clock idles low
-  pinMode(clockPin, OUTPUT);
-
-  digitalWrite(dataPin, LOW); // data idles low
-  pinMode(dataPin, OUTPUT);
-
-  writeRelaysToShiftRegister();
-
-  digitalWrite(oePin, LOW); // enable output
-#endif
-
   // Mount Filesystem
   initLittleFS();
   loadRelayLabels();
   loadBoardConfig();
+  applyHardwareVariantPinsAndModes();
+
+  // initialise relays
+  for (i = 0; i < MAX_RELAYS; i++)
+  {
+    relays[i].low();
+    relays[i].disabled = 0;
+    relays[i].last = 0;
+    if (!useShiftRegister && i < relayCount && relays[i].pin != 255)
+    {
+      pinMode(relays[i].pin, OUTPUT);
+    }
+    relays[i].update();
+  }
+
+  if (useShiftRegister)
+  {
+    digitalWrite(oePin, HIGH); // disable output
+    pinMode(oePin, OUTPUT);
+
+    digitalWrite(latchPin, HIGH); // latch idles high
+    pinMode(latchPin, OUTPUT);
+
+    digitalWrite(clockPin, LOW); // clock idles low
+    pinMode(clockPin, OUTPUT);
+
+    digitalWrite(dataPin, LOW); // data idles low
+    pinMode(dataPin, OUTPUT);
+
+    writeRelaysToShiftRegister();
+
+    digitalWrite(oePin, LOW); // enable output
+  }
 
   if (wifiSsid.length() == 0)
   {
@@ -1871,19 +961,11 @@ void setup()
   initWebSocket();
   server.addHandler(&ws);
 
-#if NUM_RELAYS == 8
   // Route for root / web page
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
             {
     Serial.println("on /");
-    request->send(LittleFS, "/index.html", "text/html",false,nullptr); });
-#elif NUM_RELAYS == 16
-  // Route for root / web page
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
-    Serial.println("on /");
-    request->send(LittleFS, "/index16.html", "text/html",false,nullptr); });
-#endif
+    request->send(LittleFS, useShiftRegister ? "/index16.html" : "/index.html", "text/html",false,nullptr); });
 
   server.on("/netinfo", HTTP_GET, [](AsyncWebServerRequest *request)
             {
@@ -1942,6 +1024,7 @@ void setup()
     bool oldDoLatched = doLatched;
     bool oldDoInterlocked = doInterlocked;
     bool oldDoPulsed = doPulsed;
+    String oldHardwareVariant = hardwareVariant;
 
     boardName = name;
     doDelay = parseBool(getBodyParam("doDelay"), doDelay);
@@ -1958,6 +1041,21 @@ void setup()
     doLatched = parseBool(getBodyParam("doLatched"), doLatched);
     doInterlocked = parseBool(getBodyParam("doInterlocked"), doInterlocked);
     doPulsed = parseBool(getBodyParam("doPulsed"), doPulsed);
+
+    String requestedVariant = getBodyParam("hardwareVariant");
+    requestedVariant.trim();
+    requestedVariant.toLowerCase();
+    if (requestedVariant.length() == 0)
+    {
+      requestedVariant = hardwareVariant;
+    }
+    if (requestedVariant != kVariant8Relay && requestedVariant != kVariant16Relay)
+    {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid hardware variant\"}");
+      return;
+    }
+    hardwareVariant = requestedVariant;
+    applyHardwareVariantPinsAndModes();
 
     bool restartNeeded = false;
     bool useDhcp = parseBool(getBodyParam("useDhcp"), !useStaticIp);
@@ -2004,8 +1102,13 @@ void setup()
       restartNeeded = true;
     }
 
-    Serial.printf("/api/config: Attempting to save (name=%s, dhcp=%d, delay=%d, delaySeconds=%u, latched=%d, interlocked=%d, pulsed=%d)\n",
-                  name.c_str(), useDhcp, doDelay, startupDelaySeconds, doLatched, doInterlocked, doPulsed);
+    if (hardwareVariant != oldHardwareVariant)
+    {
+      restartNeeded = true;
+    }
+
+    Serial.printf("/api/config: Attempting to save (name=%s, dhcp=%d, delay=%d, delaySeconds=%u, latched=%d, interlocked=%d, pulsed=%d, variant=%s)\n",
+            name.c_str(), useDhcp, doDelay, startupDelaySeconds, doLatched, doInterlocked, doPulsed, hardwareVariant.c_str());
 
     if (!saveBoardConfig())
     {
@@ -2073,7 +1176,7 @@ void setup()
     };
 
     bool changed = false;
-    for (uint8_t relayNum = 1; relayNum <= NUM_RELAYS; relayNum++)
+    for (uint8_t relayNum = 1; relayNum <= relayCount; relayNum++)
     {
       String onKey = "relay" + String(relayNum) + "_on";
       String offKey = "relay" + String(relayNum) + "_off";
@@ -2196,7 +1299,7 @@ void loop()
       latched_timer = elapsed;
 
       // handle latched buttons
-      for (i = 0; i < NUM_RELAYS; i++)
+      for (i = 0; i < relayCount; i++)
       {
 
         if (doLatched)
@@ -2233,9 +1336,10 @@ void loop()
 
   if (notify)
   {
-#if NUM_RELAYS == 16
-    writeRelaysToShiftRegister();
-#endif
+    if (useShiftRegister)
+    {
+      writeRelaysToShiftRegister();
+    }
     notifyClients();
   }
 

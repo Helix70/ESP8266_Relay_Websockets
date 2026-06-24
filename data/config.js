@@ -20,6 +20,7 @@ var currentRelayModes = {
   doInterlocked: false,
   doPulsed: false
 };
+var currentHardwareVariant = '8relay';
 
 window.addEventListener('load', onLoad);
 
@@ -224,6 +225,15 @@ function onMessage(event) {
     applyBoardName(jsonObj.boardName);
   }
 
+  if (jsonObj.hardwareVariant) {
+    var variant = String(jsonObj.hardwareVariant).toLowerCase();
+    if (variant !== '8relay' && variant !== '16relay') {
+      variant = '8relay';
+    }
+    currentHardwareVariant = variant;
+    document.getElementById('hardwareVariantSelect').value = variant;
+  }
+
   var hasAllIpFields = !!(jsonObj.ipAddress && jsonObj.dns && jsonObj.gateway && jsonObj.subnet);
   var useDhcp = jsonObj.hasOwnProperty('useDhcp')
     ? !!jsonObj.useDhcp
@@ -333,6 +343,7 @@ function saveConfig() {
   var gatewayValue = document.getElementById('gatewayInput').value.trim();
   var subnetValue = document.getElementById('subnetInput').value.trim();
   var doDelayChecked = document.getElementById('doDelayCheckbox').checked;
+  var hardwareVariantValue = document.getElementById('hardwareVariantSelect').value;
   var doLatchedChecked = document.getElementById('doLatchedCheckbox').checked;
   var doInterlockedChecked = document.getElementById('doInterlockedCheckbox').checked;
   var doPulsedChecked = document.getElementById('doPulsedCheckbox').checked;
@@ -357,6 +368,7 @@ function saveConfig() {
   currentRelayModes.doLatched = doLatchedChecked;
   currentRelayModes.doInterlocked = doInterlockedChecked;
   currentRelayModes.doPulsed = doPulsedChecked;
+  currentHardwareVariant = (hardwareVariantValue === '16relay') ? '16relay' : '8relay';
 
   console.log('saveConfig: name=' + newName + ', dhcp=' + useDhcpChecked + ', ip=' + ipValue + ', dns=' + dnsValue);
 
@@ -412,6 +424,7 @@ function saveConfig() {
   form.set('doLatched', relayPayload.doLatched ? '1' : '0');
   form.set('doInterlocked', relayPayload.doInterlocked ? '1' : '0');
   form.set('doPulsed', relayPayload.doPulsed ? '1' : '0');
+  form.set('hardwareVariant', currentHardwareVariant);
 
   console.log('saveConfig: form data:', form.toString());
 
