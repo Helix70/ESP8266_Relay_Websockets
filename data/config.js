@@ -225,6 +225,10 @@ function onMessage(event) {
     applyBoardName(jsonObj.boardName);
   }
 
+  if (jsonObj.mcuType) {
+    document.getElementById('mcuTypeDisplay').value = String(jsonObj.mcuType);
+  }
+
   if (jsonObj.hardwareVariant) {
     var variant = String(jsonObj.hardwareVariant).toLowerCase();
     if (variant !== '8relay' && variant !== '16relay') {

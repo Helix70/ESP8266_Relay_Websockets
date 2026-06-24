@@ -1,0 +1,70 @@
+{
+  "labels": [
+    {
+      "on": "Tune Frequency Down",
+      "off": "Tune Frequency Down"
+    },
+    {
+      "on": "Tune Frequency Up",
+      "off": "Tune Frequency Up"
+    },
+    {
+      "on": "40Ω",
+      "off": "40Ω"
+    },
+    {
+      "on": "50Ω",
+      "off": "50Ω"
+    },
+    {
+      "on": "62Ω",
+      "off": "62Ω"
+    },
+    {
+      "on": "89Ω",
+      "off": "89Ω"
+    },
+    {
+      "on": "121Ω",
+      "off": "121Ω"
+    },
+    {
+      "on": "158Ω",
+      "off": "158Ω"
+    },
+    {
+      "on": "2200M",
+      "off": "2200M"
+    },
+    {
+      "on": "630M",
+      "off": "630M"
+    },
+    {
+      "on": "160M",
+      "off": "160M"
+    },
+    {
+      "on": "80M",
+      "off": "80M"
+    },
+    {
+      "on": "40M",
+      "off": "40M"
+    },
+    {
+      "on": "80M / 40M NVIS Dipole",
+      "off": "80M / 40M NVIS Dipole"
+    },
+    {
+      "on": "Short Western Tower",
+      "off": "Short Western Tower"
+    },
+    {
+      "on": "Relay 16 On",
+      "off": "Relay 16 Off"
+    }
+  ],
+  "relayCount": 16,
+  "title": "Western Tower"
+}

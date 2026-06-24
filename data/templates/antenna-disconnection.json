@@ -1,0 +1,38 @@
+{
+  "labels": [
+    {
+      "on": "Eastern Hut Reset",
+      "off": "Eastern Hut Reset"
+    },
+    {
+      "on": "Western Hut Reset",
+      "off": "Western Hut Reset"
+    },
+    {
+      "on": "Antenna Switch Closed",
+      "off": "Antenna Switch Closed"
+    },
+    {
+      "on": "Antenna Switch Open",
+      "off": "Antenna Switch Open"
+    },
+    {
+      "on": "Relay 5 On",
+      "off": "Relay 5 Off"
+    },
+    {
+      "on": "Relay 6 On",
+      "off": "Relay 6 Off"
+    },
+    {
+      "on": "Relay 7 On",
+      "off": "Relay 7 Off"
+    },
+    {
+      "on": "Relay 8 On",
+      "off": "Relay 8 Off"
+    }
+  ],
+  "relayCount": 8,
+  "title": "Antenna Disconnection Switch"
+}

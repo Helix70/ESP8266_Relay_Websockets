@@ -1,6 +1,7 @@
 var gateway = `ws://${window.location.hostname}/ws`;
 var websocket;
 var relayButtons = [];
+var allTemplates = [];
 
 window.addEventListener('load', onLoad);
 
@@ -23,6 +24,9 @@ function onLoad() {
   document.getElementById('backLabelsButton').addEventListener('click', function () {
     window.location.href = '/';
   });
+  document.getElementById('loadTemplateButton').addEventListener('click', loadSelectedTemplate);
+  document.getElementById('saveTemplateButton').addEventListener('click', saveAsTemplate);
+  loadTemplateList();
   initWebSocket();
 }
 
@@ -56,6 +60,7 @@ function onMessage(event) {
 
   relayButtons = jsonObj.buttons || [];
   renderRelayEditor();
+  refreshTemplateDropdown();
 }
 
 function renderRelayEditor() {
@@ -103,6 +108,117 @@ function renderRelayEditor() {
     card.appendChild(offInput);
     grid.appendChild(card);
   }
+}
+
+function loadTemplateList() {
+  fetch('/api/templates')
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      allTemplates = (data.templates || []).slice().sort(function (a, b) {
+        return a.title.localeCompare(b.title);
+      });
+      refreshTemplateDropdown();
+    })
+    .catch(function () {});
+}
+
+function refreshTemplateDropdown() {
+  var count = relayButtons.length;
+  var select = document.getElementById('templateSelect');
+  var previousValue = select.value;
+  while (select.options.length > 1) select.remove(1);
+  if (count === 0) return;
+  allTemplates
+    .filter(function (t) { return t.relayCount === count; })
+    .forEach(function (t) {
+      var opt = document.createElement('option');
+      opt.value = t.filename;
+      opt.textContent = t.title;
+      select.appendChild(opt);
+    });
+  select.value = previousValue;
+}
+
+function loadSelectedTemplate() {
+  var select = document.getElementById('templateSelect');
+  var filename = select.value;
+  if (!filename) return;
+
+  fetch('/templates/' + encodeURIComponent(filename))
+    .then(function (r) {
+      if (!r.ok) throw new Error('not found');
+      return r.json();
+    })
+    .then(function (data) {
+      var labels = data.labels || [];
+      var count = Math.min(labels.length, relayButtons.length);
+      for (var i = 0; i < count; i++) {
+        var relayId = relayButtons[i].id;
+        var onInput = document.getElementById('onLabel' + relayId);
+        var offInput = document.getElementById('offLabel' + relayId);
+        if (onInput) onInput.value = labels[i].on || '';
+        if (offInput) offInput.value = labels[i].off || '';
+      }
+    })
+    .catch(function (e) {
+      alert('Failed to load template: ' + e.message);
+    });
+}
+
+function saveAsTemplate() {
+  if (!relayButtons.length) {
+    alert('Relay labels are not ready yet. Try again in a moment.');
+    return;
+  }
+
+  var title = document.getElementById('templateTitle').value.trim();
+  if (!title) {
+    alert('Please enter a template name.');
+    return;
+  }
+
+  var form = new URLSearchParams();
+  form.set('title', title);
+  form.set('relayCount', String(relayButtons.length));
+  for (var i = 0; i < relayButtons.length; i++) {
+    var relayId = relayButtons[i].id;
+    var onVal = (document.getElementById('onLabel' + relayId).value || '').trim();
+    var offVal = (document.getElementById('offLabel' + relayId).value || '').trim();
+    form.set('relay' + relayId + '_on', onVal);
+    form.set('relay' + relayId + '_off', offVal);
+  }
+
+  var btn = document.getElementById('saveTemplateButton');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  fetch('/api/templates', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+    body: form.toString()
+  })
+    .then(function (r) {
+      return r.json().catch(function () {
+        return { ok: false, error: 'invalid response' };
+      }).then(function (json) {
+        return { ok: r.ok, body: json };
+      });
+    })
+    .then(function (result) {
+      if (!result.ok || !result.body.ok) {
+        throw new Error(result.body.error || 'save failed');
+      }
+      document.getElementById('templateTitle').value = '';
+      loadTemplateList();
+      alert('Template "' + title + '" saved.');
+    })
+    .catch(function (e) {
+      alert('Save failed: ' + e.message);
+    })
+    .finally(function () {
+      btn.disabled = false;
+      btn.textContent = 'Save Template';
+    });
 }
 
 function saveLabels() {

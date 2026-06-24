@@ -1,0 +1,38 @@
+{
+  "labels": [
+    {
+      "on": "Butternut",
+      "off": "Butternut"
+    },
+    {
+      "on": "80 Metres",
+      "off": "80 Metres"
+    },
+    {
+      "on": "160 Metres",
+      "off": "160 Metres"
+    },
+    {
+      "on": "Relay 4 On",
+      "off": "Relay 4 Off"
+    },
+    {
+      "on": "Relay 5 On",
+      "off": "Relay 5 Off"
+    },
+    {
+      "on": "Relay 6 On",
+      "off": "Relay 6 Off"
+    },
+    {
+      "on": "NVIS Dipole",
+      "off": "NVIS Dipole"
+    },
+    {
+      "on": "Relay 8 On",
+      "off": "Relay 8 Off"
+    }
+  ],
+  "relayCount": 8,
+  "title": "LDG Antenna Switch"
+}

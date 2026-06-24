@@ -331,3 +331,46 @@ td {
 .delay-section {
   margin-top: 12px;
 }
+
+.template-section,
+.save-template-section {
+  background-color: #F8F7F9;
+  box-shadow: 2px 2px 12px 1px rgba(140, 140, 140, .5);
+  border-radius: 9px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  text-align: left;
+}
+
+.template-section-title {
+  margin: 0 0 10px 0;
+  font-size: 1.05rem;
+  color: #143642;
+}
+
+.template-row,
+.template-save-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.template-select {
+  flex: 1;
+  padding: 8px;
+  border: 1px solid #b9c4c8;
+  border-radius: 5px;
+  font-size: 0.95rem;
+  background: #fff;
+}
+
+.template-save-row .config-input {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.button-inline {
+  width: auto;
+  white-space: nowrap;
+  flex-shrink: 0;
+}

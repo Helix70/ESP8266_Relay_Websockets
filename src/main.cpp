@@ -383,6 +383,13 @@ void notifyClients()
   JSONdoc["doPulsed"] = doPulsed;
   JSONdoc["hardwareVariant"] = hardwareVariant;
   JSONdoc["relayCount"] = relayCount;
+#if defined(ESP8266)
+  JSONdoc["mcuType"] = "ESP8266";
+#elif defined(ESP32)
+  JSONdoc["mcuType"] = "ESP32";
+#else
+  JSONdoc["mcuType"] = "Unknown";
+#endif
 
   String payload;
   serializeJson(JSONdoc, payload);
@@ -1202,6 +1209,131 @@ void setup()
     notifyClients();
 
     request->send(200, "application/json", "{\"ok\":true}");
+  });
+
+  server.on("/api/templates", HTTP_GET, [](AsyncWebServerRequest *request) {
+    DynamicJsonDocument doc(4096);
+    JsonArray arr = doc.createNestedArray("templates");
+
+    if (LittleFS.exists("/templates")) {
+#if defined(ESP8266)
+      Dir dir = LittleFS.openDir("/templates");
+      while (dir.next()) {
+        if (!dir.isFile()) continue;
+        String fname = dir.fileName();
+        if (!fname.endsWith(".json")) continue;
+        File f = dir.openFile("r");
+        DynamicJsonDocument td(2048);
+        if (deserializeJson(td, f) == DeserializationError::Ok) {
+          JsonObject t = arr.createNestedObject();
+          t["filename"] = fname;
+          t["title"] = td["title"] | fname.c_str();
+          t["relayCount"] = td["relayCount"] | 8;
+        }
+        f.close();
+      }
+#elif defined(ESP32)
+      File root = LittleFS.open("/templates");
+      if (root && root.isDirectory()) {
+        File f = root.openNextFile();
+        while (f) {
+          if (!f.isDirectory()) {
+            String fname = String(f.name());
+            int slash = fname.lastIndexOf('/');
+            if (slash >= 0) fname = fname.substring(slash + 1);
+            if (fname.endsWith(".json")) {
+              DynamicJsonDocument td(2048);
+              if (deserializeJson(td, f) == DeserializationError::Ok) {
+                JsonObject t = arr.createNestedObject();
+                t["filename"] = fname;
+                t["title"] = td["title"] | fname.c_str();
+                t["relayCount"] = td["relayCount"] | 8;
+              }
+            }
+          }
+          f = root.openNextFile();
+        }
+      }
+#endif
+    }
+
+    String payload;
+    serializeJson(doc, payload);
+    request->send(200, "application/json", payload);
+  });
+
+  server.on("/api/templates", HTTP_POST, [](AsyncWebServerRequest *request) {
+    auto getBodyParam = [request](const char *name) -> String {
+      if (request->hasParam(name, true)) {
+        return request->getParam(name, true)->value();
+      }
+      return "";
+    };
+
+    String title = getBodyParam("title");
+    title.trim();
+    if (title.length() == 0) {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"title required\"}");
+      return;
+    }
+    if (title.length() > 64) title = title.substring(0, 64);
+
+    int rc = getBodyParam("relayCount").toInt();
+    if (rc <= 0 || rc > 16) rc = (int)relayCount;
+
+    // Build a safe filename from the title
+    String filename = "";
+    for (size_t i = 0; i < title.length() && filename.length() < 48; i++) {
+      char c = title[i];
+      if (isAlphaNumeric(c)) {
+        filename += (char)tolower(c);
+      } else if ((c == ' ' || c == '-' || c == '_') &&
+                 filename.length() > 0 &&
+                 filename[filename.length() - 1] != '-') {
+        filename += '-';
+      }
+    }
+    while (filename.length() > 0 && filename[filename.length() - 1] == '-') {
+      filename = filename.substring(0, filename.length() - 1);
+    }
+    if (filename.length() == 0) filename = "template";
+    filename += ".json";
+
+    if (!LittleFS.exists("/templates")) {
+      LittleFS.mkdir("/templates");
+    }
+
+    DynamicJsonDocument doc(4096);
+    doc["title"] = title;
+    doc["relayCount"] = rc;
+    JsonArray labels = doc.createNestedArray("labels");
+    for (int i = 1; i <= rc; i++) {
+      String onKey = "relay" + String(i) + "_on";
+      String offKey = "relay" + String(i) + "_off";
+      String onLabel = getBodyParam(onKey.c_str());
+      String offLabel = getBodyParam(offKey.c_str());
+      onLabel.trim();
+      offLabel.trim();
+      JsonObject label = labels.createNestedObject();
+      label["on"] = onLabel;
+      label["off"] = offLabel;
+    }
+
+    File f = LittleFS.open("/templates/" + filename, "w");
+    if (!f) {
+      request->send(500, "application/json", "{\"ok\":false,\"error\":\"save failed\"}");
+      return;
+    }
+    serializeJson(doc, f);
+    f.close();
+    Serial.printf("Saved template: /templates/%s\n", filename.c_str());
+
+    DynamicJsonDocument response(256);
+    response["ok"] = true;
+    response["filename"] = filename;
+    String payload;
+    serializeJson(response, payload);
+    request->send(200, "application/json", payload);
   });
 
   server.serveStatic("/", LittleFS, "/");

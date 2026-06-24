@@ -3,6 +3,7 @@
 
 <head>
   <title>Relay Board - Configuration</title>
+  <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" type="text/css" href="style.css">
@@ -47,14 +48,21 @@
     </div>
 
     <div class="config-card">
-      <h3>Relay Modes</h3>
+      <h3>Board Hardware</h3>
 
-      <label for="hardwareVariantSelect" class="config-input-label">Hardware Variant:</label>
+      <label class="config-input-label">MCU Type:</label>
+      <input type="text" id="mcuTypeDisplay" class="config-input" readonly value="—">
+
+      <label for="hardwareVariantSelect" class="config-input-label">Number of Relays:</label>
       <select id="hardwareVariantSelect" class="config-input">
-        <option value="8relay">8 Relay (GPIO board)</option>
-        <option value="16relay">16 Relay (Shift register board)</option>
+        <option value="8relay">8 Relays</option>
+        <option value="16relay">16 Relays</option>
       </select>
-      <p class="config-note">Select the board type used by this firmware. Changing this setting requires restart.</p>
+      <p class="config-note">MCU type is set at firmware compile time. Changing the relay count requires a restart.</p>
+    </div>
+
+    <div class="config-card">
+      <h3>Relay Modes</h3>
 
       <label class="config-checkbox-label">
         <input type="checkbox" id="doDelayCheckbox" class="config-checkbox">

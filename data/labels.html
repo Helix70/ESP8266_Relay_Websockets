@@ -3,6 +3,7 @@
 
 <head>
   <title>Relay Board - Edit Labels</title>
+  <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" type="text/css" href="style.css">
@@ -14,8 +15,27 @@
   </div>
 
   <div class="labels-page">
+    <div class="template-section">
+      <h3 class="template-section-title">Load Template</h3>
+      <div class="template-row">
+        <select id="templateSelect" class="template-select">
+          <option value="">-- Select a template --</option>
+        </select>
+        <button id="loadTemplateButton" class="button button-inline">Load</button>
+      </div>
+    </div>
+
     <p class="labels-note">If ON label is left blank, it will use the OFF label.</p>
     <div id="relay-label-grid" class="relay-label-grid"></div>
+
+    <div class="save-template-section">
+      <h3 class="template-section-title">Save as Template</h3>
+      <div class="template-save-row">
+        <input type="text" id="templateTitle" class="config-input" placeholder="Template name" maxlength="64">
+        <button id="saveTemplateButton" class="button button-inline">Save Template</button>
+      </div>
+    </div>
+
     <div class="config-buttons">
       <p><button id="saveLabels" class="button">Save</button></p>
       <p><button id="backLabelsButton" class="button">Back</button></p>

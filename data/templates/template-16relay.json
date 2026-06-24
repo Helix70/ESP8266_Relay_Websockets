@@ -1,0 +1,70 @@
+{
+  "labels": [
+    {
+      "on": "Relay 1 On",
+      "off": "Relay 1 Off"
+    },
+    {
+      "on": "Relay 2 On",
+      "off": "Relay 2 Off"
+    },
+    {
+      "on": "Relay 3 On",
+      "off": "Relay 3 Off"
+    },
+    {
+      "on": "Relay 4 On",
+      "off": "Relay 4 Off"
+    },
+    {
+      "on": "Relay 5 On",
+      "off": "Relay 5 Off"
+    },
+    {
+      "on": "Relay 6 On",
+      "off": "Relay 6 Off"
+    },
+    {
+      "on": "Relay 7 On",
+      "off": "Relay 7 Off"
+    },
+    {
+      "on": "Relay 8 On",
+      "off": "Relay 8 Off"
+    },
+    {
+      "on": "Relay 9 On",
+      "off": "Relay 9 Off"
+    },
+    {
+      "on": "Relay 10 On",
+      "off": "Relay 10 Off"
+    },
+    {
+      "on": "Relay 11 On",
+      "off": "Relay 11 Off"
+    },
+    {
+      "on": "Relay 12 On",
+      "off": "Relay 12 Off"
+    },
+    {
+      "on": "Relay 13 On",
+      "off": "Relay 13 Off"
+    },
+    {
+      "on": "Relay 14 On",
+      "off": "Relay 14 Off"
+    },
+    {
+      "on": "Relay 15 On",
+      "off": "Relay 15 Off"
+    },
+    {
+      "on": "Relay 16 On",
+      "off": "Relay 16 Off"
+    }
+  ],
+  "relayCount": 16,
+  "title": "16 Relay Template"
+}
