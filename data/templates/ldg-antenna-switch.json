@@ -1,38 +1,14 @@
 {
-  "labels": [
-    {
-      "on": "Butternut",
-      "off": "Butternut"
-    },
-    {
-      "on": "80 Metres",
-      "off": "80 Metres"
-    },
-    {
-      "on": "160 Metres",
-      "off": "160 Metres"
-    },
-    {
-      "on": "Relay 4 On",
-      "off": "Relay 4 Off"
-    },
-    {
-      "on": "Relay 5 On",
-      "off": "Relay 5 Off"
-    },
-    {
-      "on": "Relay 6 On",
-      "off": "Relay 6 Off"
-    },
-    {
-      "on": "NVIS Dipole",
-      "off": "NVIS Dipole"
-    },
-    {
-      "on": "Relay 8 On",
-      "off": "Relay 8 Off"
-    }
-  ],
+  "title": "LDG Antenna Switch",
   "relayCount": 8,
-  "title": "LDG Antenna Switch"
+  "labels": [
+    { "on": "Butternut",    "off": "Butternut",    "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "80 Metres",    "off": "80 Metres",    "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "160 Metres",   "off": "160 Metres",   "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "Relay 4 On",   "off": "Relay 4 Off",  "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "Relay 5 On",   "off": "Relay 5 Off",  "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "Relay 6 On",   "off": "Relay 6 Off",  "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "NVIS Dipole",  "off": "NVIS Dipole",  "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "Relay 8 On",   "off": "Relay 8 Off",  "mode": "onoff", "group": 0, "pulseTimeout": 1 }
+  ]
 }

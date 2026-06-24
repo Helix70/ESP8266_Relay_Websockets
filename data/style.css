@@ -110,12 +110,6 @@ td {
   -webkit-border-radius: 9px;
 }
 
-.content {
-  padding: 30px;
-  max-width: 600px;
-  margin: 0 auto;
-}
-
 .card {
   width: 40%;
   background-color: #F8F7F9;
@@ -215,9 +209,44 @@ td {
 }
 
 .relay-label-card h3 {
-  margin: 0 0 8px 0;
+  margin: 0 0 4px 0;
   font-size: 1.05rem;
   color: #143642;
+}
+
+.setup-incomplete {
+  margin: 40px auto;
+  max-width: 420px;
+  text-align: center;
+  padding: 30px 24px;
+  background: #16213a;
+  border-radius: 8px;
+  border: 1px solid #e74c3c;
+  color: #ecf0f1;
+}
+
+.setup-incomplete p {
+  margin: 0 0 18px 0;
+  font-size: 1.05rem;
+  color: #e0e0e0;
+}
+
+.setup-incomplete p:last-child {
+  margin-bottom: 0;
+}
+
+.setup-incomplete .button {
+  display: inline-block;
+  width: auto;
+  padding: 10px 22px;
+  text-decoration: none;
+}
+
+.relay-gpio-info {
+  margin: 0 0 10px 0;
+  font-size: 0.8rem;
+  color: #6b7f86;
+  font-family: monospace;
 }
 
 .relay-input-label {
@@ -301,11 +330,6 @@ td {
   margin: 8px 0;
 }
 
-.board-name-header {
-  margin-top: 0;
-  font-size: 1.8rem;
-}
-
 .config-checkbox-label {
   display: flex;
   align-items: center;
@@ -373,4 +397,44 @@ td {
   width: auto;
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+.board-config-card {
+  margin-bottom: 14px;
+}
+
+.board-active-badge {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: #1abc9c;
+  color: #fff;
+  vertical-align: middle;
+}
+
+.board-editor {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid #2c3e50;
+}
+
+.config-input-label {
+  display: block;
+  font-size: 0.85rem;
+  color: #b2bec3;
+  margin: 10px 0 3px 0;
+}
+
+.config-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid #2c3e50;
+  background: #1a2535;
+  color: #ecf0f1;
+  font-size: 0.9rem;
 }

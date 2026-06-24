@@ -20,13 +20,15 @@
           <span></span>
         </button>
         <div id="menuDropdown" class="menu-dropdown" aria-label="Navigation menu">
-          <a href="/labels.html" class="menu-item">Edit Labels</a>
+          <a href="/relay-config.html" class="menu-item">Relay Configuration</a>
           <a href="/config.html" class="menu-item">Board Configuration</a>
+          <a href="/boards.html" class="menu-item">Board Hardware</a>
         </div>
       </div>
     </div>
   </div>
-  <table>
+  <div id="setup-incomplete" class="setup-incomplete" style="display:none"></div>
+  <table id="relay-table">
     <tr>
       <td class="card">
         <p><button id="relay1toggle" class="button"><span class="on">Relay 1 On</span><span class="off">Relay 1 Off</span></button></p>

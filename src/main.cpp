@@ -26,6 +26,7 @@
 
 #include "config_store.h"
 #include "provisioning_portal.h"
+#include "board_hardware.h"
 #include "serial_provision.h"
 #include "storage_utils.h"
 
@@ -36,9 +37,6 @@
 uint32_t elapsed = 0;
 uint32_t timer = 0;
 uint32_t latched_timer = 0;
-
-#define COUNTDOWN_TIMEOUT_MS 5000
-uint32_t countdown = 0;
 
 // Create AsyncWebServer object on port 80
 AsyncWebServer server(80);
@@ -113,38 +111,24 @@ struct OutputPin
   uint8_t state() { return on; }
 };
 
-struct RelayLabel
-{
-  String on;
-  String off;
-};
-
 static const uint8_t MAX_RELAYS = 16;
 static const char *kVariant8Relay = "8relay";
 static const char *kVariant16Relay = "16relay";
 
-String hardwareVariant = kVariant8Relay;
-uint8_t relayCount = 8;
+String hardwareVariant = ""; // set by loadBoardConfig(); empty = not yet configured
+uint8_t relayCount = 0;
 bool useShiftRegister = false;
 
 RelayLabel relayLabels[MAX_RELAYS];
 
-#if defined(ESP8266)
-OutputPin onboard_led = {LED_BUILTIN, false, HIGH, false};
-#elif defined(ESP32)
-OutputPin onboard_led = {23, false, HIGH, false};
-#endif
+// Pin set at startup from board hardware config
+OutputPin onboard_led = {255, false, HIGH, false};
 
 OutputPin relays[MAX_RELAYS] = {
   {255, false, HIGH, false}, {255, false, HIGH, false}, {255, false, HIGH, false}, {255, false, HIGH, false},
   {255, false, HIGH, false}, {255, false, HIGH, false}, {255, false, HIGH, false}, {255, false, HIGH, false},
   {255, false, HIGH, false}, {255, false, HIGH, false}, {255, false, HIGH, false}, {255, false, HIGH, false},
   {255, false, HIGH, false}, {255, false, HIGH, false}, {255, false, HIGH, false}, {255, false, HIGH, false}};
-
-const int latchPin = 12;
-const int clockPin = 13;
-const int dataPin = 14;
-int oePin = 5;
 const int numRegisters = 2;
 byte outputData[numRegisters];
 
@@ -179,14 +163,31 @@ Pulse pulsed_relays[MAX_RELAYS] = {
 
 void applyHardwareVariantPinsAndModes()
 {
+  if (hardwareVariant.length() == 0)
+  {
+    relayCount = 0;
+    Serial.println("Hardware variant not configured — relay outputs disabled");
+    return;
+  }
+
+  // Load hardware config from filesystem (falls back to hardcoded defaults)
+  loadBoardHardware(hardwareVariant);
+
+  relayCount       = activeBoardHardware.relayCount;
+  useShiftRegister = (activeBoardHardware.outputType == BOARD_OUTPUT_SHIFTREGISTER);
+  onboard_led.pin  = activeBoardHardware.ledPin;
+
+  for (uint8_t i = 0; i < MAX_RELAYS; i++)
+    relays[i].pin = 255;
+
+  if (!useShiftRegister)
+  {
+    for (uint8_t i = 0; i < relayCount && i < MAX_RELAYS; i++)
+      relays[i].pin = activeBoardHardware.relayPins[i];
+  }
+
   if (hardwareVariant == kVariant16Relay)
   {
-    relayCount = 16;
-    useShiftRegister = true;
-    for (uint8_t i = 0; i < MAX_RELAYS; i++)
-    {
-      relays[i].pin = 255;
-    }
     for (uint8_t i = 0; i < MAX_RELAYS; i++)
     {
       latched_relays[i].relay_num = i + 1;
@@ -201,22 +202,6 @@ void applyHardwareVariantPinsAndModes()
   else
   {
     hardwareVariant = kVariant8Relay;
-    relayCount = 8;
-    useShiftRegister = false;
-
-#if defined(ESP8266)
-    uint8_t pins8[8] = {16, 14, 12, 13, 15, 0, 4, 5};
-#else
-    uint8_t pins8[8] = {32, 33, 25, 26, 27, 14, 12, 13};
-#endif
-    for (uint8_t i = 0; i < 8; i++)
-    {
-      relays[i].pin = pins8[i];
-    }
-    for (uint8_t i = 8; i < MAX_RELAYS; i++)
-    {
-      relays[i].pin = 255;
-    }
 
     uint8_t latchedPair[8] = {0, 0, 0, 0, 6, 5, 8, 7};
     uint8_t latchedTimeout[8] = {0, 2, 0, 0, 0, 0, 0, 0};
@@ -355,12 +340,16 @@ void notifyClients()
   for (int i = 0; i < relayCount; i++)
   {
     JsonObject button = array.createNestedObject();
-    button["id"] = i + 1;
-    button["on"] = relays[i].on;
-    button["disabled"] = relays[i].disabled;
-    button["last"] = relays[i].last;
-    button["onLabel"] = relayLabels[i].on;
-    button["offLabel"] = relayLabels[i].off;
+    button["id"]           = i + 1;
+    button["on"]           = relays[i].on;
+    button["disabled"]     = relays[i].disabled;
+    button["last"]         = relays[i].last;
+    button["onLabel"]      = relayLabels[i].on;
+    button["offLabel"]     = relayLabels[i].off;
+    button["mode"]         = relayLabels[i].mode;
+    button["group"]        = relayLabels[i].group;
+    button["pulseTimeout"] = relayLabels[i].pulseTimeout;
+    button["gpio"]         = (relays[i].pin == 255) ? -1 : (int)relays[i].pin;
   }
   JSONdoc["boardName"] = boardName;
   JSONdoc["useStaticIp"] = useStaticIp;
@@ -381,8 +370,11 @@ void notifyClients()
   JSONdoc["doLatched"] = doLatched;
   JSONdoc["doInterlocked"] = doInterlocked;
   JSONdoc["doPulsed"] = doPulsed;
-  JSONdoc["hardwareVariant"] = hardwareVariant;
-  JSONdoc["relayCount"] = relayCount;
+  JSONdoc["setupComplete"]      = (relayCount > 0 && hardwareVariant.length() > 0);
+  JSONdoc["hardwareVariant"]    = hardwareVariant;
+  JSONdoc["relayCount"]         = relayCount;
+  JSONdoc["boardHardwareFile"]  = boardHardwarePath(hardwareVariant);
+  JSONdoc["boardHardwareName"]  = activeBoardHardware.name;
 #if defined(ESP8266)
   JSONdoc["mcuType"] = "ESP8266";
 #elif defined(ESP32)
@@ -415,14 +407,14 @@ void writeRelaysToShiftRegister()
     }
   }
 
-  digitalWrite(latchPin, LOW);
+  digitalWrite(activeBoardHardware.srLatchPin, LOW);
   for (int i = numRegisters; i > 0; i--)
   {
-    shiftOut(dataPin, clockPin, MSBFIRST, outputData[i - 1]);
+    shiftOut(activeBoardHardware.srDataPin, activeBoardHardware.srClockPin, MSBFIRST, outputData[i - 1]);
   }
-  digitalWrite(dataPin, LOW);
-  digitalWrite(clockPin, LOW);
-  digitalWrite(latchPin, HIGH);
+  digitalWrite(activeBoardHardware.srDataPin,  LOW);
+  digitalWrite(activeBoardHardware.srClockPin, LOW);
+  digitalWrite(activeBoardHardware.srLatchPin, HIGH);
 }
 
 void handleLatch(uint8_t _relayNum)
@@ -543,6 +535,16 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
           if ((relayNum > 0) && (relayNum <= relayCount))
           {
             assignRelayLabels(relayNum, String(command["on"] | ""), String(command["off"] | ""));
+            if (command.containsKey("mode"))
+            {
+              String modeStr = String(command["mode"] | "onoff");
+              uint8_t mode   = RELAY_MODE_ONOFF;
+              if (modeStr == "interlocked") mode = RELAY_MODE_INTERLOCKED;
+              else if (modeStr == "pulsed") mode = RELAY_MODE_PULSED;
+              assignRelayMode(relayNum, mode,
+                              (uint8_t)(command["group"] | (uint8_t)0),
+                              (uint8_t)(command["pulseTimeout"] | (uint8_t)1));
+            }
             saveRelayLabels();
             notify = true;
           }
@@ -558,15 +560,19 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
             for (uint8_t i = 0; i < count; i++)
             {
               JsonObject label = labels[i];
-              if (label.isNull())
-              {
-                continue;
-              }
+              if (label.isNull()) continue;
 
               relayNum = label["relay"] | (i + 1);
               if ((relayNum > 0) && (relayNum <= relayCount))
               {
                 assignRelayLabels(relayNum, String(label["on"] | ""), String(label["off"] | ""));
+                String modeStr = String(label["mode"] | "onoff");
+                uint8_t mode   = RELAY_MODE_ONOFF;
+                if (modeStr == "interlocked") mode = RELAY_MODE_INTERLOCKED;
+                else if (modeStr == "pulsed") mode = RELAY_MODE_PULSED;
+                assignRelayMode(relayNum, mode,
+                                (uint8_t)(label["group"] | (uint8_t)0),
+                                (uint8_t)(label["pulseTimeout"] | (uint8_t)1));
                 changed = true;
               }
             }
@@ -680,6 +686,8 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
       {
         relays[relayNum - 1].low();
         relays[relayNum - 1].update();
+        relays[relayNum - 1].disabled = 0;
+        pulsed_relays[relayNum - 1].counter = 0;
       }
       notify = true;
     }
@@ -688,15 +696,58 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
       relayNum = parseRelayNumberFromCommand(str);
       if ((relayNum > 0) && (relayNum <= relayCount))
       {
-        if (doLatched)
-          handleLatch(relayNum);
-        if (doInterlocked)
-          handleInterlock(relayNum);
-        if (doPulsed)
-          handlePulsed(relayNum);
-        relays[relayNum - 1].toggle();
-        relays[relayNum - 1].update();
-        notify = true;
+        uint8_t idx   = relayNum - 1;
+        uint8_t rmode = relayLabels[idx].mode;
+
+        if (rmode == RELAY_MODE_PULSED && relays[idx].disabled)
+        {
+          // Relay is locked mid-pulse — ignore press, just refresh client
+          notify = true;
+        }
+        else if (rmode == RELAY_MODE_INTERLOCKED)
+        {
+          uint8_t grp      = relayLabels[idx].group;
+          bool    turningOn = !relays[idx].on;
+          relays[idx].toggle();
+          relays[idx].update();
+          if (turningOn && grp > 0)
+          {
+            for (uint8_t j = 0; j < relayCount; j++)
+            {
+              if (j != idx &&
+                  relayLabels[j].mode == RELAY_MODE_INTERLOCKED &&
+                  relayLabels[j].group == grp)
+              {
+                relays[j].low();
+                relays[j].update();
+              }
+            }
+          }
+          notify = true;
+        }
+        else if (rmode == RELAY_MODE_PULSED)
+        {
+          uint8_t pt = relayLabels[idx].pulseTimeout;
+          if (pt == 0 || pt > 30) pt = 1;
+          relays[idx].high();
+          relays[idx].update();
+          relays[idx].disabled           = 1;
+          pulsed_relays[idx].counter     = (uint32_t)pt * DELAY_COUNTER;
+          notify = true;
+        }
+        else
+        {
+          // RELAY_MODE_ONOFF: standard toggle with global-mode handling
+          if (doLatched)
+            handleLatch(relayNum);
+          if (doInterlocked)
+            handleInterlock(relayNum);
+          if (doPulsed)
+            handlePulsed(relayNum);
+          relays[idx].toggle();
+          relays[idx].update();
+          notify = true;
+        }
       }
     }
 
@@ -886,25 +937,7 @@ void initWiFi()
   }
 }
 
-// String processor(const String &var)
-// {
-//   Serial.println(var);
 
-//   int relayNum, relayIndex;
-//   // check for buttonx or buttonxx
-//   if (var.startsWith("button"))
-//   {
-//       // extract the button number substring(startindex,endindex)
-//       relayNum = var.substring(6, var.length()).toInt();
-//       if ((relayNum > 0) && (relayNum < relayCount))
-//       {
-//         relayIndex = relayNum - 1;
-//         return relays[relayIndex].on ? "ON" : "OFF";
-//       }
-//   }
-
-//   return String();
-// }
 
 void setup()
 {
@@ -913,15 +946,20 @@ void setup()
   // Serial port for debugging purposes
   Serial.begin(115200);
 
-  pinMode(onboard_led.pin, OUTPUT);
-  onboard_led.on = !onboard_led.on_state;
-  onboard_led.update();
-
   // Mount Filesystem
   initLittleFS();
-  loadRelayLabels();
+  bool labelsFound = loadRelayLabels();
   loadBoardConfig();
-  applyHardwareVariantPinsAndModes();
+  applyHardwareVariantPinsAndModes(); // also loads board hardware config
+
+  if (!labelsFound && relayCount > 0)
+    loadLabelsFromTemplate(relayCount);
+
+  // LED pin is now sourced from board hardware config
+  if (onboard_led.pin != 255)
+    pinMode(onboard_led.pin, OUTPUT);
+  onboard_led.on = !onboard_led.on_state;
+  onboard_led.update();
 
   // initialise relays
   for (i = 0; i < MAX_RELAYS; i++)
@@ -938,21 +976,21 @@ void setup()
 
   if (useShiftRegister)
   {
-    digitalWrite(oePin, HIGH); // disable output
-    pinMode(oePin, OUTPUT);
+    digitalWrite(activeBoardHardware.srOePin,    HIGH); // disable output
+    pinMode(activeBoardHardware.srOePin,    OUTPUT);
 
-    digitalWrite(latchPin, HIGH); // latch idles high
-    pinMode(latchPin, OUTPUT);
+    digitalWrite(activeBoardHardware.srLatchPin, HIGH); // latch idles high
+    pinMode(activeBoardHardware.srLatchPin, OUTPUT);
 
-    digitalWrite(clockPin, LOW); // clock idles low
-    pinMode(clockPin, OUTPUT);
+    digitalWrite(activeBoardHardware.srClockPin, LOW);  // clock idles low
+    pinMode(activeBoardHardware.srClockPin, OUTPUT);
 
-    digitalWrite(dataPin, LOW); // data idles low
-    pinMode(dataPin, OUTPUT);
+    digitalWrite(activeBoardHardware.srDataPin,  LOW);  // data idles low
+    pinMode(activeBoardHardware.srDataPin,  OUTPUT);
 
     writeRelaysToShiftRegister();
 
-    digitalWrite(oePin, LOW); // enable output
+    digitalWrite(activeBoardHardware.srOePin,    LOW);  // enable output
   }
 
   if (wifiSsid.length() == 0)
@@ -1185,11 +1223,18 @@ void setup()
     bool changed = false;
     for (uint8_t relayNum = 1; relayNum <= relayCount; relayNum++)
     {
-      String onKey = "relay" + String(relayNum) + "_on";
-      String offKey = "relay" + String(relayNum) + "_off";
-      String onLabel = getBodyParam(onKey.c_str());
-      String offLabel = getBodyParam(offKey.c_str());
+      String prefix   = "relay" + String(relayNum);
+      String onLabel  = getBodyParam((prefix + "_on").c_str());
+      String offLabel = getBodyParam((prefix + "_off").c_str());
       assignRelayLabels(relayNum, onLabel, offLabel);
+
+      String modeStr  = getBodyParam((prefix + "_mode").c_str());
+      uint8_t mode    = RELAY_MODE_ONOFF;
+      if (modeStr == "interlocked") mode = RELAY_MODE_INTERLOCKED;
+      else if (modeStr == "pulsed") mode = RELAY_MODE_PULSED;
+      uint8_t group   = (uint8_t)getBodyParam((prefix + "_group").c_str()).toInt();
+      uint8_t pt      = (uint8_t)getBodyParam((prefix + "_pulseTimeout").c_str()).toInt();
+      assignRelayMode(relayNum, mode, group, pt);
       changed = true;
     }
 
@@ -1308,15 +1353,24 @@ void setup()
     doc["relayCount"] = rc;
     JsonArray labels = doc.createNestedArray("labels");
     for (int i = 1; i <= rc; i++) {
-      String onKey = "relay" + String(i) + "_on";
-      String offKey = "relay" + String(i) + "_off";
-      String onLabel = getBodyParam(onKey.c_str());
-      String offLabel = getBodyParam(offKey.c_str());
+      String prefix   = "relay" + String(i);
+      String onLabel  = getBodyParam((prefix + "_on").c_str());
+      String offLabel = getBodyParam((prefix + "_off").c_str());
       onLabel.trim();
       offLabel.trim();
-      JsonObject label = labels.createNestedObject();
-      label["on"] = onLabel;
-      label["off"] = offLabel;
+
+      String modeStr  = getBodyParam((prefix + "_mode").c_str());
+      if (modeStr != "interlocked" && modeStr != "pulsed") modeStr = "onoff";
+      uint8_t group   = (uint8_t)getBodyParam((prefix + "_group").c_str()).toInt();
+      uint8_t pt      = (uint8_t)getBodyParam((prefix + "_pulseTimeout").c_str()).toInt();
+      if (pt == 0 || pt > 30) pt = 1;
+
+      JsonObject label    = labels.createNestedObject();
+      label["on"]          = onLabel;
+      label["off"]         = offLabel;
+      label["mode"]        = modeStr;
+      label["group"]       = group;
+      label["pulseTimeout"] = pt;
     }
 
     File f = LittleFS.open("/templates/" + filename, "w");
@@ -1334,6 +1388,153 @@ void setup()
     String payload;
     serializeJson(response, payload);
     request->send(200, "application/json", payload);
+  });
+
+  // ── GET /api/boards ─────────────────────────────────────────────────────
+  server.on("/api/boards", HTTP_GET, [](AsyncWebServerRequest *request) {
+    DynamicJsonDocument doc(4096);
+    doc["activeBoardFile"] = boardHardwarePath(hardwareVariant);
+
+    JsonArray arr = doc.createNestedArray("boards");
+
+#if defined(ESP8266)
+    const char *variants[] = {"8relay", "16relay"};
+#else
+    const char *variants[] = {"8relay", "16relay"};
+#endif
+
+    for (int vi = 0; vi < 2; vi++) {
+      String path = boardHardwarePath(String(variants[vi]));
+      if (!LittleFS.exists(path)) continue;
+
+      File f = LittleFS.open(path, "r");
+      if (!f) continue;
+
+      DynamicJsonDocument entry(1024);
+      if (deserializeJson(entry, f) != DeserializationError::Ok) { f.close(); continue; }
+      f.close();
+
+      JsonObject board = arr.createNestedObject();
+      board["filename"]   = path.substring(1); // strip leading /
+      board["name"]       = entry["name"]       | "";
+      board["cpu"]        = entry["cpu"]        | "";
+      board["relayCount"] = entry["relayCount"] | 0;
+      board["outputType"] = entry["outputType"] | "gpio";
+    }
+
+    String payload;
+    serializeJson(doc, payload);
+    request->send(200, "application/json", payload);
+  });
+
+  // ── POST /api/boards ────────────────────────────────────────────────────
+  server.on("/api/boards", HTTP_POST, [](AsyncWebServerRequest *request) {
+    auto getP = [request](const char *name) -> String {
+      return request->hasParam(name, true)
+             ? request->getParam(name, true)->value() : String();
+    };
+
+    String variant    = getP("variant");   // "8relay" or "16relay"
+    String outputType = getP("outputType");
+    if (variant != "8relay" && variant != "16relay") {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid variant\"}");
+      return;
+    }
+
+    // Load existing config so unchanged fields stay intact
+    BoardHardware tmp;
+    tmp.loaded = false;
+    {
+      String path = boardHardwarePath(variant);
+      if (LittleFS.exists(path)) {
+        File f = LittleFS.open(path, "r");
+        DynamicJsonDocument d(2048);
+        if (f && deserializeJson(d, f) == DeserializationError::Ok) {
+          tmp.name       = d["name"]       | "";
+          tmp.cpu        = d["cpu"]        | BOARD_CPU_TYPE;
+          tmp.relayCount = d["relayCount"] | (variant == "16relay" ? 16 : 8);
+          tmp.ledPin     = d["ledPin"]     | 2;
+          String ot      = String(d["outputType"] | "gpio");
+          tmp.outputType = (ot == "shiftregister") ? BOARD_OUTPUT_SHIFTREGISTER : BOARD_OUTPUT_GPIO;
+          for (uint8_t i = 0; i < 16; i++) tmp.relayPins[i] = 255;
+          JsonArray relays = d["relays"].as<JsonArray>();
+          if (!relays.isNull()) {
+            for (JsonObject r : relays) {
+              uint8_t n = r["relay"] | 0;
+              if (n >= 1 && n <= 16) tmp.relayPins[n-1] = r["pin"] | (uint8_t)255;
+            }
+          }
+          JsonObject sr = d["shiftRegister"];
+          tmp.srLatchPin = sr.isNull() ? 12 : (uint8_t)(sr["latchPin"] | 12);
+          tmp.srClockPin = sr.isNull() ? 13 : (uint8_t)(sr["clockPin"] | 13);
+          tmp.srDataPin  = sr.isNull() ? 14 : (uint8_t)(sr["dataPin"]  | 14);
+          tmp.srOePin    = sr.isNull() ?  5 : (uint8_t)(sr["oePin"]    |  5);
+          tmp.loaded = true;
+        }
+        if (f) f.close();
+      }
+    }
+
+    // Apply submitted values
+    if (getP("name").length())       tmp.name       = getP("name");
+    if (getP("ledPin").length())     tmp.ledPin     = (uint8_t)getP("ledPin").toInt();
+    if (outputType == "gpio" || outputType == "shiftregister")
+      tmp.outputType = (outputType == "shiftregister") ? BOARD_OUTPUT_SHIFTREGISTER : BOARD_OUTPUT_GPIO;
+
+    if (tmp.outputType == BOARD_OUTPUT_GPIO) {
+      uint8_t rc = (variant == "16relay") ? 16 : 8;
+      for (uint8_t i = 1; i <= rc; i++) {
+        String key = "relay" + String(i) + "_pin";
+        if (getP(key.c_str()).length())
+          tmp.relayPins[i-1] = (uint8_t)getP(key.c_str()).toInt();
+      }
+    } else {
+      if (getP("sr_latchPin").length()) tmp.srLatchPin = (uint8_t)getP("sr_latchPin").toInt();
+      if (getP("sr_clockPin").length()) tmp.srClockPin = (uint8_t)getP("sr_clockPin").toInt();
+      if (getP("sr_dataPin").length())  tmp.srDataPin  = (uint8_t)getP("sr_dataPin").toInt();
+      if (getP("sr_oePin").length())    tmp.srOePin    = (uint8_t)getP("sr_oePin").toInt();
+    }
+
+    // Write to LittleFS
+    DynamicJsonDocument doc(2048);
+    doc["name"]       = tmp.name;
+    doc["cpu"]        = tmp.cpu.length() ? tmp.cpu : String(BOARD_CPU_TYPE);
+    doc["relayCount"] = (variant == "16relay") ? 16 : 8;
+    doc["ledPin"]     = tmp.ledPin;
+    doc["outputType"] = (tmp.outputType == BOARD_OUTPUT_SHIFTREGISTER) ? "shiftregister" : "gpio";
+
+    if (tmp.outputType == BOARD_OUTPUT_GPIO) {
+      uint8_t rc = doc["relayCount"].as<uint8_t>();
+      JsonArray relays = doc.createNestedArray("relays");
+      for (uint8_t i = 0; i < rc; i++) {
+        JsonObject r = relays.createNestedObject();
+        r["relay"] = i + 1;
+        r["pin"]   = tmp.relayPins[i];
+      }
+    } else {
+      JsonObject sr   = doc.createNestedObject("shiftRegister");
+      sr["latchPin"]  = tmp.srLatchPin;
+      sr["clockPin"]  = tmp.srClockPin;
+      sr["dataPin"]   = tmp.srDataPin;
+      sr["oePin"]     = tmp.srOePin;
+    }
+
+    if (!LittleFS.exists("/boards")) LittleFS.mkdir("/boards");
+    String path = boardHardwarePath(variant);
+    File f = LittleFS.open(path, "w");
+    if (!f) {
+      request->send(500, "application/json", "{\"ok\":false,\"error\":\"write failed\"}");
+      return;
+    }
+    serializeJsonPretty(doc, f);
+    f.close();
+
+    // If the saved config is for the currently active variant, reload it
+    if (variant == hardwareVariant) {
+      loadBoardHardware(hardwareVariant);
+    }
+
+    request->send(200, "application/json", "{\"ok\":true}");
   });
 
   server.serveStatic("/", LittleFS, "/");
@@ -1422,7 +1623,20 @@ void loop()
 
   bool notify = false;
 
-  if (doLatched || doPulsed)
+  bool needsTimerLoop = doLatched || doPulsed;
+  if (!needsTimerLoop)
+  {
+    for (uint8_t j = 0; j < relayCount; j++)
+    {
+      if (relayLabels[j].mode == RELAY_MODE_PULSED && pulsed_relays[j].counter > 0)
+      {
+        needsTimerLoop = true;
+        break;
+      }
+    }
+  }
+
+  if (needsTimerLoop)
   {
     uint8_t i;
 
@@ -1430,10 +1644,8 @@ void loop()
     {
       latched_timer = elapsed;
 
-      // handle latched buttons
       for (i = 0; i < relayCount; i++)
       {
-
         if (doLatched)
         {
           if (latched_relays[i].counter)
@@ -1449,7 +1661,8 @@ void loop()
           }
         }
 
-        if (doPulsed)
+        // Global doPulsed handles relays not configured with per-relay pulsed mode
+        if (doPulsed && relayLabels[i].mode != RELAY_MODE_PULSED)
         {
           if (pulsed_relays[i].counter)
           {
@@ -1462,9 +1675,22 @@ void loop()
             }
           }
         }
-      }  // for loop
-    }    // latched_timer
-  }      // (doLatched || doPulsed)
+
+        // Per-relay pulsed mode countdown
+        if (relayLabels[i].mode == RELAY_MODE_PULSED && pulsed_relays[i].counter)
+        {
+          pulsed_relays[i].counter--;
+          if (pulsed_relays[i].counter == 0)
+          {
+            relays[i].low();
+            relays[i].update();
+            relays[i].disabled = 0;
+            notify = true;
+          }
+        }
+      }
+    }
+  }
 
   if (notify)
   {

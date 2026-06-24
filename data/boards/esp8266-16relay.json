@@ -1,0 +1,13 @@
+{
+  "name": "ESP8266 16-Relay Shift Register",
+  "cpu": "ESP8266",
+  "relayCount": 16,
+  "ledPin": 2,
+  "outputType": "shiftregister",
+  "shiftRegister": {
+    "latchPin": 12,
+    "clockPin": 13,
+    "dataPin": 14,
+    "oePin": 5
+  }
+}

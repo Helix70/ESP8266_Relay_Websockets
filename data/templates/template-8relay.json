@@ -1,38 +1,14 @@
 {
-  "labels": [
-    {
-      "on": "Relay 1 On",
-      "off": "Relay 1 Off"
-    },
-    {
-      "on": "Relay 2 On",
-      "off": "Relay 2 Off"
-    },
-    {
-      "on": "Relay 3 On",
-      "off": "Relay 3 Off"
-    },
-    {
-      "on": "Relay 4 On",
-      "off": "Relay 4 Off"
-    },
-    {
-      "on": "Relay 5 On",
-      "off": "Relay 5 Off"
-    },
-    {
-      "on": "Relay 6 On",
-      "off": "Relay 6 Off"
-    },
-    {
-      "on": "Relay 7 On",
-      "off": "Relay 7 Off"
-    },
-    {
-      "on": "Relay 8 On",
-      "off": "Relay 8 Off"
-    }
-  ],
+  "title": "8 Relay Template",
   "relayCount": 8,
-  "title": "8 Relay Template"
+  "labels": [
+    { "on": "Relay 1 On", "off": "Relay 1 Off", "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "Relay 2 On", "off": "Relay 2 Off", "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "Relay 3 On", "off": "Relay 3 Off", "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "Relay 4 On", "off": "Relay 4 Off", "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "Relay 5 On", "off": "Relay 5 Off", "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "Relay 6 On", "off": "Relay 6 Off", "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "Relay 7 On", "off": "Relay 7 Off", "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "Relay 8 On", "off": "Relay 8 Off", "mode": "onoff", "group": 0, "pulseTimeout": 1 }
+  ]
 }

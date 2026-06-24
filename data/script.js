@@ -100,12 +100,32 @@ function extractRelayNumber(buttonId) {
   return 0;
 }
 
+function applySetupState(complete) {
+  var table = document.getElementById('relay-table');
+  var msg   = document.getElementById('setup-incomplete');
+  if (complete) {
+    if (table) table.style.display = '';
+    if (msg)   msg.style.display   = 'none';
+  } else {
+    if (table) table.style.display = 'none';
+    if (msg) {
+      msg.innerHTML = '<p>Board hardware is not configured.</p>'
+                    + '<p><a href="/config.html" class="button">Open Board Configuration</a></p>';
+      msg.style.display = '';
+    }
+  }
+}
+
 function onMessage(event) {
   var jsonObj = JSON.parse(event.data);
   console.log("Received message: ", jsonObj);
 
   if (jsonObj.boardName) {
     applyBoardName(jsonObj.boardName);
+  }
+
+  if (typeof jsonObj.setupComplete !== 'undefined') {
+    applySetupState(jsonObj.setupComplete);
   }
 
   var buttons = jsonObj['buttons'];

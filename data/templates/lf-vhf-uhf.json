@@ -1,38 +1,14 @@
 {
-  "labels": [
-    {
-      "on": "IC-705",
-      "off": "IC-705"
-    },
-    {
-      "on": "Spare",
-      "off": "2200M Transverter"
-    },
-    {
-      "on": "2200M Transverter",
-      "off": "630M Transverter"
-    },
-    {
-      "on": "630M Transverter",
-      "off": "LF"
-    },
-    {
-      "on": "VHF/UHF",
-      "off": "VHF/UHF"
-    },
-    {
-      "on": "LF",
-      "off": "East Tower Reset"
-    },
-    {
-      "on": "East Tower Reset",
-      "off": "West Tower Reset"
-    },
-    {
-      "on": "West Tower Reset",
-      "off": "Relay 8 Off"
-    }
-  ],
+  "title": "LF / VHF - UHF Selector",
   "relayCount": 8,
-  "title": "LF / VHF - UHF Selector"
+  "labels": [
+    { "on": "IC-705",           "off": "IC-705",            "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "Spare",            "off": "2200M Transverter", "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "2200M Transverter","off": "630M Transverter",  "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "630M Transverter", "off": "LF",                "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "VHF/UHF",         "off": "VHF/UHF",           "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "LF",               "off": "East Tower Reset",  "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "East Tower Reset", "off": "West Tower Reset",  "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "West Tower Reset", "off": "Relay 8 Off",       "mode": "onoff", "group": 0, "pulseTimeout": 1 }
+  ]
 }

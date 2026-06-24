@@ -12,12 +12,6 @@ namespace
 constexpr uint8_t kMaxRelays = 16;
 constexpr size_t kMaxRelayLabelLength = 32;
 
-struct RelayLabel
-{
-  String on;
-  String off;
-};
-
 String defaultRelayOnLabel(uint8_t relayNum)
 {
   return "Relay " + String(relayNum) + " On";
@@ -64,6 +58,29 @@ void initLittleFS()
   Serial.println("LittleFS volume mounted...");
 }
 
+static const char *modeToStr(uint8_t mode)
+{
+  if (mode == RELAY_MODE_INTERLOCKED) return "interlocked";
+  if (mode == RELAY_MODE_PULSED)      return "pulsed";
+  return "onoff";
+}
+
+static uint8_t strToMode(const String &s)
+{
+  if (s == "interlocked") return RELAY_MODE_INTERLOCKED;
+  if (s == "pulsed")      return RELAY_MODE_PULSED;
+  return RELAY_MODE_ONOFF;
+}
+
+void assignRelayMode(uint8_t relayNum, uint8_t mode, uint8_t group, uint8_t pulseTimeout)
+{
+  if (relayNum < 1 || relayNum > kMaxRelays) return;
+  uint8_t idx = relayNum - 1;
+  relayLabels[idx].mode         = (mode <= RELAY_MODE_PULSED) ? mode : RELAY_MODE_ONOFF;
+  relayLabels[idx].group        = group;
+  relayLabels[idx].pulseTimeout = (pulseTimeout >= 1 && pulseTimeout <= 30) ? pulseTimeout : 1;
+}
+
 void assignRelayLabels(uint8_t relayNum, const String &requestedOnLabel, const String &requestedOffLabel)
 {
   String normalizedOff = clampRelayLabel(requestedOffLabel, relayNum, false);
@@ -99,6 +116,12 @@ bool saveRelayLabels()
     prefs.putString(key, relayLabels[i].on);
     snprintf(key, sizeof(key), "off_%d", i);
     prefs.putString(key, relayLabels[i].off);
+    snprintf(key, sizeof(key), "md_%d", i);
+    prefs.putUChar(key, relayLabels[i].mode);
+    snprintf(key, sizeof(key), "gr_%d", i);
+    prefs.putUChar(key, relayLabels[i].group);
+    snprintf(key, sizeof(key), "pt_%d", i);
+    prefs.putUChar(key, relayLabels[i].pulseTimeout);
   }
   prefs.end();
   Serial.println("Saved relay labels to NVS");
@@ -110,8 +133,11 @@ bool saveRelayLabels()
   for (uint8_t i = 0; i < kMaxRelays; i++)
   {
     JsonObject label = labels.createNestedObject();
-    label["on"] = relayLabels[i].on;
-    label["off"] = relayLabels[i].off;
+    label["on"]           = relayLabels[i].on;
+    label["off"]          = relayLabels[i].off;
+    label["mode"]         = modeToStr(relayLabels[i].mode);
+    label["group"]        = relayLabels[i].group;
+    label["pulseTimeout"] = relayLabels[i].pulseTimeout;
   }
 
   File file = LittleFS.open(kRelayLabelsPath, "w");
@@ -134,12 +160,15 @@ bool saveRelayLabels()
 #endif
 }
 
-void loadRelayLabels()
+bool loadRelayLabels()
 {
   for (uint8_t i = 0; i < kMaxRelays; i++)
   {
-    relayLabels[i].on = defaultRelayOnLabel(i + 1);
-    relayLabels[i].off = defaultRelayOffLabel(i + 1);
+    relayLabels[i].on           = defaultRelayOnLabel(i + 1);
+    relayLabels[i].off          = defaultRelayOffLabel(i + 1);
+    relayLabels[i].mode         = RELAY_MODE_ONOFF;
+    relayLabels[i].group        = 0;
+    relayLabels[i].pulseTimeout = 1;
   }
 
 #ifdef ESP32
@@ -147,7 +176,7 @@ void loadRelayLabels()
   if (!prefs.begin("labels", true))
   {
     Serial.println("NVS labels namespace empty, using defaults");
-    return;
+    return false;
   }
   char key[8];
   bool anyFound = false;
@@ -165,24 +194,31 @@ void loadRelayLabels()
       anyFound = true;
       assignRelayLabels(i + 1, relayLabels[i].on, prefs.getString(key, ""));
     }
+    snprintf(key, sizeof(key), "md_%d", i);
+    if (prefs.isKey(key)) relayLabels[i].mode = prefs.getUChar(key, RELAY_MODE_ONOFF);
+    snprintf(key, sizeof(key), "gr_%d", i);
+    if (prefs.isKey(key)) relayLabels[i].group = prefs.getUChar(key, 0);
+    snprintf(key, sizeof(key), "pt_%d", i);
+    if (prefs.isKey(key)) relayLabels[i].pulseTimeout = prefs.getUChar(key, 1);
   }
   prefs.end();
   if (anyFound)
     Serial.println("Loaded relay labels from NVS");
   else
     Serial.println("NVS labels not found, using defaults");
+  return anyFound;
 #else
   if (!LittleFS.exists(kRelayLabelsPath))
   {
     Serial.println("Relay labels file not found, using defaults");
-    return;
+    return false;
   }
 
   File file = LittleFS.open(kRelayLabelsPath, "r");
   if (!file)
   {
     Serial.println("Failed to open relay labels file for reading, using defaults");
-    return;
+    return false;
   }
 
   StaticJsonDocument<4096> doc;
@@ -192,28 +228,66 @@ void loadRelayLabels()
   if (error)
   {
     Serial.printf("Failed to parse relay labels file (%s), using defaults\n", error.c_str());
-    return;
+    return false;
   }
 
   JsonArray labels = doc["labels"].as<JsonArray>();
   if (labels.isNull())
   {
     Serial.println("Relay labels file missing labels array, using defaults");
-    return;
+    return false;
   }
 
   uint8_t count = labels.size() < relayCount ? labels.size() : relayCount;
   for (uint8_t i = 0; i < count; i++)
   {
     JsonObject label = labels[i];
-    if (label.isNull())
-    {
-      continue;
-    }
+    if (label.isNull()) continue;
 
     assignRelayLabels(i + 1, String(label["on"] | ""), String(label["off"] | ""));
+    assignRelayMode(i + 1,
+                    strToMode(String(label["mode"] | "onoff")),
+                    (uint8_t)(label["group"] | (uint8_t)0),
+                    (uint8_t)(label["pulseTimeout"] | (uint8_t)1));
   }
 
   Serial.println("Loaded relay labels");
+  return true;
 #endif
+}
+
+bool loadLabelsFromTemplate(uint8_t count)
+{
+  String path = "/templates/template-" + String(count) + "relay.json";
+  if (!LittleFS.exists(path))
+  {
+    Serial.printf("No template found for %u relays (%s)\n", count, path.c_str());
+    return false;
+  }
+
+  File f = LittleFS.open(path, "r");
+  if (!f) return false;
+
+  StaticJsonDocument<4096> doc;
+  DeserializationError err = deserializeJson(doc, f);
+  f.close();
+  if (err) return false;
+
+  JsonArray labels = doc["labels"].as<JsonArray>();
+  if (labels.isNull()) return false;
+
+  uint8_t n = (uint8_t)labels.size() < count ? (uint8_t)labels.size() : count;
+  for (uint8_t i = 0; i < n; i++)
+  {
+    JsonObject label = labels[i];
+    if (label.isNull()) continue;
+    assignRelayLabels(i + 1, String(label["on"] | ""), String(label["off"] | ""));
+    assignRelayMode(i + 1,
+                    strToMode(String(label["mode"] | "onoff")),
+                    (uint8_t)(label["group"] | (uint8_t)0),
+                    (uint8_t)(label["pulseTimeout"] | (uint8_t)1));
+  }
+
+  Serial.printf("Loaded relay labels from template: %s\n", path.c_str());
+  return true;
 }

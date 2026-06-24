@@ -1,38 +1,14 @@
 {
-  "labels": [
-    {
-      "on": "FLEX On",
-      "off": "FLEX On"
-    },
-    {
-      "on": "FLEX PTT",
-      "off": "FLEX PTT"
-    },
-    {
-      "on": "FLEX Factory Reset Off",
-      "off": "FLEX Factory Reset Off"
-    },
-    {
-      "on": "FLEX Factory Reset On",
-      "off": "FLEX Factory Reset On"
-    },
-    {
-      "on": "FLEX DC Power",
-      "off": "FLEX DC Power"
-    },
-    {
-      "on": "Relay 6 On",
-      "off": "Relay 6 Off"
-    },
-    {
-      "on": "Relay 7 On",
-      "off": "Relay 7 Off"
-    },
-    {
-      "on": "Relay 8 On",
-      "off": "Relay 8 Off"
-    }
-  ],
+  "title": "FLEX Control",
   "relayCount": 8,
-  "title": "FLEX Control"
+  "labels": [
+    { "on": "FLEX On",                "off": "FLEX On",                "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "FLEX PTT",               "off": "FLEX PTT",               "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "FLEX Factory Reset Off", "off": "FLEX Factory Reset Off", "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "FLEX Factory Reset On",  "off": "FLEX Factory Reset On",  "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "FLEX DC Power",          "off": "FLEX DC Power",          "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "Relay 6 On",             "off": "Relay 6 Off",            "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "Relay 7 On",             "off": "Relay 7 Off",            "mode": "onoff", "group": 0, "pulseTimeout": 1 },
+    { "on": "Relay 8 On",             "off": "Relay 8 Off",            "mode": "onoff", "group": 0, "pulseTimeout": 1 }
+  ]
 }

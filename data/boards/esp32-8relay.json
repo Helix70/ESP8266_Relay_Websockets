@@ -1,0 +1,17 @@
+{
+  "name": "ESP32 8-Relay Direct GPIO",
+  "cpu": "ESP32",
+  "relayCount": 8,
+  "ledPin": 23,
+  "outputType": "gpio",
+  "relays": [
+    { "relay": 1, "pin": 32 },
+    { "relay": 2, "pin": 33 },
+    { "relay": 3, "pin": 25 },
+    { "relay": 4, "pin": 26 },
+    { "relay": 5, "pin": 27 },
+    { "relay": 6, "pin": 14 },
+    { "relay": 7, "pin": 12 },
+    { "relay": 8, "pin": 13 }
+  ]
+}

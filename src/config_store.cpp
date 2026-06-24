@@ -16,7 +16,7 @@
 namespace
 {
 constexpr const char *kDefaultBoardName = "Relay Board";
-constexpr const char *kDefaultVariant = "8relay";
+constexpr const char *kDefaultVariant = ""; // empty = not yet configured
 constexpr size_t kMaxBoardNameLength = 64;
 constexpr size_t kMaxSsidLength = 32;
 constexpr size_t kMaxPasswordLength = 64;
