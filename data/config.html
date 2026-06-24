@@ -1,0 +1,93 @@
+<!DOCTYPE HTML>
+<html>
+
+<head>
+  <title>Relay Board - Configuration</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+
+<body>
+  <div class="topnav">
+    <h1 id="configPageTitle">Relay Board</h1>
+  </div>
+
+  <div class="config-page">
+    <div class="config-card">
+      <h3>Board Name</h3>
+      <label for="boardNameInput" class="config-input-label">Enter board name:</label>
+      <input type="text" id="boardNameInput" class="config-input" maxlength="64" placeholder="Relay Board">
+      <p class="config-note">The board name will appear at the top of the main page and in the browser tab.</p>
+    </div>
+
+    <div class="config-card">
+      <h3>Network Configuration</h3>
+
+      <label class="config-checkbox-label">
+        <input type="checkbox" id="useDhcpCheckbox" class="config-checkbox" checked>
+        Use DHCP (automatic IP)
+      </label>
+
+      <div id="staticIpFields" class="static-ip-section">
+        <label for="ipInput" class="config-input-label">IP Address:</label>
+        <input type="text" id="ipInput" class="config-input" placeholder="" maxlength="15">
+
+        <label for="dnsInput" class="config-input-label">DNS:</label>
+        <input type="text" id="dnsInput" class="config-input" placeholder="" maxlength="15">
+
+        <label for="gatewayInput" class="config-input-label">Gateway:</label>
+        <input type="text" id="gatewayInput" class="config-input" placeholder="" maxlength="15">
+
+        <label for="subnetInput" class="config-input-label">Subnet Mask:</label>
+        <input type="text" id="subnetInput" class="config-input" placeholder="" maxlength="15">
+      </div>
+
+      <p class="config-note">If no static IP is specified, DHCP is used automatically. Static IP changes require reboot.</p>
+    </div>
+
+    <div class="config-card">
+      <h3>Relay Modes</h3>
+
+      <label class="config-checkbox-label">
+        <input type="checkbox" id="doDelayCheckbox" class="config-checkbox">
+        Enable Startup Delay
+      </label>
+
+      <div class="delay-section">
+        <label for="delaySecondsInput" class="config-input-label">Startup delay (seconds):</label>
+        <input type="number" id="delaySecondsInput" class="config-input" min="0" max="300" step="1" value="60">
+      </div>
+
+      <p class="config-note">If enabled, the board will delay for the selected number of seconds on startup before beginning relay operations, up to 5 minutes.</p>
+
+      <label class="config-checkbox-label">
+        <input type="checkbox" id="doLatchedCheckbox" class="config-checkbox">
+        Enable Latched Mode
+      </label>
+      <p class="config-note">If enabled, relays can be configured to automatically turn off after a set timeout.</p>
+
+      <label class="config-checkbox-label">
+        <input type="checkbox" id="doInterlockedCheckbox" class="config-checkbox">
+        Enable Interlocked Mode
+      </label>
+      <p class="config-note">If enabled, certain relay groups will be mutually exclusive (only one can be on at a time).</p>
+
+      <label class="config-checkbox-label">
+        <input type="checkbox" id="doPulsedCheckbox" class="config-checkbox">
+        Enable Pulsed Mode
+      </label>
+      <p class="config-note">If enabled, relays can be configured to pulse for a set duration.</p>
+    </div>
+
+    <div class="config-buttons">
+      <p><button id="saveConfig" class="button">Save</button></p>
+      <p><button id="clearWifiButton" class="button">Clear Wi-Fi</button></p>
+      <p><button id="backButton" class="button">Back</button></p>
+    </div>
+  </div>
+
+  <script src="config.js?v=20260624c"></script>
+</body>
+
+</html>

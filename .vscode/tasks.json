@@ -1,0 +1,19 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Upload Firmware + Filesystem (esp32_serial)",
+      "type": "shell",
+      "command": "C:/Users/z0035sjy/.platformio/penv/Scripts/platformio.exe",
+      "args": [
+        "run",
+        "--environment",
+        "esp32_serial",
+        "--target",
+        "upload_all"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    }
+  ]
+}

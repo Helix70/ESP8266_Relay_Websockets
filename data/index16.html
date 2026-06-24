@@ -2,7 +2,7 @@
 <html>
 
 <head>
-  <title>ESP8266 16 Relay Web Server</title>
+  <title>Relay Board - Main</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" type="text/css" href="style.css">
@@ -10,7 +10,20 @@
 
 <body>
   <div class="topnav">
-    <h1>ESP8266 16 Relay Web Server</h1>
+    <div class="topnav-inner">
+      <h1 id="pageTitle">Relay Board</h1>
+      <div class="menu-wrap">
+        <button id="menuButton" class="menu-button" aria-label="Open navigation menu" aria-haspopup="true" aria-expanded="false">
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+        <div id="menuDropdown" class="menu-dropdown" aria-label="Navigation menu">
+          <a href="/labels.html" class="menu-item">Edit Labels</a>
+          <a href="/config.html" class="menu-item">Board Configuration</a>
+        </div>
+      </div>
+    </div>
   </div>
   <table>
     <tr>
@@ -85,6 +98,6 @@
         <p><button id="home" class="button">Refresh</button></p>
       </td>
     </tr>
-    <script src="script16.js"></script>
+    <script src="script16.js?v=20260624c"></script>
 </body>
 </html>
