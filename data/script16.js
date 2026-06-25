@@ -2,6 +2,7 @@ var gateway = `ws://${window.location.hostname}/ws`;
 var websocket;
 var relayLabels = {};
 var maxRelays = 16;
+var pageContentReady = false;
 
 window.addEventListener('load', onLoad);
 
@@ -119,6 +120,11 @@ function applySetupState(complete) {
 function onMessage(event) {
   var jsonObj = JSON.parse(event.data);
   console.log("Received message: ", jsonObj);
+
+  if (!pageContentReady) {
+    document.getElementById('relay-table').removeAttribute('data-loading');
+    pageContentReady = true;
+  }
 
   if (jsonObj.boardName) {
     applyBoardName(jsonObj.boardName);

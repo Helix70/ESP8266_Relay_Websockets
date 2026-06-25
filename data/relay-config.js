@@ -293,8 +293,11 @@ function loadTemplateList() {
         return a.title.localeCompare(b.title);
       });
       refreshTemplateDropdown();
+      document.querySelector('.labels-page').removeAttribute('data-loading');
     })
-    .catch(function () {});
+    .catch(function () {
+      document.querySelector('.labels-page').removeAttribute('data-loading');
+    });
 }
 
 function refreshTemplateDropdown() {

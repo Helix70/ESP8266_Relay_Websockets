@@ -31,6 +31,13 @@ function setIpPlaceholders(ip, dns, gateway, subnet) {
   document.getElementById('subnetInput').placeholder = subnet || '';
 }
 
+function setConfigPageReady() {
+  var configPage = document.querySelector('.config-page');
+  if (configPage) {
+    configPage.removeAttribute('data-loading');
+  }
+}
+
 function onLoad() {
   document.getElementById('saveConfig').addEventListener('click', saveConfig);
   document.getElementById('clearWifiButton').addEventListener('click', clearWifiCredentials);
@@ -57,6 +64,7 @@ function onLoad() {
   fetchNetInfo();
   initWebSocket();
   updateDelayFieldMode();
+  setConfigPageReady();
 }
 
 function clearWifiCredentials() {

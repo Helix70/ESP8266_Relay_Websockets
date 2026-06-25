@@ -3,6 +3,12 @@ html {
   text-align: center;
 }
 
+/* Hide content while loading */
+[data-loading] {
+  opacity: 0;
+  pointer-events: none;
+}
+
 h1 {
   font-size: 1.8rem;
   color: white;

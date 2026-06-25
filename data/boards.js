@@ -41,8 +41,17 @@ function loadBoards() {
       activeBoardFile = data.activeBoardFile || activeBoardFile;
       boardData = data.boards || [];
       renderBoards();
+      var configPage = document.querySelector('.config-page');
+      if (configPage) {
+        configPage.removeAttribute('data-loading');
+      }
     })
-    .catch(function () {});
+    .catch(function () {
+      var configPage = document.querySelector('.config-page');
+      if (configPage) {
+        configPage.removeAttribute('data-loading');
+      }
+    });
 }
 
 function updateActiveLabel() {
