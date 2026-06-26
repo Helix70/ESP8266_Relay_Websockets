@@ -23,6 +23,53 @@
     </div>
 
     <div class="config-card">
+      <h3>Startup Behavior</h3>
+
+      <label class="config-checkbox-label">
+        <input type="checkbox" id="doDelayCheckbox" class="config-checkbox">
+        Enable Startup Delay
+      </label>
+
+      <div class="delay-section">
+        <label for="delaySecondsInput" class="config-input-label">Startup delay (seconds):</label>
+        <input type="number" id="delaySecondsInput" class="config-input" min="0" max="300" step="1" value="60">
+      </div>
+
+      <p class="config-note">If enabled, the board will delay for the selected number of seconds on startup before beginning relay operations, up to 5 minutes.</p>
+
+      <label class="config-checkbox-label">
+        <input type="checkbox" id="connectStrongestCheckbox" class="config-checkbox">
+        Connect to strongest matching SSID on startup
+      </label>
+      <p class="config-note">When enabled, startup performs a Wi-Fi scan and attempts to connect to the strongest AP matching your configured SSID. If disabled, startup uses normal connect behavior.</p>
+    </div>
+
+    <div class="config-card">
+      <h3>Wi-Fi Status</h3>
+
+      <label for="wifiSsidDisplay" class="config-input-label">Configured SSID:</label>
+      <input type="text" id="wifiSsidDisplay" class="config-input" readonly value="(not configured)">
+
+      <label for="wifiConnectedSsidDisplay" class="config-input-label">Connected SSID:</label>
+      <input type="text" id="wifiConnectedSsidDisplay" class="config-input" readonly value="-">
+
+      <label for="wifiStatusDisplay" class="config-input-label">Connection Status:</label>
+      <input type="text" id="wifiStatusDisplay" class="config-input" readonly value="Unknown">
+
+      <label for="wifiRssiDisplay" class="config-input-label">Current RSSI:</label>
+      <input type="text" id="wifiRssiDisplay" class="config-input" readonly value="-">
+
+      <label for="wifiRescanStatusDisplay" class="config-input-label">Rescan Status:</label>
+      <input type="text" id="wifiRescanStatusDisplay" class="config-input" readonly value="Idle">
+
+      <div class="config-inline-action">
+        <button id="rescanWifiButton" class="button">Rescan & Refresh Strongest AP</button>
+        <button id="clearWifiButton" class="button">Clear Wi-Fi Credentials</button>
+      </div>
+      <p class="config-note">Clearing credentials restarts into provisioning mode.</p>
+    </div>
+
+    <div class="config-card">
       <h3>Network Configuration</h3>
 
       <label class="config-checkbox-label">
@@ -61,48 +108,13 @@
       <p class="config-note">MCU type is set at firmware compile time. Changing the relay count requires a restart.</p>
     </div>
 
-    <div class="config-card">
-      <h3>Relay Modes</h3>
-
-      <label class="config-checkbox-label">
-        <input type="checkbox" id="doDelayCheckbox" class="config-checkbox">
-        Enable Startup Delay
-      </label>
-
-      <div class="delay-section">
-        <label for="delaySecondsInput" class="config-input-label">Startup delay (seconds):</label>
-        <input type="number" id="delaySecondsInput" class="config-input" min="0" max="300" step="1" value="60">
-      </div>
-
-      <p class="config-note">If enabled, the board will delay for the selected number of seconds on startup before beginning relay operations, up to 5 minutes.</p>
-
-      <label class="config-checkbox-label">
-        <input type="checkbox" id="doLatchedCheckbox" class="config-checkbox">
-        Enable Latched Mode
-      </label>
-      <p class="config-note">If enabled, relays can be configured to automatically turn off after a set timeout.</p>
-
-      <label class="config-checkbox-label">
-        <input type="checkbox" id="doInterlockedCheckbox" class="config-checkbox">
-        Enable Interlocked Mode
-      </label>
-      <p class="config-note">If enabled, certain relay groups will be mutually exclusive (only one can be on at a time).</p>
-
-      <label class="config-checkbox-label">
-        <input type="checkbox" id="doPulsedCheckbox" class="config-checkbox">
-        Enable Pulsed Mode
-      </label>
-      <p class="config-note">If enabled, relays can be configured to pulse for a set duration.</p>
-    </div>
-
     <div class="config-buttons">
       <p><button id="saveConfig" class="button">Save</button></p>
-      <p><button id="clearWifiButton" class="button">Clear Wi-Fi</button></p>
       <p><button id="backButton" class="button">Back</button></p>
     </div>
   </div>
 
-  <script src="config.js?v=20260624c"></script>
+  <script src="config.js?v=20260626a"></script>
 </body>
 
 </html>

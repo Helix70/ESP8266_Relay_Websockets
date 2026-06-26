@@ -1,0 +1,44 @@
+---
+description: ESP relay project standards for all code changes
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+# Project Priorities
+
+1. Main page performance is Priority 1.
+2. Maintain compatibility across ESP8266 and ESP32.
+3. Preserve reliability for persistence and route behavior.
+
+# Required Workflow
+
+1. Understand current behavior before editing.
+2. Make the smallest safe change set.
+3. Update or add tests for changed behavior.
+4. Run validation and ensure tests pass.
+5. If failures occur, find and fix root cause.
+6. Update documentation when behavior or workflows change.
+
+# Validation Commands
+
+- Build:
+  - platformio run -e esp8266_serial
+  - platformio run -e esp32_serial
+- Full functional validation:
+  - pwsh ./scripts/tests/Run-SmokeTests.ps1 -Esp8266 <ESP8266_IP> -Esp32 <ESP32_IP> -Mode Full
+- Soak validation for release readiness:
+  - pwsh ./scripts/tests/Run-SoakTests.ps1 -Esp8266 <ESP8266_IP> -Esp32 <ESP32_IP> -Mode Full -Iterations 5 -PauseSeconds 1
+
+# Device Update Standards
+
+1. Flash impacted firmware targets.
+2. Upload filesystem when data assets change.
+3. Verify device endpoints and runtime behavior after updates.
+
+# Definition Of Done
+
+1. Both platforms build.
+2. Required device updates are completed.
+3. Functional tests pass.
+4. Documentation and tests are updated.

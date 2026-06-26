@@ -1,0 +1,443 @@
+{
+  "startedAt": "2026-06-26T15:22:35.4258718+10:00",
+  "finishedAt": "2026-06-26T15:22:51.5094212+10:00",
+  "durationSec": 16.08,
+  "mode": "Full",
+  "targets": [
+    "192.168.2.154",
+    "192.168.2.195"
+  ],
+  "summary": {
+    "passed": 39,
+    "failed": 0,
+    "total": 39
+  },
+  "coverage": [
+    {
+      "endpoint": "/",
+      "mode": "Smoke",
+      "executed": true,
+      "passed": true,
+      "runCount": 2
+    },
+    {
+      "endpoint": "/api/boards",
+      "mode": "Smoke",
+      "executed": true,
+      "passed": true,
+      "runCount": 4
+    },
+    {
+      "endpoint": "/api/boards (POST delete)",
+      "mode": "Full",
+      "executed": true,
+      "passed": true,
+      "runCount": 2
+    },
+    {
+      "endpoint": "/api/boards (POST rename)",
+      "mode": "Full",
+      "executed": true,
+      "passed": true,
+      "runCount": 2
+    },
+    {
+      "endpoint": "/api/boards (POST save)",
+      "mode": "Full",
+      "executed": true,
+      "passed": true,
+      "runCount": 2
+    },
+    {
+      "endpoint": "/api/boards (POST setactive)",
+      "mode": "Full",
+      "executed": true,
+      "passed": true,
+      "runCount": 4
+    },
+    {
+      "endpoint": "/api/templates",
+      "mode": "Smoke",
+      "executed": true,
+      "passed": true,
+      "runCount": 4
+    },
+    {
+      "endpoint": "/api/templates (POST create/save)",
+      "mode": "Smoke",
+      "executed": true,
+      "passed": true,
+      "runCount": 2
+    },
+    {
+      "endpoint": "/api/templates (POST delete)",
+      "mode": "Smoke",
+      "executed": true,
+      "passed": true,
+      "runCount": 2
+    },
+    {
+      "endpoint": "/api/templates (POST rename)",
+      "mode": "Smoke",
+      "executed": true,
+      "passed": true,
+      "runCount": 2
+    },
+    {
+      "endpoint": "/api/templates (POST setactive)",
+      "mode": "Smoke",
+      "executed": true,
+      "passed": true,
+      "runCount": 3
+    },
+    {
+      "endpoint": "/api/templates/diagnostics",
+      "mode": "Smoke",
+      "executed": true,
+      "passed": true,
+      "runCount": 2
+    },
+    {
+      "endpoint": "/boards.html",
+      "mode": "Smoke",
+      "executed": true,
+      "passed": true,
+      "runCount": 2
+    },
+    {
+      "endpoint": "/netinfo",
+      "mode": "Smoke",
+      "executed": true,
+      "passed": true,
+      "runCount": 2
+    },
+    {
+      "endpoint": "/relay-config.html",
+      "mode": "Smoke",
+      "executed": true,
+      "passed": true,
+      "runCount": 2
+    },
+    {
+      "endpoint": "/ws",
+      "mode": "Full",
+      "executed": true,
+      "passed": true,
+      "runCount": 2
+    }
+  ],
+  "tests": [
+    {
+      "target": "192.168.2.154",
+      "suite": "basic",
+      "test": "GET /",
+      "endpoint": "/",
+      "passed": true,
+      "details": "status=200"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "basic",
+      "test": "GET /relay-config.html",
+      "endpoint": "/relay-config.html",
+      "passed": true,
+      "details": "status=200"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "basic",
+      "test": "GET /boards.html",
+      "endpoint": "/boards.html",
+      "passed": true,
+      "details": "status=200"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "basic",
+      "test": "GET /api/templates",
+      "endpoint": "/api/templates",
+      "passed": true,
+      "details": "status=200"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "basic",
+      "test": "GET /api/templates/diagnostics",
+      "endpoint": "/api/templates/diagnostics",
+      "passed": true,
+      "details": "status=200"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "basic",
+      "test": "GET /api/boards",
+      "endpoint": "/api/boards",
+      "passed": true,
+      "details": "status=200"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "basic",
+      "test": "GET /netinfo",
+      "endpoint": "/netinfo",
+      "passed": true,
+      "details": "status=200"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "templates",
+      "test": "create",
+      "endpoint": "/api/templates (POST create/save)",
+      "passed": true,
+      "details": "status=200, body={\"ok\":true,\"filename\":\"ht-682154-152238.json\"}"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "templates",
+      "test": "list contains created",
+      "endpoint": "/api/templates",
+      "passed": true,
+      "details": "status=200, requested=ht-682154-152238.json, fallback=ht-682154-152238.json"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "templates",
+      "test": "setactive",
+      "endpoint": "/api/templates (POST setactive)",
+      "passed": true,
+      "details": "status=200, body={\"ok\":true,\"selectedTemplate\":\"ht-682154-152238.json\"}"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "templates",
+      "test": "rename",
+      "endpoint": "/api/templates (POST rename)",
+      "passed": true,
+      "details": "status=200, body={\"ok\":true,\"filename\":\"ht-682154-152238-r.json\"}"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "templates",
+      "test": "delete",
+      "endpoint": "/api/templates (POST delete)",
+      "passed": true,
+      "details": "status=200, body={\"ok\":true}"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "boards",
+      "test": "create",
+      "endpoint": "/api/boards (POST save)",
+      "passed": true,
+      "details": "status=200, body={\"ok\":true,\"filename\":\"boards/hb-682154-152240.json\"}"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "boards",
+      "test": "list contains created",
+      "endpoint": "/api/boards",
+      "passed": true,
+      "details": "status=200, requested=hb-682154-152240.json"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "boards",
+      "test": "rename",
+      "endpoint": "/api/boards (POST rename)",
+      "passed": true,
+      "details": "status=200, body={\"ok\":true,\"filename\":\"boards/hb-682154-152240-r.json\"}"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "boards",
+      "test": "setactive",
+      "endpoint": "/api/boards (POST setactive)",
+      "passed": true,
+      "details": "status=200, body={\"ok\":true,\"activeBoardFile\":\"/boards/hb-682154-152240-r.json\"}"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "boards",
+      "test": "restore active",
+      "endpoint": "/api/boards (POST setactive)",
+      "passed": true,
+      "details": "status=200, body={\"ok\":true,\"activeBoardFile\":\"/boards/esp8266-8relay.json\"}"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "boards",
+      "test": "delete",
+      "endpoint": "/api/boards (POST delete)",
+      "passed": true,
+      "details": "status=200, body={\"ok\":true}"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "websocket",
+      "test": "connect+home",
+      "endpoint": "/ws",
+      "passed": true,
+      "details": "json state received"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "basic",
+      "test": "GET /",
+      "endpoint": "/",
+      "passed": true,
+      "details": "status=200"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "basic",
+      "test": "GET /relay-config.html",
+      "endpoint": "/relay-config.html",
+      "passed": true,
+      "details": "status=200"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "basic",
+      "test": "GET /boards.html",
+      "endpoint": "/boards.html",
+      "passed": true,
+      "details": "status=200"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "basic",
+      "test": "GET /api/templates",
+      "endpoint": "/api/templates",
+      "passed": true,
+      "details": "status=200"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "basic",
+      "test": "GET /api/templates/diagnostics",
+      "endpoint": "/api/templates/diagnostics",
+      "passed": true,
+      "details": "status=200"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "basic",
+      "test": "GET /api/boards",
+      "endpoint": "/api/boards",
+      "passed": true,
+      "details": "status=200"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "basic",
+      "test": "GET /netinfo",
+      "endpoint": "/netinfo",
+      "passed": true,
+      "details": "status=200"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "templates",
+      "test": "create",
+      "endpoint": "/api/templates (POST create/save)",
+      "passed": true,
+      "details": "status=200, body={\"ok\":true,\"filename\":\"ht-682195-152246.json\"}"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "templates",
+      "test": "list contains created",
+      "endpoint": "/api/templates",
+      "passed": true,
+      "details": "status=200, requested=ht-682195-152246.json, fallback=ht-682195-152246.json"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "templates",
+      "test": "setactive",
+      "endpoint": "/api/templates (POST setactive)",
+      "passed": true,
+      "details": "status=200, body={\"ok\":true,\"selectedTemplate\":\"ht-682195-152246.json\"}"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "templates",
+      "test": "rename",
+      "endpoint": "/api/templates (POST rename)",
+      "passed": true,
+      "details": "status=200, body={\"ok\":true,\"filename\":\"ht-682195-152246-r.json\"}"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "templates",
+      "test": "delete",
+      "endpoint": "/api/templates (POST delete)",
+      "passed": true,
+      "details": "status=200, body={\"ok\":true}"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "templates",
+      "test": "restore selected",
+      "endpoint": "/api/templates (POST setactive)",
+      "passed": true,
+      "details": "status=200, body={\"ok\":true,\"selectedTemplate\":\"flex-control.json\"}"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "boards",
+      "test": "create",
+      "endpoint": "/api/boards (POST save)",
+      "passed": true,
+      "details": "status=200, body={\"ok\":true,\"filename\":\"boards/hb-682195-152249.json\"}"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "boards",
+      "test": "list contains created",
+      "endpoint": "/api/boards",
+      "passed": true,
+      "details": "status=200, requested=hb-682195-152249.json"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "boards",
+      "test": "rename",
+      "endpoint": "/api/boards (POST rename)",
+      "passed": true,
+      "details": "status=200, body={\"ok\":true,\"filename\":\"boards/hb-682195-152249-r.json\"}"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "boards",
+      "test": "setactive",
+      "endpoint": "/api/boards (POST setactive)",
+      "passed": true,
+      "details": "status=200, body={\"ok\":true,\"activeBoardFile\":\"/boards/hb-682195-152249-r.json\"}"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "boards",
+      "test": "restore active",
+      "endpoint": "/api/boards (POST setactive)",
+      "passed": true,
+      "details": "status=200, body={\"ok\":true,\"activeBoardFile\":\"/boards/esp32-8relay.json\"}"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "boards",
+      "test": "delete",
+      "endpoint": "/api/boards (POST delete)",
+      "passed": true,
+      "details": "status=200, body={\"ok\":true}"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "websocket",
+      "test": "connect+home",
+      "endpoint": "/ws",
+      "passed": true,
+      "details": "json state received"
+    }
+  ]
+}

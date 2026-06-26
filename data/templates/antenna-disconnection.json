@@ -2,13 +2,75 @@
   "title": "Antenna Disconnection Switch",
   "relayCount": 8,
   "labels": [
-    { "on": "Eastern Hut Reset",     "off": "Eastern Hut Reset",     "mode": "onoff", "group": 0, "pulseTimeout": 1 },
-    { "on": "Western Hut Reset",     "off": "Western Hut Reset",     "mode": "onoff", "group": 0, "pulseTimeout": 1 },
-    { "on": "Antenna Switch Closed", "off": "Antenna Switch Closed", "mode": "onoff", "group": 0, "pulseTimeout": 1 },
-    { "on": "Antenna Switch Open",   "off": "Antenna Switch Open",   "mode": "onoff", "group": 0, "pulseTimeout": 1 },
-    { "on": "Relay 5 On",            "off": "Relay 5 Off",           "mode": "onoff", "group": 0, "pulseTimeout": 1 },
-    { "on": "Relay 6 On",            "off": "Relay 6 Off",           "mode": "onoff", "group": 0, "pulseTimeout": 1 },
-    { "on": "Relay 7 On",            "off": "Relay 7 Off",           "mode": "onoff", "group": 0, "pulseTimeout": 1 },
-    { "on": "Relay 8 On",            "off": "Relay 8 Off",           "mode": "onoff", "group": 0, "pulseTimeout": 1 }
-  ]
+    {
+      "on": "Eastern Hut Reset",
+      "off": "Eastern Hut Reset",
+      "mode": "latched",
+      "group": 0,
+      "pulseTimeout": 0
+    },
+    {
+      "on": "Western Hut Reset",
+      "off": "Western Hut Reset",
+      "mode": "latched",
+      "group": 0,
+      "pulseTimeout": 0
+    },
+    {
+      "on": "Antenna Switch Closed",
+      "off": "Antenna Switch Closed",
+      "mode": "latched",
+      "group": 0,
+      "pulseTimeout": 0
+    },
+    {
+      "on": "Antenna Switch Open",
+      "off": "Antenna Switch Open",
+      "mode": "latched",
+      "group": 0,
+      "pulseTimeout": 0
+    },
+    {
+      "on": "Relay 5 On",
+      "off": "Relay 5 Off",
+      "mode": "latched",
+      "group": 0,
+      "pulseTimeout": 0
+    },
+    {
+      "on": "Relay 6 On",
+      "off": "Relay 6 Off",
+      "mode": "latched",
+      "group": 0,
+      "pulseTimeout": 0
+    },
+    {
+      "on": "Relay 7 On",
+      "off": "Relay 7 Off",
+      "mode": "latched",
+      "group": 0,
+      "pulseTimeout": 0
+    },
+    {
+      "on": "Relay 8 On",
+      "off": "Relay 8 Off",
+      "mode": "latched",
+      "group": 0,
+      "pulseTimeout": 0
+    }
+  ],
+  "_help": {
+    "templateFields": {
+      "title": "Template display name shown in UI.",
+      "relayCount": "Relay count this template targets. Allowed values: 8 or 16.",
+      "labels": "Array of relay definitions. One entry per relay."
+    },
+    "relayFieldOptions": {
+      "on": "Label shown when relay is ON. If empty in UI, OFF label can be reused.",
+      "off": "Label shown when relay is OFF.",
+      "mode": "Button mode options: latched, interlocked, pulsed.",
+      "group": "Interlock group number. Use 0 when mode is not interlocked.",
+      "pulseTimeout": "Pulse duration in seconds when mode is pulsed. Use 0 when mode is latched/interlocked. Allowed pulsed range: 1-30."
+    }
+  }
 }

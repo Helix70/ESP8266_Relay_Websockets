@@ -1,3 +1,5 @@
 #pragma once
 
-void initWiFi();
+bool initWiFi();
+void requestStrongestSsidRescan();
+void processStrongestSsidRescan();

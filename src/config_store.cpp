@@ -3,8 +3,11 @@
 #include "LittleFS.h"
 #include <ArduinoJson.h>
 
+#include "board_hardware.h"
+
 #if defined(ESP8266)
 #include <ESP8266WiFi.h>
+#include <EEPROM.h>
 #elif defined(ESP32)
 #include <WiFi.h>
 #endif
@@ -20,6 +23,125 @@ constexpr const char *kDefaultVariant = ""; // empty = not yet configured
 constexpr size_t kMaxBoardNameLength = 64;
 constexpr size_t kMaxSsidLength = 32;
 constexpr size_t kMaxPasswordLength = 64;
+
+#if defined(ESP8266)
+constexpr size_t kEepromTotalSize = 4096;
+constexpr int kBoardConfigEepromBase = 0;
+constexpr size_t kBoardConfigEepromRegionSize = 2048;
+constexpr uint32_t kBoardConfigEepromMagic = 0x31434252u; // "RBC1"
+constexpr uint16_t kBoardConfigEepromVersion = 1;
+constexpr int kBoardConfigHeaderOffsetMagic = kBoardConfigEepromBase + 0;
+constexpr int kBoardConfigHeaderOffsetVersion = kBoardConfigEepromBase + 4;
+constexpr int kBoardConfigHeaderOffsetLength = kBoardConfigEepromBase + 6;
+constexpr int kBoardConfigHeaderOffsetCrc = kBoardConfigEepromBase + 8;
+constexpr int kBoardConfigPayloadOffset = kBoardConfigEepromBase + 10;
+constexpr size_t kBoardConfigMaxPayload = kBoardConfigEepromRegionSize - 10;
+
+uint16_t crc16Ccitt(const uint8_t *data, size_t len)
+{
+  uint16_t crc = 0xFFFFu;
+  for (size_t i = 0; i < len; i++)
+  {
+    crc ^= (uint16_t)data[i] << 8;
+    for (uint8_t bit = 0; bit < 8; bit++)
+    {
+      if (crc & 0x8000u)
+      {
+        crc = (uint16_t)((crc << 1) ^ 0x1021u);
+      }
+      else
+      {
+        crc <<= 1;
+      }
+    }
+  }
+  return crc;
+}
+
+void eepromWriteU16(int offset, uint16_t value)
+{
+  EEPROM.write(offset, (uint8_t)(value & 0xFFu));
+  EEPROM.write(offset + 1, (uint8_t)((value >> 8) & 0xFFu));
+}
+
+void eepromWriteU32(int offset, uint32_t value)
+{
+  EEPROM.write(offset, (uint8_t)(value & 0xFFu));
+  EEPROM.write(offset + 1, (uint8_t)((value >> 8) & 0xFFu));
+  EEPROM.write(offset + 2, (uint8_t)((value >> 16) & 0xFFu));
+  EEPROM.write(offset + 3, (uint8_t)((value >> 24) & 0xFFu));
+}
+
+uint16_t eepromReadU16(int offset)
+{
+  return (uint16_t)EEPROM.read(offset) |
+         (uint16_t)((uint16_t)EEPROM.read(offset + 1) << 8);
+}
+
+uint32_t eepromReadU32(int offset)
+{
+  return (uint32_t)EEPROM.read(offset) |
+         ((uint32_t)EEPROM.read(offset + 1) << 8) |
+         ((uint32_t)EEPROM.read(offset + 2) << 16) |
+         ((uint32_t)EEPROM.read(offset + 3) << 24);
+}
+
+bool saveBoardConfigToEepromJson(const String &payload)
+{
+  if (payload.length() == 0 || payload.length() > kBoardConfigMaxPayload)
+  {
+    return false;
+  }
+
+  EEPROM.begin((int)kEepromTotalSize);
+
+  uint16_t payloadLen = (uint16_t)payload.length();
+  uint16_t crc = crc16Ccitt((const uint8_t *)payload.c_str(), payloadLen);
+
+  eepromWriteU32(kBoardConfigHeaderOffsetMagic, kBoardConfigEepromMagic);
+  eepromWriteU16(kBoardConfigHeaderOffsetVersion, kBoardConfigEepromVersion);
+  eepromWriteU16(kBoardConfigHeaderOffsetLength, payloadLen);
+  eepromWriteU16(kBoardConfigHeaderOffsetCrc, crc);
+
+  for (uint16_t i = 0; i < payloadLen; i++)
+  {
+    EEPROM.write(kBoardConfigPayloadOffset + i, (uint8_t)payload[i]);
+  }
+
+  bool ok = EEPROM.commit();
+  EEPROM.end();
+  return ok;
+}
+
+bool loadBoardConfigFromEepromJson(String &payloadOut)
+{
+  payloadOut = "";
+
+  EEPROM.begin((int)kEepromTotalSize);
+
+  uint32_t magic = eepromReadU32(kBoardConfigHeaderOffsetMagic);
+  uint16_t version = eepromReadU16(kBoardConfigHeaderOffsetVersion);
+  uint16_t payloadLen = eepromReadU16(kBoardConfigHeaderOffsetLength);
+  uint16_t expectedCrc = eepromReadU16(kBoardConfigHeaderOffsetCrc);
+
+  if (magic != kBoardConfigEepromMagic || version != kBoardConfigEepromVersion ||
+      payloadLen == 0 || payloadLen > kBoardConfigMaxPayload)
+  {
+    EEPROM.end();
+    return false;
+  }
+
+  payloadOut.reserve(payloadLen);
+  for (uint16_t i = 0; i < payloadLen; i++)
+  {
+    payloadOut += (char)EEPROM.read(kBoardConfigPayloadOffset + i);
+  }
+  EEPROM.end();
+
+  uint16_t actualCrc = crc16Ccitt((const uint8_t *)payloadOut.c_str(), payloadOut.length());
+  return (actualCrc == expectedCrc);
+}
+#endif
 
 uint32_t getCryptoSeed()
 {
@@ -82,13 +204,13 @@ extern const char *kBoardConfigPath;
 extern String boardName;
 extern String wifiSsid;
 extern String wifiPassword;
+extern String selectedRelayTemplateFilename;
 extern bool useStaticIp;
 extern bool doDelay;
 extern uint16_t startupDelaySeconds;
-extern bool doLatched;
-extern bool doInterlocked;
-extern bool doPulsed;
+extern bool connectStrongestOnStartup;
 extern String hardwareVariant;
+extern String activeBoardHardwareFilename;
 extern uint8_t relayCount;
 extern bool useShiftRegister;
 extern IPAddress boardIp;
@@ -160,13 +282,13 @@ bool saveBoardConfig()
   prefs.putString("name", boardName);
   prefs.putBool("doDelay", doDelay);
   prefs.putUShort("delaySec", startupDelaySeconds);
-  prefs.putBool("doLatched", doLatched);
-  prefs.putBool("doInterlocked", doInterlocked);
-  prefs.putBool("doPulsed", doPulsed);
+  prefs.putBool("strongestSsid", connectStrongestOnStartup);
   prefs.putString("hwVar", hardwareVariant);
+  prefs.putString("hwFile", activeBoardHardwareFilename);
   prefs.putBool("useStatic", useStaticIp);
   prefs.putString("wifiSsidEnc", encryptConfigSecret(wifiSsid));
   prefs.putString("wifiPwdEnc", encryptConfigSecret(wifiPassword));
+  prefs.putString("selTpl", selectedRelayTemplateFilename);
   if (useStaticIp)
   {
     prefs.putString("ip", boardIp.toString());
@@ -186,15 +308,50 @@ bool saveBoardConfig()
   prefs.end();
   Serial.printf("Saved board config to NVS: name=%s, dhcp=%d\n", boardName.c_str(), !useStaticIp);
   return true;
-#else
-  StaticJsonDocument<1536> doc;
+#elif defined(ESP8266)
+  DynamicJsonDocument doc(2048);
   doc["name"] = boardName;
   doc["doDelay"] = doDelay;
   doc["startupDelaySeconds"] = startupDelaySeconds;
-  doc["doLatched"] = doLatched;
-  doc["doInterlocked"] = doInterlocked;
-  doc["doPulsed"] = doPulsed;
+  doc["connectStrongestOnStartup"] = connectStrongestOnStartup;
   doc["hardwareVariant"] = hardwareVariant;
+  doc["activeBoardHardwareFile"] = activeBoardHardwareFilename;
+  doc["selectedRelayTemplate"] = selectedRelayTemplateFilename;
+  doc["wifiSsidEnc"] = encryptConfigSecret(wifiSsid);
+  doc["wifiPwdEnc"] = encryptConfigSecret(wifiPassword);
+
+  if (useStaticIp)
+  {
+    JsonObject ipConfig = doc.createNestedObject("ipConfig");
+    ipConfig["ip"] = boardIp.toString();
+    ipConfig["dns"] = boardDns.toString();
+    ipConfig["gateway"] = boardGateway.toString();
+    ipConfig["subnet"] = boardSubnet.toString();
+  }
+  else
+  {
+    doc["ipConfig"] = nullptr;
+  }
+
+  String payload;
+  serializeJson(doc, payload);
+  if (!saveBoardConfigToEepromJson(payload))
+  {
+    Serial.println("Failed to save board config to EEPROM");
+    return false;
+  }
+
+  Serial.printf("Saved board config to EEPROM: name=%s, dhcp=%d\n", boardName.c_str(), !useStaticIp);
+  return true;
+#else
+  DynamicJsonDocument doc(2048);
+  doc["name"] = boardName;
+  doc["doDelay"] = doDelay;
+  doc["startupDelaySeconds"] = startupDelaySeconds;
+  doc["connectStrongestOnStartup"] = connectStrongestOnStartup;
+  doc["hardwareVariant"] = hardwareVariant;
+  doc["activeBoardHardwareFile"] = activeBoardHardwareFilename;
+  doc["selectedRelayTemplate"] = selectedRelayTemplateFilename;
   doc["wifiSsidEnc"] = encryptConfigSecret(wifiSsid);
   doc["wifiPwdEnc"] = encryptConfigSecret(wifiPassword);
 
@@ -229,14 +386,14 @@ void loadBoardConfig()
   useStaticIp = false;
   doDelay = false;
   startupDelaySeconds = 60;
-  doLatched = false;
-  doInterlocked = false;
-  doPulsed = false;
+  connectStrongestOnStartup = false;
   hardwareVariant = kDefaultVariant;
+  activeBoardHardwareFilename = boardHardwarePath(hardwareVariant);
   relayCount = 8;
   useShiftRegister = false;
   wifiSsid = "";
   wifiPassword = "";
+  selectedRelayTemplateFilename = "";
 
 #ifdef ESP32
   Preferences prefs;
@@ -258,15 +415,21 @@ void loadBoardConfig()
 
   doDelay = prefs.getBool("doDelay", false);
   startupDelaySeconds = prefs.getUShort("delaySec", 60);
-  doLatched = prefs.getBool("doLatched", false);
-  doInterlocked = prefs.getBool("doInterlocked", false);
-  doPulsed = prefs.getBool("doPulsed", false);
+  connectStrongestOnStartup = prefs.getBool("strongestSsid", false);
   hardwareVariant = prefs.getString("hwVar", kDefaultVariant);
   hardwareVariant.trim();
+  activeBoardHardwareFilename = prefs.getString("hwFile", "");
+  activeBoardHardwareFilename.trim();
+  if (activeBoardHardwareFilename.length() == 0)
+  {
+    activeBoardHardwareFilename = boardHardwarePath(hardwareVariant);
+  }
   if (prefs.isKey("wifiSsidEnc"))
     wifiSsid = decryptConfigSecret(prefs.getString("wifiSsidEnc", ""));
   if (prefs.isKey("wifiPwdEnc"))
     wifiPassword = decryptConfigSecret(prefs.getString("wifiPwdEnc", ""));
+  selectedRelayTemplateFilename = prefs.getString("selTpl", "");
+  selectedRelayTemplateFilename.trim();
 
   if (wifiSsid.length() > kMaxSsidLength)
     wifiSsid = wifiSsid.substring(0, kMaxSsidLength);
@@ -292,8 +455,103 @@ void loadBoardConfig()
 
   prefs.end();
   applyHardwareVariantPinsAndModes();
-  Serial.printf("Loaded board config from NVS: name=%s, dhcp=%d, doDelay=%d, startupDelaySeconds=%u, doLatched=%d, doInterlocked=%d, doPulsed=%d, wifiSsidSet=%d\n",
-                boardName.c_str(), !useStaticIp, doDelay, startupDelaySeconds, doLatched, doInterlocked, doPulsed, wifiSsid.length() > 0);
+  Serial.printf("Loaded board config from NVS: name=%s, dhcp=%d, doDelay=%d, startupDelaySeconds=%u, strongestSsid=%d, wifiSsidSet=%d\n",
+                boardName.c_str(), !useStaticIp, doDelay, startupDelaySeconds, connectStrongestOnStartup, wifiSsid.length() > 0);
+#elif defined(ESP8266)
+  DynamicJsonDocument doc(2048);
+  bool loaded = false;
+
+  String eepromPayload;
+  if (loadBoardConfigFromEepromJson(eepromPayload))
+  {
+    if (deserializeJson(doc, eepromPayload) == DeserializationError::Ok)
+    {
+      loaded = true;
+      Serial.println("Loaded board config from EEPROM");
+    }
+  }
+
+  if (!loaded && LittleFS.exists(kBoardConfigPath))
+  {
+    File file = LittleFS.open(kBoardConfigPath, "r");
+    if (file)
+    {
+      if (deserializeJson(doc, file) == DeserializationError::Ok)
+      {
+        loaded = true;
+        Serial.println("Loaded board config from LittleFS (legacy)");
+      }
+      file.close();
+    }
+
+    // Migrate legacy file config into EEPROM so it survives uploadfs.
+    if (loaded)
+    {
+      String migratedPayload;
+      serializeJson(doc, migratedPayload);
+      if (saveBoardConfigToEepromJson(migratedPayload))
+      {
+        Serial.println("Migrated board config to EEPROM");
+      }
+    }
+  }
+
+  if (!loaded)
+  {
+    Serial.printf("Board config not found in EEPROM, using defaults\n");
+    return;
+  }
+
+  String name = doc["name"];
+  if (name.length() > 0)
+  {
+    name.trim();
+    if (name.length() > kMaxBoardNameLength)
+      name = name.substring(0, kMaxBoardNameLength);
+    boardName = name;
+  }
+
+  if (doc.containsKey("doDelay")) doDelay = doc["doDelay"] | false;
+  if (doc.containsKey("startupDelaySeconds")) startupDelaySeconds = doc["startupDelaySeconds"] | 60;
+  if (doc.containsKey("connectStrongestOnStartup")) connectStrongestOnStartup = doc["connectStrongestOnStartup"] | false;
+  if (doc.containsKey("hardwareVariant"))
+  {
+    hardwareVariant = String(doc["hardwareVariant"] | kDefaultVariant);
+    hardwareVariant.trim();
+  }
+  if (doc.containsKey("activeBoardHardwareFile"))
+  {
+    activeBoardHardwareFilename = String(doc["activeBoardHardwareFile"] | "");
+    activeBoardHardwareFilename.trim();
+  }
+  if (activeBoardHardwareFilename.length() == 0)
+  {
+    activeBoardHardwareFilename = boardHardwarePath(hardwareVariant);
+  }
+  wifiSsid = decryptConfigSecret(String(doc["wifiSsidEnc"] | ""));
+  wifiPassword = decryptConfigSecret(String(doc["wifiPwdEnc"] | ""));
+  selectedRelayTemplateFilename = String(doc["selectedRelayTemplate"] | "");
+  selectedRelayTemplateFilename.trim();
+  if (wifiSsid.length() > kMaxSsidLength)
+    wifiSsid = wifiSsid.substring(0, kMaxSsidLength);
+  if (wifiPassword.length() > kMaxPasswordLength)
+    wifiPassword = wifiPassword.substring(0, kMaxPasswordLength);
+
+  JsonObject ipConfig = doc["ipConfig"];
+  if (!ipConfig.isNull())
+  {
+    String ipStr = ipConfig["ip"], dnsStr = ipConfig["dns"],
+           gatewayStr = ipConfig["gateway"], subnetStr = ipConfig["subnet"];
+    if (ipStr.length() > 0 && boardIp.fromString(ipStr) &&
+        dnsStr.length() > 0 && boardDns.fromString(dnsStr) &&
+        gatewayStr.length() > 0 && boardGateway.fromString(gatewayStr) &&
+        subnetStr.length() > 0 && boardSubnet.fromString(subnetStr))
+      useStaticIp = true;
+  }
+
+  applyHardwareVariantPinsAndModes();
+
+  Serial.printf("Loaded board config: name=%s, dhcp=%d, doDelay=%d, startupDelaySeconds=%u, strongestSsid=%d, wifiSsidSet=%d\n", boardName.c_str(), !useStaticIp, doDelay, startupDelaySeconds, connectStrongestOnStartup, wifiSsid.length() > 0);
 #else
   if (!LittleFS.exists(kBoardConfigPath))
   {
@@ -304,7 +562,7 @@ void loadBoardConfig()
   File file = LittleFS.open(kBoardConfigPath, "r");
   if (!file) return;
 
-  StaticJsonDocument<1536> doc;
+  DynamicJsonDocument doc(2048);
   DeserializationError error = deserializeJson(doc, file);
   file.close();
 
@@ -325,16 +583,25 @@ void loadBoardConfig()
 
   if (doc.containsKey("doDelay")) doDelay = doc["doDelay"] | false;
   if (doc.containsKey("startupDelaySeconds")) startupDelaySeconds = doc["startupDelaySeconds"] | 60;
-  if (doc.containsKey("doLatched")) doLatched = doc["doLatched"] | false;
-  if (doc.containsKey("doInterlocked")) doInterlocked = doc["doInterlocked"] | false;
-  if (doc.containsKey("doPulsed")) doPulsed = doc["doPulsed"] | false;
+  if (doc.containsKey("connectStrongestOnStartup")) connectStrongestOnStartup = doc["connectStrongestOnStartup"] | false;
   if (doc.containsKey("hardwareVariant"))
   {
     hardwareVariant = String(doc["hardwareVariant"] | kDefaultVariant);
     hardwareVariant.trim();
   }
+  if (doc.containsKey("activeBoardHardwareFile"))
+  {
+    activeBoardHardwareFilename = String(doc["activeBoardHardwareFile"] | "");
+    activeBoardHardwareFilename.trim();
+  }
+  if (activeBoardHardwareFilename.length() == 0)
+  {
+    activeBoardHardwareFilename = boardHardwarePath(hardwareVariant);
+  }
   wifiSsid = decryptConfigSecret(String(doc["wifiSsidEnc"] | ""));
   wifiPassword = decryptConfigSecret(String(doc["wifiPwdEnc"] | ""));
+  selectedRelayTemplateFilename = String(doc["selectedRelayTemplate"] | "");
+  selectedRelayTemplateFilename.trim();
   if (wifiSsid.length() > kMaxSsidLength)
     wifiSsid = wifiSsid.substring(0, kMaxSsidLength);
   if (wifiPassword.length() > kMaxPasswordLength)
@@ -354,6 +621,6 @@ void loadBoardConfig()
 
   applyHardwareVariantPinsAndModes();
 
-  Serial.printf("Loaded board config: name=%s, dhcp=%d, doDelay=%d, startupDelaySeconds=%u, wifiSsidSet=%d\n", boardName.c_str(), !useStaticIp, doDelay, startupDelaySeconds, wifiSsid.length() > 0);
+  Serial.printf("Loaded board config: name=%s, dhcp=%d, doDelay=%d, startupDelaySeconds=%u, strongestSsid=%d, wifiSsidSet=%d\n", boardName.c_str(), !useStaticIp, doDelay, startupDelaySeconds, connectStrongestOnStartup, wifiSsid.length() > 0);
 #endif
 }

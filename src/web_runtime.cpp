@@ -1,5 +1,6 @@
 #include "web_runtime.h"
 
+#include <Arduino.h>
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 
@@ -8,6 +9,152 @@
 #include "config_store.h"
 #include "relay_runtime.h"
 #include "storage_utils.h"
+
+static const char *kMainGateCookieName = "relay_main_gate";
+static String mainGateToken;
+
+struct RuntimeWsMetrics
+{
+  uint32_t windowStartedAtMs = 0;
+  uint32_t sentCount = 0;
+  uint32_t skippedDuplicateCount = 0;
+  uint32_t totalPayloadBytes = 0;
+  uint32_t maxPayloadBytes = 0;
+  uint32_t totalBuildMicros = 0;
+  uint32_t maxBuildMicros = 0;
+};
+
+static RuntimeWsMetrics runtimeWsMetrics;
+
+static uint32_t hashPayload(const String &payload)
+{
+  // FNV-1a 32-bit hash for fast duplicate detection without retaining a full copy.
+  uint32_t hash = 2166136261u;
+  for (size_t i = 0; i < payload.length(); i++)
+  {
+    hash ^= (uint8_t)payload[i];
+    hash *= 16777619u;
+  }
+  return hash;
+}
+
+static void maybePrintRuntimeWsMetrics()
+{
+  uint32_t now = millis();
+  if (runtimeWsMetrics.windowStartedAtMs == 0)
+  {
+    runtimeWsMetrics.windowStartedAtMs = now;
+    return;
+  }
+
+  uint32_t elapsedMs = now - runtimeWsMetrics.windowStartedAtMs;
+  if (elapsedMs < 5000)
+  {
+    return;
+  }
+
+  float seconds = elapsedMs / 1000.0f;
+  float sentPerSecond = (seconds > 0.0f) ? (runtimeWsMetrics.sentCount / seconds) : 0.0f;
+  float avgPayloadBytes = (runtimeWsMetrics.sentCount > 0)
+                              ? ((float)runtimeWsMetrics.totalPayloadBytes / (float)runtimeWsMetrics.sentCount)
+                              : 0.0f;
+  float avgBuildUs = (runtimeWsMetrics.sentCount > 0)
+                         ? ((float)runtimeWsMetrics.totalBuildMicros / (float)runtimeWsMetrics.sentCount)
+                         : 0.0f;
+
+  Serial.printf(
+      "[Perf][WS] %lus sent=%lu skip=%lu rate=%.2f/s avgBytes=%.1f maxBytes=%lu avgBuildUs=%.1f maxBuildUs=%lu\n",
+      (unsigned long)(elapsedMs / 1000),
+      (unsigned long)runtimeWsMetrics.sentCount,
+      (unsigned long)runtimeWsMetrics.skippedDuplicateCount,
+      sentPerSecond,
+      avgPayloadBytes,
+      (unsigned long)runtimeWsMetrics.maxPayloadBytes,
+      avgBuildUs,
+      (unsigned long)runtimeWsMetrics.maxBuildMicros);
+
+  runtimeWsMetrics.windowStartedAtMs = now;
+  runtimeWsMetrics.sentCount = 0;
+  runtimeWsMetrics.skippedDuplicateCount = 0;
+  runtimeWsMetrics.totalPayloadBytes = 0;
+  runtimeWsMetrics.maxPayloadBytes = 0;
+  runtimeWsMetrics.totalBuildMicros = 0;
+  runtimeWsMetrics.maxBuildMicros = 0;
+}
+
+static String generateMainGateToken()
+{
+  uint32_t seed = (uint32_t)micros() ^ (uint32_t)millis() ^ (uint32_t)ESP.getFreeHeap();
+  randomSeed(seed);
+  uint32_t a = (uint32_t)random(0x7fffffff);
+  uint32_t b = (uint32_t)random(0x7fffffff);
+
+  String token = String(seed, HEX);
+  token += String(a, HEX);
+  token += String(b, HEX);
+  token.toLowerCase();
+  return token;
+}
+
+static void ensureMainGateToken()
+{
+  if (mainGateToken.length() > 0)
+  {
+    return;
+  }
+
+  mainGateToken = generateMainGateToken();
+  Serial.println("Main-page access gate initialized for current boot session");
+}
+
+static bool hasValidMainGateCookie(AsyncWebServerRequest *request)
+{
+  if (mainGateToken.length() == 0)
+  {
+    return false;
+  }
+
+  if (!request->hasHeader("Cookie"))
+  {
+    return false;
+  }
+
+  String cookieHeader = request->header("Cookie");
+  String key = String(kMainGateCookieName) + "=";
+  int start = cookieHeader.indexOf(key);
+  if (start < 0)
+  {
+    return false;
+  }
+
+  start += key.length();
+  int end = cookieHeader.indexOf(';', start);
+  String cookieValue = (end < 0) ? cookieHeader.substring(start) : cookieHeader.substring(start, end);
+  cookieValue.trim();
+
+  return (cookieValue.length() > 0 && cookieValue == mainGateToken);
+}
+
+static void sendMainPageAndIssueGateCookie(AsyncWebServerRequest *request)
+{
+  ensureMainGateToken();
+
+  AsyncWebServerResponse *response = request->beginResponse(LittleFS, "/index.html", "text/html", false, nullptr);
+  response->addHeader("Cache-Control", "no-store");
+  response->addHeader("Set-Cookie", String(kMainGateCookieName) + "=" + mainGateToken + "; Path=/; HttpOnly; SameSite=Lax");
+  request->send(response);
+}
+
+static bool enforceChildPageGate(AsyncWebServerRequest *request)
+{
+  if (hasValidMainGateCookie(request))
+  {
+    return true;
+  }
+
+  request->redirect("/");
+  return false;
+}
 
 static int parseRelayNumberFromCommand(const String &command)
 {
@@ -24,9 +171,10 @@ static int parseRelayNumberFromCommand(const String &command)
   return 0;
 }
 
-void notifyClients()
+static void buildRuntimeStatePayload(String &payload, bool includeSystemDetails)
 {
-  DynamicJsonDocument JSONdoc(12288);
+  static DynamicJsonDocument JSONdoc(12288);
+  JSONdoc.clear();
 
   JsonArray array = JSONdoc.createNestedArray("buttons");
   for (int i = 0; i < relayCount; i++)
@@ -36,65 +184,182 @@ void notifyClients()
     button["on"] = relays[i].on;
     button["disabled"] = relays[i].disabled;
     button["last"] = relays[i].last;
-    button["onLabel"] = relayLabels[i].on;
-    button["offLabel"] = relayLabels[i].off;
-    button["mode"] = relayLabels[i].mode;
-    button["group"] = relayLabels[i].group;
-    button["pulseTimeout"] = relayLabels[i].pulseTimeout;
-    button["gpio"] = (relays[i].pin == 255) ? -1 : (int)relays[i].pin;
+    if (includeSystemDetails)
+    {
+      button["onLabel"] = relayLabels[i].on;
+      button["offLabel"] = relayLabels[i].off;
+      button["mode"] = relayLabels[i].mode;
+      button["group"] = relayLabels[i].group;
+      button["pulseTimeout"] = relayLabels[i].pulseTimeout;
+      button["gpio"] = (relays[i].pin == 255) ? -1 : (int)relays[i].pin;
+    }
   }
 
   JSONdoc["boardName"] = boardName;
-  JSONdoc["useStaticIp"] = useStaticIp;
-  JSONdoc["useDhcp"] = !useStaticIp;
-
-  String activeIp = useStaticIp ? boardIp.toString() : WiFi.localIP().toString();
-  String activeDns = useStaticIp ? boardDns.toString() : WiFi.dnsIP().toString();
-  String activeGateway = useStaticIp ? boardGateway.toString() : WiFi.gatewayIP().toString();
-  String activeSubnet = useStaticIp ? boardSubnet.toString() : WiFi.subnetMask().toString();
-
-  JSONdoc["ipAddress"] = activeIp;
-  JSONdoc["dns"] = activeDns;
-  JSONdoc["gateway"] = activeGateway;
-  JSONdoc["subnet"] = activeSubnet;
-
-  JSONdoc["doDelay"] = doDelay;
-  JSONdoc["startupDelaySeconds"] = startupDelaySeconds;
-  JSONdoc["doLatched"] = doLatched;
-  JSONdoc["doInterlocked"] = doInterlocked;
-  JSONdoc["doPulsed"] = doPulsed;
   JSONdoc["setupComplete"] = (relayCount > 0 && hardwareVariant.length() > 0);
   JSONdoc["hardwareVariant"] = hardwareVariant;
   JSONdoc["relayCount"] = relayCount;
-  JSONdoc["boardHardwareFile"] = boardHardwarePath(hardwareVariant);
+  JSONdoc["selectedRelayTemplate"] = selectedRelayTemplateFilename;
+  JSONdoc["boardHardwareFile"] = activeBoardHardwareFilename;
   JSONdoc["boardHardwareName"] = activeBoardHardware.name;
 
-#if defined(ESP8266)
-  JSONdoc["mcuType"] = "ESP8266";
-#elif defined(ESP32)
-  JSONdoc["mcuType"] = "ESP32";
-#else
-  JSONdoc["mcuType"] = "Unknown";
-#endif
+  if (includeSystemDetails)
+  {
+    JSONdoc["useStaticIp"] = useStaticIp;
+    JSONdoc["useDhcp"] = !useStaticIp;
 
-  String payload;
+    String activeIp = useStaticIp ? boardIp.toString() : WiFi.localIP().toString();
+    String activeDns = useStaticIp ? boardDns.toString() : WiFi.dnsIP().toString();
+    String activeGateway = useStaticIp ? boardGateway.toString() : WiFi.gatewayIP().toString();
+    String activeSubnet = useStaticIp ? boardSubnet.toString() : WiFi.subnetMask().toString();
+
+    wl_status_t wifiStatus = WiFi.status();
+    bool wifiConnected = (wifiStatus == WL_CONNECTED);
+
+    JSONdoc["ipAddress"] = activeIp;
+    JSONdoc["dns"] = activeDns;
+    JSONdoc["gateway"] = activeGateway;
+    JSONdoc["subnet"] = activeSubnet;
+    JSONdoc["wifiConnected"] = wifiConnected;
+    JSONdoc["wifiConfiguredSsid"] = wifiSsid;
+    JSONdoc["wifiConnectedSsid"] = wifiConnected ? WiFi.SSID() : "";
+    JSONdoc["wifiRssi"] = wifiConnected ? WiFi.RSSI() : 0;
+    JSONdoc["wifiRescanInProgress"] = wifiRescanInProgress;
+    JSONdoc["wifiRescanStatus"] = wifiRescanStatus;
+
+    JSONdoc["doDelay"] = doDelay;
+    JSONdoc["startupDelaySeconds"] = startupDelaySeconds;
+    JSONdoc["connectStrongestOnStartup"] = connectStrongestOnStartup;
+
+#if defined(ESP8266)
+    JSONdoc["mcuType"] = "ESP8266";
+#elif defined(ESP32)
+    JSONdoc["mcuType"] = "ESP32";
+#else
+    JSONdoc["mcuType"] = "Unknown";
+#endif
+  }
+
+  payload = "";
   serializeJson(JSONdoc, payload);
+}
+
+void notifyClients()
+{
+  static String payload;
+  static uint32_t lastPayloadHash = 0;
+  static size_t lastPayloadLen = 0;
+  uint32_t buildStartUs = micros();
+
+  buildRuntimeStatePayload(payload, false);
+  uint32_t buildElapsedUs = micros() - buildStartUs;
+  uint32_t payloadHash = hashPayload(payload);
+  size_t payloadLen = payload.length();
+
+  if (payloadHash == lastPayloadHash && payloadLen == lastPayloadLen)
+  {
+    runtimeWsMetrics.skippedDuplicateCount++;
+    maybePrintRuntimeWsMetrics();
+    return;
+  }
+
+  uint32_t payloadBytes = (uint32_t)payloadLen;
+  runtimeWsMetrics.sentCount++;
+  runtimeWsMetrics.totalPayloadBytes += payloadBytes;
+  if (payloadBytes > runtimeWsMetrics.maxPayloadBytes)
+  {
+    runtimeWsMetrics.maxPayloadBytes = payloadBytes;
+  }
+  runtimeWsMetrics.totalBuildMicros += buildElapsedUs;
+  if (buildElapsedUs > runtimeWsMetrics.maxBuildMicros)
+  {
+    runtimeWsMetrics.maxBuildMicros = buildElapsedUs;
+  }
+
+  ws.textAll(payload);
+  lastPayloadHash = payloadHash;
+  lastPayloadLen = payloadLen;
+  maybePrintRuntimeWsMetrics();
+}
+
+static void notifyClient(AsyncWebSocketClient *client)
+{
+  if (client == nullptr)
+  {
+    return;
+  }
+
+  static String payload;
+  buildRuntimeStatePayload(payload, true);
+  client->text(payload);
+}
+
+void notifyRelayStates()
+{
+  static DynamicJsonDocument doc(2048);
+  static String payload;
+
+  doc.clear();
+  doc["partial"] = true;
+  JsonArray array = doc.createNestedArray("buttons");
+  for (uint8_t i = 0; i < relayCount; i++)
+  {
+    JsonObject button = array.createNestedObject();
+    button["id"] = i + 1;
+    button["on"] = relays[i].on;
+    button["disabled"] = relays[i].disabled;
+    button["last"] = relays[i].last;
+  }
+
+  payload = "";
+  serializeJson(doc, payload);
   ws.textAll(payload);
 }
 
-static void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
+void notifyRelayState(uint8_t relayNum)
 {
-  char buffer[len + 1];
-  snprintf(buffer, len + 1, "%s", data);
-  String str = buffer;
+  if (relayNum < 1 || relayNum > relayCount)
+  {
+    return;
+  }
 
+  uint8_t idx = relayNum - 1;
+  static DynamicJsonDocument doc(256);
+  static String payload;
+
+  doc.clear();
+  doc["partial"] = true;
+  JsonArray array = doc.createNestedArray("buttons");
+  JsonObject button = array.createNestedObject();
+  button["id"] = relayNum;
+  button["on"] = relays[idx].on;
+  button["disabled"] = relays[idx].disabled;
+  button["last"] = relays[idx].last;
+
+  payload = "";
+  serializeJson(doc, payload);
+  ws.textAll(payload);
+}
+
+static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint8_t *data, size_t len)
+{
   AwsFrameInfo *info = (AwsFrameInfo *)arg;
   if (!(info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT))
   {
     return;
   }
 
-  bool notify = false;
+  String str;
+  str.reserve(len + 1);
+  for (size_t i = 0; i < len; i++)
+  {
+    str += (char)data[i];
+  }
+
+  bool notifyAll = false;
+  bool notifyRelayAll = false;
+  bool notifyRelaySingle = false;
+  bool notifyRequester = false;
   int relayNum = 0;
 
   if (str.startsWith("{"))
@@ -112,7 +377,7 @@ static void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
           assignRelayLabels(relayNum, String(command["on"] | ""), String(command["off"] | ""));
           if (command.containsKey("mode"))
           {
-            String modeStr = String(command["mode"] | "onoff");
+            String modeStr = String(command["mode"] | "latched");
             uint8_t mode = RELAY_MODE_ONOFF;
             if (modeStr == "interlocked") mode = RELAY_MODE_INTERLOCKED;
             else if (modeStr == "pulsed") mode = RELAY_MODE_PULSED;
@@ -121,7 +386,7 @@ static void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
                             (uint8_t)(command["pulseTimeout"] | (uint8_t)1));
           }
           saveRelayLabels();
-          notify = true;
+          notifyAll = true;
         }
       }
       else if (cmd == "setLabels")
@@ -141,7 +406,7 @@ static void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
             if (relayNum > 0 && relayNum <= relayCount)
             {
               assignRelayLabels(relayNum, String(label["on"] | ""), String(label["off"] | ""));
-              String modeStr = String(label["mode"] | "onoff");
+              String modeStr = String(label["mode"] | "latched");
               uint8_t mode = RELAY_MODE_ONOFF;
               if (modeStr == "interlocked") mode = RELAY_MODE_INTERLOCKED;
               else if (modeStr == "pulsed") mode = RELAY_MODE_PULSED;
@@ -156,7 +421,7 @@ static void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         if (changed)
         {
           saveRelayLabels();
-          notify = true;
+          notifyAll = true;
         }
       }
       else if (cmd == "setBoardName")
@@ -171,7 +436,7 @@ static void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
           }
           boardName = newName;
           saveBoardConfig();
-          notify = true;
+          notifyAll = true;
         }
       }
       else if (cmd == "setBoardIP")
@@ -182,8 +447,9 @@ static void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         {
           useStaticIp = false;
           saveBoardConfig();
-          delay(1000);
-          ESP.restart();
+          pendingRestart = true;
+          pendingRestartAt = millis() + 1200;
+          notifyAll = true;
         }
         else
         {
@@ -204,8 +470,9 @@ static void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
             boardSubnet = testSubnet;
             useStaticIp = true;
             saveBoardConfig();
-            delay(1000);
-            ESP.restart();
+            pendingRestart = true;
+            pendingRestartAt = millis() + 1200;
+            notifyAll = true;
           }
         }
       }
@@ -217,34 +484,29 @@ static void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
           doDelay = command["doDelay"] | false;
           changed = true;
         }
-        if (command.containsKey("doLatched"))
+        if (command.containsKey("startupDelaySeconds"))
         {
-          doLatched = command["doLatched"] | false;
-          changed = true;
-        }
-        if (command.containsKey("doInterlocked"))
-        {
-          doInterlocked = command["doInterlocked"] | false;
-          changed = true;
-        }
-        if (command.containsKey("doPulsed"))
-        {
-          doPulsed = command["doPulsed"] | false;
+          uint16_t parsed = (uint16_t)(command["startupDelaySeconds"] | startupDelaySeconds);
+          if (parsed > 300)
+          {
+            parsed = 300;
+          }
+          startupDelaySeconds = parsed;
           changed = true;
         }
         if (changed)
         {
           saveBoardConfig();
-          notify = true;
+          notifyAll = true;
         }
       }
     }
   }
-  else if (str == "home")
+  else if (len == 4 && str == "home")
   {
-    notify = true;
+    notifyRequester = true;
   }
-  else if (str == "alloff")
+  else if (len == 6 && str == "alloff")
   {
     for (relayNum = 1; relayNum <= relayCount; relayNum++)
     {
@@ -253,24 +515,53 @@ static void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
       relays[relayNum - 1].disabled = 0;
       pulsed_relays[relayNum - 1].counter = 0;
     }
-    notify = true;
+    notifyRelayAll = true;
   }
   else
   {
     relayNum = parseRelayNumberFromCommand(str);
     if (relayNum > 0 && relayNum <= relayCount)
     {
-      notify = handlePerRelayModeToggle(relayNum);
+      notifyRelaySingle = handlePerRelayModeToggle(relayNum);
+      if (notifyRelaySingle)
+      {
+        uint8_t idx = (uint8_t)(relayNum - 1);
+        if (relayLabels[idx].mode == RELAY_MODE_INTERLOCKED)
+        {
+          // Interlocked toggles can switch multiple relays in the same group.
+          notifyRelayAll = true;
+          notifyRelaySingle = false;
+        }
+      }
     }
   }
 
-  if (notify)
+  if (notifyAll || notifyRelayAll || notifyRelaySingle)
   {
     if (useShiftRegister)
     {
       writeRelaysToShiftRegister();
     }
+  }
+
+  if (notifyAll)
+  {
     notifyClients();
+  }
+
+  if (notifyRelayAll)
+  {
+    notifyRelayStates();
+  }
+
+  if (notifyRelaySingle)
+  {
+    notifyRelayState((uint8_t)relayNum);
+  }
+
+  if (notifyRequester)
+  {
+    notifyClient(client);
   }
 }
 
@@ -283,13 +574,13 @@ static void onEvent(AsyncWebSocket *serverInstance, AsyncWebSocketClient *client
   {
   case WS_EVT_CONNECT:
     Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
-    notifyClients();
+    notifyClient(client);
     break;
   case WS_EVT_DISCONNECT:
     Serial.printf("WebSocket client #%u disconnected\n", client->id());
     break;
   case WS_EVT_DATA:
-    handleWebSocketMessage(arg, data, len);
+    handleWebSocketMessage(client, arg, data, len);
     break;
   case WS_EVT_PONG:
   case WS_EVT_ERROR:
@@ -306,8 +597,42 @@ void registerRuntimeHttpRoutes()
 {
   server.addHandler(&ws);
 
+  ensureMainGateToken();
+
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send(LittleFS, useShiftRegister ? "/index16.html" : "/index.html", "text/html", false, nullptr); });
+            { sendMainPageAndIssueGateCookie(request); });
+
+  server.on("/config.html", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
+    if (!enforceChildPageGate(request))
+    {
+      return;
+    }
+    request->send(LittleFS, "/config.html", "text/html", false, nullptr); });
+
+  server.on("/relay-config.html", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
+    if (!enforceChildPageGate(request))
+    {
+      return;
+    }
+    request->send(LittleFS, "/relay-config.html", "text/html", false, nullptr); });
+
+  server.on("/boards.html", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
+    if (!enforceChildPageGate(request))
+    {
+      return;
+    }
+    request->send(LittleFS, "/boards.html", "text/html", false, nullptr); });
+
+  server.on("/template-editor.html", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
+    if (!enforceChildPageGate(request))
+    {
+      return;
+    }
+    request->send(LittleFS, "/template-editor.html", "text/html", false, nullptr); });
 
   server.on("/netinfo", HTTP_GET, [](AsyncWebServerRequest *request)
             {

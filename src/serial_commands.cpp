@@ -2,7 +2,9 @@
 
 #include "app_state.h"
 #include "config_store.h"
+#include "network_manager.h"
 #include "serial_provision.h"
+#include "web_runtime.h"
 
 static void handleSerialCommand(const String &rawCommand)
 {
@@ -58,7 +60,27 @@ static void handleSerialCommand(const String &rawCommand)
 
   if (command == "help")
   {
-    Serial.println("Available commands: reset_wifi, help");
+    Serial.println("Available commands: reset_wifi, wifi_rescan, wifi_strongest, help");
+    return;
+  }
+
+  if (command == "wifi_rescan" || command == "wifi_strongest")
+  {
+    if (wifiSsid.length() == 0)
+    {
+      Serial.println("Cannot rescan: no configured SSID.");
+      return;
+    }
+
+    if (wifiRescanInProgress || wifiRescanRequested)
+    {
+      Serial.println("Wi-Fi strongest-SSID rescan already in progress.");
+      return;
+    }
+
+    requestStrongestSsidRescan();
+    notifyClients();
+    Serial.println("Queued strongest-SSID Wi-Fi rescan and reconnect.");
     return;
   }
 

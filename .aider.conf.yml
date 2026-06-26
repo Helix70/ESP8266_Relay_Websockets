@@ -1,0 +1,21 @@
+read:
+  - CLAUDE.md
+  - .github/copilot-instructions.md
+  - AGENTS.md
+  - docs/AI_COLLABORATION_RUNBOOK.md
+  - .github/instructions/firmware-workflow.instructions.md
+
+auto-commits: false
+dirty-commits: false
+show-diffs: true
+
+# Project command hints for Aider sessions
+commands:
+  build_esp8266: "platformio run -e esp8266_serial"
+  build_esp32: "platformio run -e esp32_serial"
+  test_full: "pwsh ./scripts/tests/Run-SmokeTests.ps1 -Esp8266 <ESP8266_IP> -Esp32 <ESP32_IP> -Mode Full"
+  test_soak_full: "pwsh ./scripts/tests/Run-SoakTests.ps1 -Esp8266 <ESP8266_IP> -Esp32 <ESP32_IP> -Mode Full -Iterations 5 -PauseSeconds 1"
+  upload_esp8266_fw: "platformio run -e esp8266_serial -t upload"
+  upload_esp8266_fs: "platformio run -e esp8266_serial -t uploadfs"
+  upload_esp32_fw: "platformio run -e esp32_serial -t upload"
+  upload_esp32_fs: "platformio run -e esp32_serial -t uploadfs"

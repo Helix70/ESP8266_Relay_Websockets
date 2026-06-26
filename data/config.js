@@ -15,12 +15,29 @@ var lastReportedNetwork = {
   subnet: ''
 };
 var currentRelayModes = {
-  doDelay: false,
-  doLatched: false,
-  doInterlocked: false,
-  doPulsed: false
+  doDelay: false
 };
+var connectStrongestOnStartup = false;
 var currentHardwareVariant = '8relay';
+var DEBUG_LOGS = false;
+var wifiRefreshTimer = null;
+var restartRedirectDelayTimer = null;
+var restartRedirectPollTimer = null;
+var websocketEverConnected = false;
+var suspendConfigFormHydration = false;
+
+var wifiSsidDisplay;
+var wifiConnectedSsidDisplay;
+var wifiStatusDisplay;
+var wifiRssiDisplay;
+var wifiRescanStatusDisplay;
+var rescanWifiButton;
+
+function debugLog() {
+  if (DEBUG_LOGS && window.console && typeof console.log === 'function') {
+    console.log.apply(console, arguments);
+  }
+}
 
 window.addEventListener('load', onLoad);
 
@@ -39,7 +56,15 @@ function setConfigPageReady() {
 }
 
 function onLoad() {
+  wifiSsidDisplay = document.getElementById('wifiSsidDisplay');
+  wifiConnectedSsidDisplay = document.getElementById('wifiConnectedSsidDisplay');
+  wifiStatusDisplay = document.getElementById('wifiStatusDisplay');
+  wifiRssiDisplay = document.getElementById('wifiRssiDisplay');
+  wifiRescanStatusDisplay = document.getElementById('wifiRescanStatusDisplay');
+  rescanWifiButton = document.getElementById('rescanWifiButton');
+
   document.getElementById('saveConfig').addEventListener('click', saveConfig);
+  document.getElementById('rescanWifiButton').addEventListener('click', triggerWifiRescan);
   document.getElementById('clearWifiButton').addEventListener('click', clearWifiCredentials);
   document.getElementById('backButton').addEventListener('click', function () {
     window.location.href = '/';
@@ -49,22 +74,43 @@ function onLoad() {
     currentRelayModes.doDelay = this.checked;
     updateDelayFieldMode();
   });
-  document.getElementById('doLatchedCheckbox').addEventListener('change', function () {
-    currentRelayModes.doLatched = this.checked;
-  });
-  document.getElementById('doInterlockedCheckbox').addEventListener('change', function () {
-    currentRelayModes.doInterlocked = this.checked;
-  });
-  document.getElementById('doPulsedCheckbox').addEventListener('change', function () {
-    currentRelayModes.doPulsed = this.checked;
+  document.getElementById('connectStrongestCheckbox').addEventListener('change', function () {
+    connectStrongestOnStartup = this.checked;
   });
   document.getElementById('delaySecondsInput').addEventListener('input', function () {
     currentRelayModes.delaySeconds = this.value;
   });
+
+  ['boardNameInput', 'useDhcpCheckbox', 'ipInput', 'dnsInput', 'gatewayInput', 'subnetInput',
+   'doDelayCheckbox', 'connectStrongestCheckbox', 'delaySecondsInput', 'hardwareVariantSelect']
+    .forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) {
+        return;
+      }
+      el.addEventListener('input', function () {
+        suspendConfigFormHydration = true;
+      });
+      el.addEventListener('change', function () {
+        suspendConfigFormHydration = true;
+      });
+    });
+
   fetchNetInfo();
   initWebSocket();
+  if (!wifiRefreshTimer) {
+    wifiRefreshTimer = setInterval(requestRuntimeRefresh, 3000);
+  }
   updateDelayFieldMode();
   setConfigPageReady();
+}
+
+function requestRuntimeRefresh() {
+  if (websocket && websocket.readyState === WebSocket.OPEN) {
+    websocket.send('home');
+  } else {
+    fetchNetInfo();
+  }
 }
 
 function clearWifiCredentials() {
@@ -111,6 +157,60 @@ function clearWifiCredentials() {
     });
 }
 
+function triggerWifiRescan() {
+  if (!rescanWifiButton || rescanWifiButton.disabled) {
+    return;
+  }
+
+  var originalText = rescanWifiButton.textContent;
+  rescanWifiButton.disabled = true;
+  rescanWifiButton.textContent = 'Rescanning...';
+
+  fetch('/api/wifi/rescan', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+    },
+    body: 'confirm=1'
+  })
+    .then(function (response) {
+      return response.json().catch(function () {
+        return { ok: false, error: 'invalid response' };
+      }).then(function (json) {
+        return { status: response.status, ok: response.ok, body: json };
+      });
+    })
+    .then(function (result) {
+      if (!result.ok || !result.body.ok) {
+        throw new Error(result.body.error || 'rescan failed');
+      }
+    })
+    .catch(function (error) {
+      alert('Wi-Fi rescan failed: ' + error.message);
+      rescanWifiButton.disabled = false;
+      rescanWifiButton.textContent = originalText;
+    });
+}
+
+function shouldPreserveBoardNameInput(incomingName) {
+  var input = document.getElementById('boardNameInput');
+  if (!input) {
+    return false;
+  }
+
+  if (document.activeElement === input) {
+    return true;
+  }
+
+  var localValue = String(input.value || '').trim();
+  if (!localValue) {
+    return false;
+  }
+
+  // Keep unsaved local edits if they differ from both current and incoming values.
+  return localValue !== currentBoardName && localValue !== incomingName;
+}
+
 function applyBoardName(name) {
   var normalized = (name || '').trim();
   if (!normalized) {
@@ -118,7 +218,9 @@ function applyBoardName(name) {
   }
 
   currentBoardName = normalized;
-  document.getElementById('boardNameInput').value = normalized;
+  if (!shouldPreserveBoardNameInput(normalized)) {
+    document.getElementById('boardNameInput').value = normalized;
+  }
 
   var header = document.getElementById('configPageTitle');
   if (header) {
@@ -210,14 +312,60 @@ function initWebSocket() {
   websocket.onmessage = onMessage;
 }
 
+function stopRestartRedirectWatcher() {
+  if (restartRedirectDelayTimer) {
+    clearTimeout(restartRedirectDelayTimer);
+    restartRedirectDelayTimer = null;
+  }
+  if (restartRedirectPollTimer) {
+    clearInterval(restartRedirectPollTimer);
+    restartRedirectPollTimer = null;
+  }
+}
+
+function startRestartRedirectWatcher() {
+  if (window.location.pathname === '/') {
+    return;
+  }
+  if (restartRedirectDelayTimer || restartRedirectPollTimer) {
+    return;
+  }
+
+  restartRedirectDelayTimer = setTimeout(function () {
+    restartRedirectDelayTimer = null;
+
+    if (restartRedirectPollTimer) {
+      return;
+    }
+
+    restartRedirectPollTimer = setInterval(function () {
+      fetch('/', { cache: 'no-store' })
+        .then(function (response) {
+          if (response.ok) {
+            stopRestartRedirectWatcher();
+            window.location.href = '/';
+          }
+        })
+        .catch(function () {
+          // Keep polling until the device is reachable again.
+        });
+    }, 1200);
+  }, 1500);
+}
+
 function onOpen() {
-  console.log('Config websocket connected');
+  websocketEverConnected = true;
+  stopRestartRedirectWatcher();
+  debugLog('Config websocket connected');
   // Force a fresh full state payload for this page.
   websocket.send('home');
   fetchNetInfo();
 }
 
 function onClose() {
+  if (websocketEverConnected) {
+    startRestartRedirectWatcher();
+  }
   setTimeout(initWebSocket, 2000);
 }
 
@@ -230,7 +378,40 @@ function onMessage(event) {
   }
 
   if (jsonObj.boardName) {
-    applyBoardName(jsonObj.boardName);
+    if (!suspendConfigFormHydration) {
+      applyBoardName(jsonObj.boardName);
+    }
+  }
+
+  if (wifiSsidDisplay) {
+    var configuredSsid = String(jsonObj.wifiConfiguredSsid || jsonObj.ssid || '').trim();
+    wifiSsidDisplay.value = configuredSsid.length > 0 ? configuredSsid : '(not configured)';
+  }
+
+  if (wifiConnectedSsidDisplay) {
+    var connectedSsid = String(jsonObj.wifiConnectedSsid || '').trim();
+    wifiConnectedSsidDisplay.value = connectedSsid.length > 0 ? connectedSsid : '-';
+  }
+
+  if (wifiStatusDisplay) {
+    var connected = !!jsonObj.wifiConnected;
+    wifiStatusDisplay.value = connected ? 'Connected' : 'Disconnected';
+  }
+
+  if (wifiRssiDisplay) {
+    var isConnected = !!jsonObj.wifiConnected;
+    var hasRssi = (typeof jsonObj.wifiRssi === 'number');
+    wifiRssiDisplay.value = (isConnected && hasRssi) ? (String(jsonObj.wifiRssi) + ' dBm') : '-';
+  }
+
+  if (wifiRescanStatusDisplay) {
+    var rescanStatusText = String(jsonObj.wifiRescanStatus || 'Idle');
+    wifiRescanStatusDisplay.value = rescanStatusText;
+  }
+  if (rescanWifiButton) {
+    var scanning = !!jsonObj.wifiRescanInProgress;
+    rescanWifiButton.disabled = scanning;
+    rescanWifiButton.textContent = scanning ? 'Rescanning...' : 'Rescan & Refresh Strongest AP';
   }
 
   if (jsonObj.mcuType) {
@@ -243,70 +424,66 @@ function onMessage(event) {
       variant = '8relay';
     }
     currentHardwareVariant = variant;
-    document.getElementById('hardwareVariantSelect').value = variant;
+    if (!suspendConfigFormHydration) {
+      document.getElementById('hardwareVariantSelect').value = variant;
+    }
   }
 
-  var hasAllIpFields = !!(jsonObj.ipAddress && jsonObj.dns && jsonObj.gateway && jsonObj.subnet);
-  var useDhcp = jsonObj.hasOwnProperty('useDhcp')
-    ? !!jsonObj.useDhcp
-    : (jsonObj.hasOwnProperty('useStaticIp') ? !jsonObj.useStaticIp : !hasAllIpFields);
-  currentUseStaticIp = !useDhcp;
-  document.getElementById('useDhcpCheckbox').checked = useDhcp;
+  if (!suspendConfigFormHydration) {
+    var hasAllIpFields = !!(jsonObj.ipAddress && jsonObj.dns && jsonObj.gateway && jsonObj.subnet);
+    var useDhcp = jsonObj.hasOwnProperty('useDhcp')
+      ? !!jsonObj.useDhcp
+      : (jsonObj.hasOwnProperty('useStaticIp') ? !jsonObj.useStaticIp : !hasAllIpFields);
+    currentUseStaticIp = !useDhcp;
+    document.getElementById('useDhcpCheckbox').checked = useDhcp;
 
-  applyNetworkState(
-    useDhcp,
-    jsonObj.ipAddress || '',
-    jsonObj.dns || '',
-    jsonObj.gateway || '',
-    jsonObj.subnet || ''
-  );
+    applyNetworkState(
+      useDhcp,
+      jsonObj.ipAddress || '',
+      jsonObj.dns || '',
+      jsonObj.gateway || '',
+      jsonObj.subnet || ''
+    );
 
-  if (currentUseStaticIp) {
-    currentIpConfig = {
-      ip: jsonObj.ipAddress || lastReportedNetwork.ip,
-      dns: jsonObj.dns || lastReportedNetwork.dns,
-      gateway: jsonObj.gateway || lastReportedNetwork.gateway,
-      subnet: jsonObj.subnet || lastReportedNetwork.subnet
-    };
-  } else {
-    currentIpConfig = {
-      ip: getFallbackValue('ipInput', lastReportedNetwork.ip),
-      dns: getFallbackValue('dnsInput', lastReportedNetwork.dns),
-      gateway: getFallbackValue('gatewayInput', lastReportedNetwork.gateway),
-      subnet: getFallbackValue('subnetInput', lastReportedNetwork.subnet)
-    };
-  }
+    if (currentUseStaticIp) {
+      currentIpConfig = {
+        ip: jsonObj.ipAddress || lastReportedNetwork.ip,
+        dns: jsonObj.dns || lastReportedNetwork.dns,
+        gateway: jsonObj.gateway || lastReportedNetwork.gateway,
+        subnet: jsonObj.subnet || lastReportedNetwork.subnet
+      };
+    } else {
+      currentIpConfig = {
+        ip: getFallbackValue('ipInput', lastReportedNetwork.ip),
+        dns: getFallbackValue('dnsInput', lastReportedNetwork.dns),
+        gateway: getFallbackValue('gatewayInput', lastReportedNetwork.gateway),
+        subnet: getFallbackValue('subnetInput', lastReportedNetwork.subnet)
+      };
+    }
 
-  setIpInputValues(
-    currentIpConfig.ip,
-    currentIpConfig.dns,
-    currentIpConfig.gateway,
-    currentIpConfig.subnet
-  );
+    setIpInputValues(
+      currentIpConfig.ip,
+      currentIpConfig.dns,
+      currentIpConfig.gateway,
+      currentIpConfig.subnet
+    );
 
-  if (jsonObj.hasOwnProperty('doDelay')) {
-    currentRelayModes.doDelay = !!jsonObj.doDelay;
-    document.getElementById('doDelayCheckbox').checked = currentRelayModes.doDelay;
-  }
-  if (jsonObj.hasOwnProperty('startupDelaySeconds')) {
-    document.getElementById('delaySecondsInput').value = jsonObj.startupDelaySeconds;
-    currentRelayModes.delaySeconds = jsonObj.startupDelaySeconds;
-  }
-  if (jsonObj.hasOwnProperty('doLatched')) {
-    currentRelayModes.doLatched = !!jsonObj.doLatched;
-    document.getElementById('doLatchedCheckbox').checked = currentRelayModes.doLatched;
-  }
-  if (jsonObj.hasOwnProperty('doInterlocked')) {
-    currentRelayModes.doInterlocked = !!jsonObj.doInterlocked;
-    document.getElementById('doInterlockedCheckbox').checked = currentRelayModes.doInterlocked;
-  }
-  if (jsonObj.hasOwnProperty('doPulsed')) {
-    currentRelayModes.doPulsed = !!jsonObj.doPulsed;
-    document.getElementById('doPulsedCheckbox').checked = currentRelayModes.doPulsed;
-  }
+    if (jsonObj.hasOwnProperty('doDelay')) {
+      currentRelayModes.doDelay = !!jsonObj.doDelay;
+      document.getElementById('doDelayCheckbox').checked = currentRelayModes.doDelay;
+    }
+    if (jsonObj.hasOwnProperty('startupDelaySeconds')) {
+      document.getElementById('delaySecondsInput').value = jsonObj.startupDelaySeconds;
+      currentRelayModes.delaySeconds = jsonObj.startupDelaySeconds;
+    }
+    if (jsonObj.hasOwnProperty('connectStrongestOnStartup')) {
+      connectStrongestOnStartup = !!jsonObj.connectStrongestOnStartup;
+      document.getElementById('connectStrongestCheckbox').checked = connectStrongestOnStartup;
+    }
 
-  updateIpFieldMode();
-  updateDelayFieldMode();
+    updateIpFieldMode();
+    updateDelayFieldMode();
+  }
 }
 
 function updateIpFieldMode() {
@@ -339,7 +516,7 @@ function onDhcpToggle() {
 }
 
 function saveConfig() {
-  console.log('saveConfig() called');
+  debugLog('saveConfig() called');
   
   var boardNameInput = document.getElementById('boardNameInput');
   var newName = boardNameInput.value.trim();
@@ -355,10 +532,8 @@ function saveConfig() {
   var gatewayValue = document.getElementById('gatewayInput').value.trim();
   var subnetValue = document.getElementById('subnetInput').value.trim();
   var doDelayChecked = document.getElementById('doDelayCheckbox').checked;
+  var strongestChecked = document.getElementById('connectStrongestCheckbox').checked;
   var hardwareVariantValue = document.getElementById('hardwareVariantSelect').value;
-  var doLatchedChecked = document.getElementById('doLatchedCheckbox').checked;
-  var doInterlockedChecked = document.getElementById('doInterlockedCheckbox').checked;
-  var doPulsedChecked = document.getElementById('doPulsedCheckbox').checked;
   var delaySecondsValue = document.getElementById('delaySecondsInput').value.trim();
 
   if (doDelayChecked) {
@@ -377,12 +552,12 @@ function saveConfig() {
   }
 
   currentRelayModes.doDelay = doDelayChecked;
-  currentRelayModes.doLatched = doLatchedChecked;
-  currentRelayModes.doInterlocked = doInterlockedChecked;
-  currentRelayModes.doPulsed = doPulsedChecked;
+  connectStrongestOnStartup = strongestChecked;
   currentHardwareVariant = (hardwareVariantValue === '16relay') ? '16relay' : '8relay';
+  suspendConfigFormHydration = false;
+  applyBoardName(newName);
 
-  console.log('saveConfig: name=' + newName + ', dhcp=' + useDhcpChecked + ', ip=' + ipValue + ', dns=' + dnsValue);
+  debugLog('saveConfig: name=' + newName + ', dhcp=' + useDhcpChecked + ', ip=' + ipValue + ', dns=' + dnsValue);
 
   var hasAnyStaticField = ipValue.length > 0 || dnsValue.length > 0 || gatewayValue.length > 0 || subnetValue.length > 0;
   var hasAllStaticFields = ipValue.length > 0 && dnsValue.length > 0 && gatewayValue.length > 0 && subnetValue.length > 0;
@@ -410,14 +585,11 @@ function saveConfig() {
   }
 
   var relayPayload = {
-    cmd: 'setRelayModes',
     doDelay: doDelayChecked,
-    doLatched: doLatchedChecked,
-    doInterlocked: doInterlockedChecked,
-    doPulsed: doPulsedChecked
+    connectStrongestOnStartup: strongestChecked
   };
 
-  console.log('saveConfig: relayModes=' + JSON.stringify(relayPayload));
+  debugLog('saveConfig: relayModes=' + JSON.stringify(relayPayload));
 
   var saveButton = document.getElementById('saveConfig');
   var originalButtonText = saveButton.textContent;
@@ -432,13 +604,12 @@ function saveConfig() {
   form.set('gateway', ipPayload.gateway || '');
   form.set('subnet', ipPayload.subnet || '');
   form.set('doDelay', relayPayload.doDelay ? '1' : '0');
+  form.set('connectStrongestOnStartup', relayPayload.connectStrongestOnStartup ? '1' : '0');
+  form.set('connectStrongest', relayPayload.connectStrongestOnStartup ? '1' : '0');
   form.set('delaySeconds', delaySecondsValue);
-  form.set('doLatched', relayPayload.doLatched ? '1' : '0');
-  form.set('doInterlocked', relayPayload.doInterlocked ? '1' : '0');
-  form.set('doPulsed', relayPayload.doPulsed ? '1' : '0');
   form.set('hardwareVariant', currentHardwareVariant);
 
-  console.log('saveConfig: form data:', form.toString());
+  debugLog('saveConfig: form data:', form.toString());
 
   fetch('/api/config', {
     method: 'POST',
@@ -448,11 +619,11 @@ function saveConfig() {
     body: form.toString()
   })
     .then(function (response) {
-      console.log('saveConfig: fetch response status=' + response.status);
+      debugLog('saveConfig: fetch response status=' + response.status);
       return response.json().catch(function () {
         return { ok: false, error: 'invalid response' };
       }).then(function (json) {
-        console.log('saveConfig: fetch response body=' + JSON.stringify(json));
+        debugLog('saveConfig: fetch response body=' + JSON.stringify(json));
         return { status: response.status, ok: response.ok, body: json };
       });
     })
@@ -461,7 +632,7 @@ function saveConfig() {
         throw new Error(result.body.error || 'save failed');
       }
 
-      console.log('saveConfig: success, restart=' + result.body.restart + ', appliedIp=' + result.body.appliedIp);
+      debugLog('saveConfig: success, restart=' + result.body.restart + ', appliedIp=' + result.body.appliedIp);
 
       var currentHost = window.location.hostname;
       var currentOrigin = window.location.origin;

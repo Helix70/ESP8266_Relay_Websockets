@@ -12,7 +12,6 @@
 #endif
 
 constexpr uint8_t APP_MAX_RELAYS = 16;
-constexpr uint8_t APP_INTERLOCKED_BUTTON_COUNT = 7;
 constexpr uint8_t APP_SHIFT_REGISTER_COUNT = 2;
 
 struct OutputPin {
@@ -71,6 +70,7 @@ extern uint32_t latched_timer;
 extern String boardName;
 extern String wifiSsid;
 extern String wifiPassword;
+extern String selectedRelayTemplateFilename;
 extern String serialCommandBuffer;
 
 extern bool reportSignalStrength;
@@ -89,14 +89,16 @@ extern bool useStaticIp;
 
 extern bool doDelay;
 extern uint16_t startupDelaySeconds;
-extern bool doLatched;
-extern bool doInterlocked;
-extern bool doPulsed;
+extern bool connectStrongestOnStartup;
+extern bool wifiRescanInProgress;
+extern bool wifiRescanRequested;
+extern String wifiRescanStatus;
 
 extern bool pendingRestart;
 extern uint32_t pendingRestartAt;
 
 extern String hardwareVariant;
+extern String activeBoardHardwareFilename;
 extern uint8_t relayCount;
 extern bool useShiftRegister;
 
@@ -108,5 +110,4 @@ extern const int numRegisters;
 extern byte outputData[APP_SHIFT_REGISTER_COUNT];
 
 extern Latch latched_relays[APP_MAX_RELAYS];
-extern uint8_t interlocked_buttons[APP_INTERLOCKED_BUTTON_COUNT];
 extern Pulse pulsed_relays[APP_MAX_RELAYS];

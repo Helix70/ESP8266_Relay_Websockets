@@ -24,9 +24,24 @@ static void initializeRuntime()
   loadBoardConfig();
   applyHardwareVariantPinsAndModes();
 
+  if (relayCount > 0 && selectedRelayTemplateFilename.length() > 0)
+  {
+    if (loadLabelsFromTemplateFile(selectedRelayTemplateFilename, relayCount))
+    {
+      saveRelayLabels();
+      labelsFound = true;
+      Serial.printf("Applied selected relay template on boot: %s\n", selectedRelayTemplateFilename.c_str());
+    }
+    else
+    {
+      Serial.printf("Selected relay template unavailable: %s\n", selectedRelayTemplateFilename.c_str());
+    }
+  }
+
   if (!labelsFound && relayCount > 0)
   {
     loadLabelsFromTemplate(relayCount);
+    saveRelayLabels();
   }
 
   if (onboard_led.pin != 255)
@@ -81,7 +96,12 @@ void setup()
     return;
   }
 
-  initWiFi();
+  if (!initWiFi())
+  {
+    Serial.println("Wi-Fi initialization failed; starting provisioning portal to avoid reboot loop.");
+    startProvisioningPortal();
+    return;
+  }
   initWebSocket();
   registerRuntimeHttpRoutes();
   registerConfigRoutes();
@@ -128,8 +148,10 @@ void loop()
     {
       writeRelaysToShiftRegister();
     }
-    notifyClients();
+    notifyRelayStates();
   }
+
+  processStrongestSsidRescan();
 
   ws.cleanupClients();
   processSerialCommands();

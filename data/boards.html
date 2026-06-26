@@ -14,13 +14,33 @@
     <h1 id="boardsPageTitle">Relay Board</h1>
   </div>
 
-  <div class="config-page" data-loading="true">
+  <div class="labels-page" data-loading="true">
     <div class="config-card">
       <h3>Active Board</h3>
       <p id="activeBoardInfo" class="config-note">Connecting&hellip;</p>
     </div>
 
-    <div id="boardList"></div>
+    <div class="template-section">
+      <h3 class="template-section-title">Board Manager</h3>
+      <div class="template-row template-primary-row">
+        <select id="boardSelect" class="template-select">
+          <option value="">-- Select a board --</option>
+        </select>
+      </div>
+      <p id="boardStatus" class="config-note">Selected board: none</p>
+      <div class="template-actions-row">
+        <button id="setActiveBoardButton" class="button button-inline" type="button">Set Active</button>
+        <button id="editBoardButton" class="button button-inline" type="button">Edit</button>
+        <button id="newBoardButton" class="button button-inline" type="button">New</button>
+        <button id="downloadBoardButton" class="button button-inline" type="button">Download</button>
+        <button id="uploadBoardButton" class="button button-inline" type="button">Upload</button>
+        <button id="renameBoardButton" class="button button-inline" type="button">Rename</button>
+        <button id="deleteBoardButton" class="button button-inline" type="button">Remove</button>
+      </div>
+      <input id="boardUploadInput" type="file" accept=".json,application/json" style="display:none">
+    </div>
+
+    <div id="boardEditorHost"></div>
 
     <div class="config-buttons">
       <p><button id="backButton" class="button">Back</button></p>

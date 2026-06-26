@@ -1,0 +1,50 @@
+<!DOCTYPE HTML>
+<html>
+
+<head>
+  <title>Relay Board - Template Editor</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+
+<body>
+  <div class="topnav">
+    <h1 id="templateEditorTitle">Relay Board</h1>
+  </div>
+
+  <div class="labels-page" data-loading="true">
+    <div class="template-section">
+      <h3 class="template-section-title">Template Editor</h3>
+      <div class="template-row template-primary-row">
+        <select id="templateSelect" class="template-select">
+          <option value="">-- Select a template --</option>
+        </select>
+      </div>
+      <p id="templateEditorStatus" class="config-note">Loaded template: none</p>
+    </div>
+
+    <p class="labels-note">If ON label is left blank, it will use the OFF label.</p>
+    <div class="label-symbol-helper">
+      <span class="label-symbol-helper-text">Quick Insert:</span>
+      <button class="button button-inline label-symbol-button" type="button" data-symbol="Ω">Ω</button>
+      <button class="button button-inline label-symbol-button" type="button" data-symbol="°">°</button>
+      <button class="button button-inline label-symbol-button" type="button" data-symbol="μ">μ</button>
+      <button class="button button-inline label-symbol-button" type="button" data-symbol="±">±</button>
+      <button class="button button-inline label-symbol-button" type="button" data-symbol="×">×</button>
+      <button class="button button-inline label-symbol-button" type="button" data-symbol="→">→</button>
+      <button class="button button-inline label-symbol-button" type="button" data-symbol="Δ">Δ</button>
+    </div>
+    <div id="relay-label-grid" class="relay-label-grid"></div>
+
+    <div class="config-buttons">
+      <p><button id="saveTemplateButton" class="button">Save Template</button></p>
+      <p><button id="backTemplateEditorButton" class="button">Back</button></p>
+    </div>
+  </div>
+
+  <script src="template-editor.js"></script>
+</body>
+
+</html>

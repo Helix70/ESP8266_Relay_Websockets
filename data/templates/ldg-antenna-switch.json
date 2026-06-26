@@ -2,13 +2,75 @@
   "title": "LDG Antenna Switch",
   "relayCount": 8,
   "labels": [
-    { "on": "Butternut",    "off": "Butternut",    "mode": "onoff", "group": 0, "pulseTimeout": 1 },
-    { "on": "80 Metres",    "off": "80 Metres",    "mode": "onoff", "group": 0, "pulseTimeout": 1 },
-    { "on": "160 Metres",   "off": "160 Metres",   "mode": "onoff", "group": 0, "pulseTimeout": 1 },
-    { "on": "Relay 4 On",   "off": "Relay 4 Off",  "mode": "onoff", "group": 0, "pulseTimeout": 1 },
-    { "on": "Relay 5 On",   "off": "Relay 5 Off",  "mode": "onoff", "group": 0, "pulseTimeout": 1 },
-    { "on": "Relay 6 On",   "off": "Relay 6 Off",  "mode": "onoff", "group": 0, "pulseTimeout": 1 },
-    { "on": "NVIS Dipole",  "off": "NVIS Dipole",  "mode": "onoff", "group": 0, "pulseTimeout": 1 },
-    { "on": "Relay 8 On",   "off": "Relay 8 Off",  "mode": "onoff", "group": 0, "pulseTimeout": 1 }
-  ]
+    {
+      "on": "Butternut",
+      "off": "Butternut",
+      "mode": "latched",
+      "group": 0,
+      "pulseTimeout": 0
+    },
+    {
+      "on": "80 Metres",
+      "off": "80 Metres",
+      "mode": "latched",
+      "group": 0,
+      "pulseTimeout": 0
+    },
+    {
+      "on": "160 Metres",
+      "off": "160 Metres",
+      "mode": "latched",
+      "group": 0,
+      "pulseTimeout": 0
+    },
+    {
+      "on": "Relay 4 On",
+      "off": "Relay 4 Off",
+      "mode": "latched",
+      "group": 0,
+      "pulseTimeout": 0
+    },
+    {
+      "on": "Relay 5 On",
+      "off": "Relay 5 Off",
+      "mode": "latched",
+      "group": 0,
+      "pulseTimeout": 0
+    },
+    {
+      "on": "Relay 6 On",
+      "off": "Relay 6 Off",
+      "mode": "latched",
+      "group": 0,
+      "pulseTimeout": 0
+    },
+    {
+      "on": "NVIS Dipole",
+      "off": "NVIS Dipole",
+      "mode": "latched",
+      "group": 0,
+      "pulseTimeout": 0
+    },
+    {
+      "on": "Relay 8 On",
+      "off": "Relay 8 Off",
+      "mode": "latched",
+      "group": 0,
+      "pulseTimeout": 0
+    }
+  ],
+  "_help": {
+    "templateFields": {
+      "title": "Template display name shown in UI.",
+      "relayCount": "Relay count this template targets. Allowed values: 8 or 16.",
+      "labels": "Array of relay definitions. One entry per relay."
+    },
+    "relayFieldOptions": {
+      "on": "Label shown when relay is ON. If empty in UI, OFF label can be reused.",
+      "off": "Label shown when relay is OFF.",
+      "mode": "Button mode options: latched, interlocked, pulsed.",
+      "group": "Interlock group number. Use 0 when mode is not interlocked.",
+      "pulseTimeout": "Pulse duration in seconds when mode is pulsed. Use 0 when mode is latched/interlocked. Allowed pulsed range: 1-30."
+    }
+  }
 }

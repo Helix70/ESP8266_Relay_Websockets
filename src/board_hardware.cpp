@@ -51,9 +51,15 @@ String boardHardwarePath(const String &variant)
 
 bool loadBoardHardware(const String &variant)
 {
+  String path = boardHardwarePath(variant);
+  return loadBoardHardwareFromPath(path);
+}
+
+bool loadBoardHardwareFromPath(const String &path)
+{
+  String variant = (path.indexOf("16relay") >= 0) ? "16relay" : "8relay";
   setDefaults(variant);
 
-  String path = boardHardwarePath(variant);
   if (!LittleFS.exists(path))
   {
     Serial.printf("Board hardware config not found (%s), using defaults\n", path.c_str());

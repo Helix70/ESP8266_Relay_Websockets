@@ -3,6 +3,7 @@
 #include "app_state.h"
 #include "config_routes_internal.h"
 #include "config_store.h"
+#include "network_manager.h"
 #include "relay_runtime.h"
 #include "route_data.h"
 #include "route_utils.h"
@@ -27,13 +28,21 @@ void registerSystemConfigRoutes()
 
     bool oldDoDelay = doDelay;
     uint16_t oldStartupDelaySeconds = startupDelaySeconds;
-    bool oldDoLatched = doLatched;
-    bool oldDoInterlocked = doInterlocked;
-    bool oldDoPulsed = doPulsed;
+    bool oldConnectStrongestOnStartup = connectStrongestOnStartup;
     String oldHardwareVariant = hardwareVariant;
 
     boardName = name;
     doDelay = routeParseBool(routeGetBodyParam(request, "doDelay"), doDelay);
+    String strongestParam = routeGetBodyParam(request, "connectStrongestOnStartup");
+    if (strongestParam.length() == 0)
+    {
+      strongestParam = routeGetBodyParam(request, "connectStrongest");
+    }
+    if (strongestParam.length() == 0)
+    {
+      strongestParam = routeGetBodyParam(request, "strongestSsid");
+    }
+    connectStrongestOnStartup = routeParseBool(strongestParam, connectStrongestOnStartup);
 
     String delaySecondsStr = routeGetBodyParam(request, "delaySeconds");
     if (delaySecondsStr.length() > 0)
@@ -43,10 +52,6 @@ void registerSystemConfigRoutes()
       if (parsedDelaySeconds > kMaxStartupDelaySeconds) parsedDelaySeconds = kMaxStartupDelaySeconds;
       startupDelaySeconds = (uint16_t)parsedDelaySeconds;
     }
-
-    doLatched = routeParseBool(routeGetBodyParam(request, "doLatched"), doLatched);
-    doInterlocked = routeParseBool(routeGetBodyParam(request, "doInterlocked"), doInterlocked);
-    doPulsed = routeParseBool(routeGetBodyParam(request, "doPulsed"), doPulsed);
 
     String requestedVariant = routeGetBodyParam(request, "hardwareVariant");
     requestedVariant.trim();
@@ -63,6 +68,16 @@ void registerSystemConfigRoutes()
 
     hardwareVariant = requestedVariant;
     applyHardwareVariantPinsAndModes();
+
+    if (hardwareVariant != oldHardwareVariant)
+    {
+      if (!loadLabelsFromTemplate(relayCount) || !saveRelayLabels())
+      {
+        request->send(500, "application/json", "{\"ok\":false,\"error\":\"failed to reset relay template for hardware variant\"}");
+        return;
+      }
+      selectedRelayTemplateFilename = "template-" + String(relayCount) + "relay.json";
+    }
 
     bool restartNeeded = false;
     bool useDhcp = routeParseBool(routeGetBodyParam(request, "useDhcp"), !useStaticIp);
@@ -102,8 +117,8 @@ void registerSystemConfigRoutes()
       useStaticIp = true;
     }
 
-    if (doDelay != oldDoDelay || doLatched != oldDoLatched || doInterlocked != oldDoInterlocked ||
-        doPulsed != oldDoPulsed || startupDelaySeconds != oldStartupDelaySeconds)
+    if (doDelay != oldDoDelay || startupDelaySeconds != oldStartupDelaySeconds ||
+        connectStrongestOnStartup != oldConnectStrongestOnStartup)
     {
       restartNeeded = true;
     }
@@ -168,6 +183,25 @@ void registerSystemConfigRoutes()
     pendingRestartAt = millis() + 1200;
   });
 
+  server.on("/api/wifi/rescan", HTTP_POST, [](AsyncWebServerRequest *request)
+            {
+    if (wifiSsid.length() == 0)
+    {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"ssid not configured\"}");
+      return;
+    }
+
+    if (wifiRescanInProgress || wifiRescanRequested)
+    {
+      request->send(200, "application/json", "{\"ok\":true,\"queued\":false,\"message\":\"rescan already in progress\"}");
+      return;
+    }
+
+    requestStrongestSsidRescan();
+    notifyClients();
+    request->send(200, "application/json", "{\"ok\":true,\"queued\":true}");
+  });
+
   server.on("/api/labels", HTTP_POST, [](AsyncWebServerRequest *request)
             {
     bool changed = false;
@@ -185,7 +219,14 @@ void registerSystemConfigRoutes()
 
       uint8_t group = (uint8_t)routeGetBodyParam(request, (prefix + "_group").c_str()).toInt();
       uint8_t timeout = (uint8_t)routeGetBodyParam(request, (prefix + "_pulseTimeout").c_str()).toInt();
-      if (timeout == 0 || timeout > kMaxPulseTimeoutSeconds) timeout = kDefaultPulseTimeoutSeconds;
+      if (mode == RELAY_MODE_PULSED)
+      {
+        if (timeout == 0 || timeout > kMaxPulseTimeoutSeconds) timeout = kDefaultPulseTimeoutSeconds;
+      }
+      else
+      {
+        timeout = 0;
+      }
       assignRelayMode(relayNum, mode, group, timeout);
       changed = true;
     }

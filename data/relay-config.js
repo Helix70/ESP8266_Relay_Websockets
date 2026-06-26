@@ -1,33 +1,83 @@
-var gateway = `ws://${window.location.hostname}/ws`;
+var gateway = 'ws://' + window.location.hostname + '/ws';
 var websocket;
-var relayButtons = [];
 var allTemplates = [];
+var selectedTemplateFilename = '';
+var relayCount = 0;
+var templateSummaryCache = {};
+var restartRedirectDelayTimer = null;
+var restartRedirectPollTimer = null;
+var websocketEverConnected = false;
 
 window.addEventListener('load', onLoad);
 
-function applyBoardName(boardName) {
-  var normalized = (boardName || '').trim();
-  if (!normalized) {
-    normalized = 'Relay Board';
+function setRelayConfigPageReady() {
+  var page = document.querySelector('.labels-page');
+  if (page) {
+    page.removeAttribute('data-loading');
   }
-
-  var titleElement = document.getElementById('labelsPageTitle');
-  if (titleElement) {
-    titleElement.textContent = normalized;
-  }
-
-  document.title = normalized + ' - Relay Configuration';
 }
 
 function onLoad() {
-  document.getElementById('saveLabels').addEventListener('click', saveLabels);
+  // Show the page immediately, then hydrate async data as it arrives.
+  setRelayConfigPageReady();
+
+  document.getElementById('saveLabels').addEventListener('click', applySelectedTemplate);
+  document.getElementById('templateSelect').addEventListener('change', onTemplateSelectionChanged);
+  document.getElementById('openTemplateEditorButton').addEventListener('click', function () {
+    window.location.href = '/template-editor.html';
+  });
   document.getElementById('backLabelsButton').addEventListener('click', function () {
     window.location.href = '/';
   });
-  document.getElementById('loadTemplateButton').addEventListener('click', loadSelectedTemplate);
-  document.getElementById('saveTemplateButton').addEventListener('click', saveAsTemplate);
+  document.getElementById('downloadTemplateButton').addEventListener('click', downloadSelectedTemplate);
+  document.getElementById('deleteTemplateButton').addEventListener('click', deleteSelectedTemplate);
+  document.getElementById('renameTemplateButton').addEventListener('click', renameSelectedTemplate);
+  document.getElementById('uploadTemplateButton').addEventListener('click', uploadTemplateFile);
+  document.getElementById('templateUploadInput').addEventListener('change', uploadSelectedTemplateFile);
   loadTemplateList();
+  loadTemplateDiagnostics();
   initWebSocket();
+  onTemplateSelectionChanged();
+}
+
+function loadTemplateDiagnostics() {
+  var status = document.getElementById('templateDiagnosticsStatus');
+  if (!status) {
+    return;
+  }
+
+  fetch('/api/templates/diagnostics', { cache: 'no-store' })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var count = (typeof data.templateCount === 'number') ? data.templateCount : 0;
+      var largest = (typeof data.largestTemplateBytes === 'number') ? data.largestTemplateBytes : 0;
+      var freeBytes = (typeof data.fsFreeBytes === 'number') ? data.fsFreeBytes : null;
+      var totalBytes = (typeof data.fsTotalBytes === 'number') ? data.fsTotalBytes : null;
+      var lastReason = String(data.lastWriteErrorReason || '').trim();
+
+      var parts = [
+        'Templates: ' + count,
+        'Largest: ' + largest + ' B'
+      ];
+
+      if (freeBytes !== null && totalBytes !== null) {
+        parts.push('FS Free: ' + freeBytes + ' / ' + totalBytes + ' B');
+      }
+
+      if (lastReason) {
+        parts.push('Last write error: ' + lastReason);
+      }
+
+      status.textContent = 'Template storage: ' + parts.join(' | ');
+    })
+    .catch(function () {
+      status.textContent = 'Template storage: unavailable';
+    });
+}
+
+function onTemplateSelectionChanged() {
+  updateSaveButtonState();
+  updateTemplateSummary();
 }
 
 function initWebSocket() {
@@ -37,251 +87,90 @@ function initWebSocket() {
   websocket.onmessage = onMessage;
 }
 
+function stopRestartRedirectWatcher() {
+  if (restartRedirectDelayTimer) {
+    clearTimeout(restartRedirectDelayTimer);
+    restartRedirectDelayTimer = null;
+  }
+  if (restartRedirectPollTimer) {
+    clearInterval(restartRedirectPollTimer);
+    restartRedirectPollTimer = null;
+  }
+}
+
+function startRestartRedirectWatcher() {
+  if (window.location.pathname === '/') {
+    return;
+  }
+  if (restartRedirectDelayTimer || restartRedirectPollTimer) {
+    return;
+  }
+
+  restartRedirectDelayTimer = setTimeout(function () {
+    restartRedirectDelayTimer = null;
+
+    if (restartRedirectPollTimer) {
+      return;
+    }
+
+    restartRedirectPollTimer = setInterval(function () {
+      fetch('/', { cache: 'no-store' })
+        .then(function (response) {
+          if (response.ok) {
+            stopRestartRedirectWatcher();
+            window.location.href = '/';
+          }
+        })
+        .catch(function () {
+          // Keep polling until reachable.
+        });
+    }, 1200);
+  }, 1500);
+}
+
 function onOpen() {
-  console.log('Label editor websocket connected');
+  websocketEverConnected = true;
+  stopRestartRedirectWatcher();
   websocket.send('home');
 }
 
 function onClose() {
+  if (websocketEverConnected) {
+    startRestartRedirectWatcher();
+  }
   setTimeout(initWebSocket, 2000);
 }
 
 function onMessage(event) {
-  var jsonObj;
+  var obj;
   try {
-    jsonObj = JSON.parse(event.data);
+    obj = JSON.parse(event.data);
   } catch (e) {
     return;
   }
 
-  if (jsonObj.boardName) {
-    applyBoardName(jsonObj.boardName);
+  if (obj.partial) {
+    return;
   }
 
-  relayButtons = jsonObj.buttons || [];
-  renderRelayEditor();
-  refreshTemplateDropdown();
-}
-
-// Map numeric mode (from websocket) to string used in selects
-var MODES = ['onoff', 'interlocked', 'pulsed'];
-
-function modeNumToStr(num) {
-  return MODES[num] || 'onoff';
-}
-
-function updateModeUI(relayId) {
-  var modeEl   = document.getElementById('mode' + relayId);
-  var grpEl    = document.getElementById('groupSection' + relayId);
-  var pulseEl  = document.getElementById('pulseSection' + relayId);
-  if (!modeEl) return;
-  var val = modeEl.value;
-  if (grpEl)   grpEl.style.display   = (val === 'interlocked') ? 'block' : 'none';
-  if (pulseEl) pulseEl.style.display  = (val === 'pulsed')      ? 'block' : 'none';
-}
-
-function renderRelayEditor() {
-  var grid = document.getElementById('relay-label-grid');
-  grid.innerHTML = '';
-
-  var numGroups = Math.floor(relayButtons.length / 2);
-
-  for (var i = 0; i < relayButtons.length; i++) {
-    var relay   = relayButtons[i];
-    var relayId = relay.id;
-    var modeStr = modeNumToStr(relay.mode || 0);
-
-    var card = document.createElement('div');
-    card.className = 'relay-label-card';
-
-    var title = document.createElement('h3');
-    title.textContent = 'Relay ' + relayId;
-
-    // GPIO info (read-only)
-    var gpioInfo = document.createElement('p');
-    gpioInfo.className = 'relay-gpio-info';
-    var gpioNum = relay.gpio;
-    gpioInfo.textContent = (gpioNum !== undefined && gpioNum >= 0)
-      ? 'GPIO ' + gpioNum
-      : 'Shift Register';
-
-    // ON label
-    var onLabelTitle = document.createElement('label');
-    onLabelTitle.className = 'relay-input-label';
-    onLabelTitle.setAttribute('for', 'onLabel' + relayId);
-    onLabelTitle.textContent = 'ON Label';
-    var onInput = document.createElement('input');
-    onInput.type = 'text';
-    onInput.id = 'onLabel' + relayId;
-    onInput.className = 'relay-label-input';
-    onInput.maxLength = 32;
-    onInput.value = relay.onLabel || '';
-
-    // OFF label
-    var offLabelTitle = document.createElement('label');
-    offLabelTitle.className = 'relay-input-label';
-    offLabelTitle.setAttribute('for', 'offLabel' + relayId);
-    offLabelTitle.textContent = 'OFF Label';
-    var offInput = document.createElement('input');
-    offInput.type = 'text';
-    offInput.id = 'offLabel' + relayId;
-    offInput.className = 'relay-label-input';
-    offInput.maxLength = 32;
-    offInput.value = relay.offLabel || '';
-
-    // Mode select
-    var modeLbl = document.createElement('label');
-    modeLbl.className = 'relay-input-label';
-    modeLbl.setAttribute('for', 'mode' + relayId);
-    modeLbl.textContent = 'Button Mode';
-    var modeSelect = document.createElement('select');
-    modeSelect.id = 'mode' + relayId;
-    modeSelect.className = 'relay-label-input';
-    [['onoff', 'Latched (On/Off)'], ['interlocked', 'Interlocked'], ['pulsed', 'Pulsed']].forEach(function (pair) {
-      var o = document.createElement('option');
-      o.value = pair[0];
-      o.textContent = pair[1];
-      modeSelect.appendChild(o);
-    });
-    modeSelect.value = modeStr;
-    modeSelect.addEventListener('change', (function (id) {
-      return function () { updateModeUI(id); };
-    })(relayId));
-
-    // Interlocked group section
-    var groupSection = document.createElement('div');
-    groupSection.id = 'groupSection' + relayId;
-    groupSection.style.display = (modeStr === 'interlocked') ? 'block' : 'none';
-    var grpLbl = document.createElement('label');
-    grpLbl.className = 'relay-input-label';
-    grpLbl.setAttribute('for', 'group' + relayId);
-    grpLbl.textContent = 'Group';
-    var grpSelect = document.createElement('select');
-    grpSelect.id = 'group' + relayId;
-    grpSelect.className = 'relay-label-input';
-    for (var g = 1; g <= numGroups; g++) {
-      var go = document.createElement('option');
-      go.value = String(g);
-      go.textContent = 'Group ' + g;
-      grpSelect.appendChild(go);
+  if (obj.boardName) {
+    var normalized = String(obj.boardName || '').trim();
+    if (!normalized) {
+      normalized = 'Relay Board';
     }
-    grpSelect.value = String(relay.group || 1);
-    groupSection.appendChild(grpLbl);
-    groupSection.appendChild(grpSelect);
-
-    // Pulsed section
-    var pulseSection = document.createElement('div');
-    pulseSection.id = 'pulseSection' + relayId;
-    pulseSection.style.display = (modeStr === 'pulsed') ? 'block' : 'none';
-    var pulseLbl = document.createElement('label');
-    pulseLbl.className = 'relay-input-label';
-    pulseLbl.setAttribute('for', 'pulseTimeout' + relayId);
-    pulseLbl.textContent = 'Duration (1–30 seconds)';
-    var ptInput = document.createElement('input');
-    ptInput.type = 'number';
-    ptInput.id = 'pulseTimeout' + relayId;
-    ptInput.className = 'relay-label-input';
-    ptInput.min = '1';
-    ptInput.max = '30';
-    ptInput.value = String(relay.pulseTimeout || 1);
-    pulseSection.appendChild(pulseLbl);
-    pulseSection.appendChild(ptInput);
-
-    card.appendChild(title);
-    card.appendChild(gpioInfo);
-    card.appendChild(onLabelTitle);
-    card.appendChild(onInput);
-    card.appendChild(offLabelTitle);
-    card.appendChild(offInput);
-    card.appendChild(modeLbl);
-    card.appendChild(modeSelect);
-    card.appendChild(groupSection);
-    card.appendChild(pulseSection);
-    grid.appendChild(card);
-  }
-}
-
-// Collect relay config from the editor, optionally validating interlocked groups.
-// Returns array of {relay, on, off, mode, group, pulseTimeout}.
-// If validate=true, lone interlocked relays are converted to 'onoff' and the user is notified.
-function collectRelayConfig(validate) {
-  var configs     = [];
-  var groupCounts = {};
-
-  for (var i = 0; i < relayButtons.length; i++) {
-    var relayId   = relayButtons[i].id;
-    var onValue   = (document.getElementById('onLabel' + relayId).value || '').trim();
-    var offValue  = (document.getElementById('offLabel' + relayId).value || '').trim();
-    if (onValue.length === 0) onValue = offValue;
-
-    var modeEl  = document.getElementById('mode' + relayId);
-    var mode    = modeEl ? modeEl.value : 'onoff';
-    var group   = 0;
-    var pt      = 1;
-
-    if (mode === 'interlocked') {
-      group = parseInt((document.getElementById('group' + relayId).value || '1'), 10) || 1;
-      groupCounts[group] = (groupCounts[group] || 0) + 1;
-    } else if (mode === 'pulsed') {
-      pt = parseInt((document.getElementById('pulseTimeout' + relayId).value || '1'), 10) || 1;
-      if (pt < 1)  pt = 1;
-      if (pt > 30) pt = 30;
-    }
-
-    configs.push({ relay: relayId, on: onValue, off: offValue, mode: mode, group: group, pulseTimeout: pt });
+    document.getElementById('labelsPageTitle').textContent = normalized;
+    document.title = normalized + ' - Relay Configuration';
   }
 
-  if (validate) {
-    var converted = [];
-    configs.forEach(function (cfg) {
-      if (cfg.mode === 'interlocked' && (groupCounts[cfg.group] || 0) < 2) {
-        cfg.mode  = 'onoff';
-        cfg.group = 0;
-        converted.push('Relay ' + cfg.relay);
-        // Update the UI to match
-        var modeEl = document.getElementById('mode' + cfg.relay);
-        if (modeEl) {
-          modeEl.value = 'onoff';
-          updateModeUI(cfg.relay);
-        }
-      }
-    });
-    if (converted.length > 0) {
-      alert('Converted to Latched (no group partner): ' + converted.join(', '));
-    }
+  if (typeof obj.relayCount === 'number' && obj.relayCount > 0) {
+    relayCount = obj.relayCount;
+  } else if (obj.buttons && obj.buttons.length > 0) {
+    relayCount = obj.buttons.length;
   }
 
-  return configs;
-}
-
-// Apply a template's label array to the editor inputs
-function applyTemplateLabels(labels) {
-  var count = Math.min(labels.length, relayButtons.length);
-  for (var i = 0; i < count; i++) {
-    var relayId = relayButtons[i].id;
-    var label   = labels[i] || {};
-
-    var onEl  = document.getElementById('onLabel'  + relayId);
-    var offEl = document.getElementById('offLabel' + relayId);
-    if (onEl)  onEl.value  = label.on  || '';
-    if (offEl) offEl.value = label.off || '';
-
-    // Mode — templates may store it as string or number
-    var modeRaw = label.mode;
-    var modeStr = (typeof modeRaw === 'number') ? modeNumToStr(modeRaw) : (modeRaw || 'onoff');
-    var modeEl  = document.getElementById('mode' + relayId);
-    if (modeEl) {
-      modeEl.value = modeStr;
-      updateModeUI(relayId);
-    }
-
-    if (modeStr === 'interlocked') {
-      var grpEl = document.getElementById('group' + relayId);
-      if (grpEl) grpEl.value = String(label.group || 1);
-    } else if (modeStr === 'pulsed') {
-      var ptEl = document.getElementById('pulseTimeout' + relayId);
-      if (ptEl) ptEl.value = String(label.pulseTimeout || 1);
-    }
+  if (obj.hasOwnProperty('selectedRelayTemplate')) {
+    selectedTemplateFilename = String(obj.selectedRelayTemplate || '');
+    refreshTemplateDropdown();
   }
 }
 
@@ -289,80 +178,280 @@ function loadTemplateList() {
   fetch('/api/templates')
     .then(function (r) { return r.json(); })
     .then(function (data) {
+      templateSummaryCache = {};
       allTemplates = (data.templates || []).slice().sort(function (a, b) {
-        return a.title.localeCompare(b.title);
+        return String(a.title || '').localeCompare(String(b.title || ''));
       });
+      selectedTemplateFilename = String(data.selectedTemplate || selectedTemplateFilename || '');
       refreshTemplateDropdown();
-      document.querySelector('.labels-page').removeAttribute('data-loading');
+      loadTemplateDiagnostics();
+      setRelayConfigPageReady();
     })
     .catch(function () {
-      document.querySelector('.labels-page').removeAttribute('data-loading');
+      loadTemplateDiagnostics();
+      setRelayConfigPageReady();
     });
 }
 
 function refreshTemplateDropdown() {
-  var count = relayButtons.length;
   var select = document.getElementById('templateSelect');
   var previousValue = select.value;
-  while (select.options.length > 1) select.remove(1);
-  if (count === 0) return;
-  allTemplates
-    .filter(function (t) { return t.relayCount === count; })
-    .forEach(function (t) {
-      var opt = document.createElement('option');
-      opt.value = t.filename;
-      opt.textContent = t.title;
-      select.appendChild(opt);
-    });
-  select.value = previousValue;
-}
-
-function loadSelectedTemplate() {
-  var select   = document.getElementById('templateSelect');
-  var filename = select.value;
-  if (!filename) return;
-
-  fetch('/templates/' + encodeURIComponent(filename))
-    .then(function (r) {
-      if (!r.ok) throw new Error('not found');
-      return r.json();
-    })
-    .then(function (data) {
-      applyTemplateLabels(data.labels || []);
-    })
-    .catch(function (e) {
-      alert('Failed to load template: ' + e.message);
-    });
-}
-
-function saveAsTemplate() {
-  if (!relayButtons.length) {
-    alert('Relay labels are not ready yet. Try again in a moment.');
-    return;
+  while (select.options.length > 1) {
+    select.remove(1);
   }
 
-  var title = document.getElementById('templateTitle').value.trim();
-  if (!title) {
-    alert('Please enter a template name.');
-    return;
-  }
-
-  var configs = collectRelayConfig(true);
-
-  var form = new URLSearchParams();
-  form.set('title', title);
-  form.set('relayCount', String(relayButtons.length));
-  configs.forEach(function (cfg) {
-    form.set('relay' + cfg.relay + '_on',           cfg.on);
-    form.set('relay' + cfg.relay + '_off',          cfg.off);
-    form.set('relay' + cfg.relay + '_mode',         cfg.mode);
-    form.set('relay' + cfg.relay + '_group',        String(cfg.group));
-    form.set('relay' + cfg.relay + '_pulseTimeout', String(cfg.pulseTimeout));
+  var visibleTemplates = allTemplates.filter(function (t) {
+    if (!relayCount) {
+      return true;
+    }
+    return t.relayCount === relayCount;
   });
 
-  var btn = document.getElementById('saveTemplateButton');
-  btn.disabled = true;
-  btn.textContent = 'Saving...';
+  visibleTemplates.forEach(function (t) {
+    var opt = document.createElement('option');
+    opt.value = t.filename;
+    opt.textContent = t.title;
+    select.appendChild(opt);
+  });
+
+  if (selectedTemplateFilename && visibleTemplates.some(function (t) { return t.filename === selectedTemplateFilename; })) {
+    select.value = selectedTemplateFilename;
+  } else if (previousValue && visibleTemplates.some(function (t) { return t.filename === previousValue; })) {
+    select.value = previousValue;
+  } else {
+    select.value = '';
+  }
+
+  updateTemplateSelectionStatus();
+  onTemplateSelectionChanged();
+}
+
+function updateSaveButtonState() {
+  var saveButton = document.getElementById('saveLabels');
+  var hint = document.getElementById('saveTemplateHint');
+  var filename = getSelectedTemplateFilename();
+  var enabled = !!filename;
+
+  saveButton.disabled = !enabled;
+  saveButton.textContent = enabled ? 'Save' : 'Save (select template)';
+  saveButton.title = enabled ? '' : 'Select a template to enable Save.';
+
+  if (hint) {
+    hint.style.display = enabled ? 'none' : '';
+  }
+}
+
+function updateTemplateSelectionStatus() {
+  var status = document.getElementById('templateSelectionStatus');
+  if (!status) {
+    return;
+  }
+
+  if (!selectedTemplateFilename) {
+    status.textContent = 'Selected template: none';
+    return;
+  }
+
+  var selected = allTemplates.find(function (t) {
+    return t.filename === selectedTemplateFilename;
+  });
+
+  var title = selected ? selected.title : selectedTemplateFilename;
+  status.textContent = 'Selected template: ' + title;
+}
+
+function getSelectedTemplateFilename() {
+  var select = document.getElementById('templateSelect');
+  return select && select.value ? select.value : '';
+}
+
+function buildApiErrorMessage(body, fallback) {
+  var message = (body && body.error) ? String(body.error) : String(fallback || 'request failed');
+  if (body && body.reason) {
+    message += ' (' + body.reason + ')';
+  }
+
+  if (body && typeof body.requiredBytes === 'number' && typeof body.fsFreeBytes === 'number') {
+    message += ' [required: ' + body.requiredBytes + ', free: ' + body.fsFreeBytes + ']';
+  }
+
+  return message;
+}
+
+function summarizeMode(mode, group, pulseTimeout) {
+  if (mode === 'interlocked') {
+    return 'interlocked' + (group > 0 ? (' G' + group) : '');
+  }
+  if (mode === 'pulsed') {
+    return 'pulsed' + (pulseTimeout > 0 ? (' ' + pulseTimeout + 's') : '');
+  }
+  return 'latched';
+}
+
+function getCompactLabelText(label) {
+  var on = String(label.on || '').trim();
+  var off = String(label.off || '').trim();
+
+  if (!on && !off) {
+    return '(blank)';
+  }
+  if (!on) {
+    return off;
+  }
+  if (!off || on === off) {
+    return on;
+  }
+  return on + ' / ' + off;
+}
+
+function normalizeSummaryMode(modeValue) {
+  var mode = String(modeValue || 'latched');
+  if (mode !== 'interlocked' && mode !== 'pulsed') {
+    mode = 'latched';
+  }
+  return mode;
+}
+
+function renderTemplateSummaryDoc(doc, filename) {
+  var container = document.getElementById('templateSummary');
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = '';
+
+  var labels = Array.isArray(doc.labels) ? doc.labels : [];
+  if (!labels.length) {
+    var empty = document.createElement('p');
+    empty.className = 'template-summary-error';
+    empty.textContent = 'Template has no relay labels.';
+    container.appendChild(empty);
+    return;
+  }
+
+  var title = String(doc.title || filename);
+  var header = document.createElement('p');
+  header.className = 'template-summary-header';
+  header.textContent = title;
+  container.appendChild(header);
+
+  var modeCounts = { latched: 0, interlocked: 0, pulsed: 0 };
+  labels.forEach(function (label) {
+    var mode = String(label.mode || 'latched');
+    if (mode !== 'interlocked' && mode !== 'pulsed') {
+      mode = 'latched';
+    }
+    modeCounts[mode] += 1;
+  });
+
+  var meta = document.createElement('p');
+  meta.className = 'template-summary-meta';
+  meta.textContent =
+    'Relays: ' + labels.length +
+    ' | Latched: ' + modeCounts.latched +
+    ' | Interlocked: ' + modeCounts.interlocked +
+    ' | Pulsed: ' + modeCounts.pulsed;
+  container.appendChild(meta);
+
+  var grid = document.createElement('div');
+  grid.className = 'template-summary-grid';
+
+  for (var i = 0; i < labels.length; i++) {
+    var label = labels[i] || {};
+    var mode = normalizeSummaryMode(label.mode);
+    var modeText = summarizeMode(mode, parseInt(label.group, 10) || 0, parseInt(label.pulseTimeout, 10) || 0);
+
+    var card = document.createElement('div');
+    card.className = 'relay-label-card template-summary-card';
+
+    var titleEl = document.createElement('h3');
+    titleEl.textContent = 'Relay ' + (i + 1);
+    card.appendChild(titleEl);
+
+    var onRow = document.createElement('p');
+    onRow.className = 'template-summary-row';
+    onRow.innerHTML = '<span class="template-summary-key">ON</span><span class="template-summary-value">' +
+      escapeHtml(String(label.on || '').trim() || '(blank)') + '</span>';
+    card.appendChild(onRow);
+
+    var offRow = document.createElement('p');
+    offRow.className = 'template-summary-row';
+    offRow.innerHTML = '<span class="template-summary-key">OFF</span><span class="template-summary-value">' +
+      escapeHtml(String(label.off || '').trim() || '(blank)') + '</span>';
+    card.appendChild(offRow);
+
+    var modeRow = document.createElement('p');
+    modeRow.className = 'template-summary-row';
+    modeRow.innerHTML = '<span class="template-summary-key">MODE</span><span class="template-summary-value">' +
+      escapeHtml(modeText) + '</span>';
+    card.appendChild(modeRow);
+
+    grid.appendChild(card);
+  }
+
+  container.appendChild(grid);
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function updateTemplateSummary() {
+  var container = document.getElementById('templateSummary');
+  if (!container) {
+    return;
+  }
+
+  var filename = getSelectedTemplateFilename();
+  if (!filename) {
+    container.innerHTML = '<p class="template-summary-empty">Select a template to view relay summary.</p>';
+    return;
+  }
+
+  if (templateSummaryCache[filename]) {
+    renderTemplateSummaryDoc(templateSummaryCache[filename], filename);
+    return;
+  }
+
+  container.innerHTML = '<p class="template-summary-loading">Loading summary...</p>';
+
+  fetch('/templates/' + encodeURIComponent(filename), { cache: 'no-store' })
+    .then(function (response) {
+      if (!response.ok) {
+        throw new Error('template not found');
+      }
+      return response.json();
+    })
+    .then(function (doc) {
+      templateSummaryCache[filename] = doc;
+      if (getSelectedTemplateFilename() === filename) {
+        renderTemplateSummaryDoc(doc, filename);
+      }
+    })
+    .catch(function (error) {
+      container.innerHTML = '<p class="template-summary-error">Summary unavailable: ' + error.message + '</p>';
+    });
+}
+
+function applySelectedTemplate() {
+  var filename = getSelectedTemplateFilename();
+  if (!filename) {
+    alert('Choose a template to apply.');
+    return;
+  }
+
+  var button = document.getElementById('saveLabels');
+  button.disabled = true;
+  button.textContent = 'Saving...';
+
+  var form = new URLSearchParams();
+  form.set('action', 'setactive');
+  form.set('filename', filename);
 
   fetch('/api/templates', {
     method: 'POST',
@@ -378,66 +467,269 @@ function saveAsTemplate() {
     })
     .then(function (result) {
       if (!result.ok || !result.body.ok) {
-        throw new Error(result.body.error || 'save failed');
+        throw new Error(buildApiErrorMessage(result.body, 'apply failed'));
       }
-      document.getElementById('templateTitle').value = '';
+      selectedTemplateFilename = String(result.body.selectedTemplate || filename);
       loadTemplateList();
-      alert('Template "' + title + '" saved.');
+      window.location.href = '/';
     })
     .catch(function (e) {
       alert('Save failed: ' + e.message);
     })
     .finally(function () {
-      btn.disabled = false;
-      btn.textContent = 'Save Template';
+      button.disabled = false;
+      button.textContent = 'Save';
     });
 }
 
-function saveLabels() {
-  if (!relayButtons.length) {
-    alert('Relay labels are not ready yet. Try again in a moment.');
+function downloadSelectedTemplate() {
+  var filename = getSelectedTemplateFilename();
+  if (!filename) {
+    alert('Please select a template to download.');
     return;
   }
 
-  var configs = collectRelayConfig(true);
+  var link = document.createElement('a');
+  link.href = '/templates/' + encodeURIComponent(filename);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+function renameSelectedTemplate() {
+  var filename = getSelectedTemplateFilename();
+  if (!filename) {
+    alert('Please select a template to rename.');
+    return;
+  }
+
+  var current = allTemplates.find(function (t) { return t.filename === filename; });
+  var defaultTitle = current && current.title ? current.title : filename.replace(/\.json$/i, '');
+  var prompted = window.prompt('New template name:', defaultTitle);
+  if (prompted === null) {
+    return;
+  }
+
+  var title = prompted.trim();
+  if (!title) {
+    alert('Template name cannot be empty.');
+    return;
+  }
+
+  var button = document.getElementById('renameTemplateButton');
+  button.disabled = true;
+  button.textContent = 'Renaming...';
 
   var form = new URLSearchParams();
-  configs.forEach(function (cfg) {
-    form.set('relay' + cfg.relay + '_on',           cfg.on);
-    form.set('relay' + cfg.relay + '_off',          cfg.off);
-    form.set('relay' + cfg.relay + '_mode',         cfg.mode);
-    form.set('relay' + cfg.relay + '_group',        String(cfg.group));
-    form.set('relay' + cfg.relay + '_pulseTimeout', String(cfg.pulseTimeout));
-  });
+  form.set('action', 'rename');
+  form.set('filename', filename);
+  form.set('title', title);
 
-  var saveButton = document.getElementById('saveLabels');
-  var originalButtonText = saveButton.textContent;
-  saveButton.disabled = true;
-  saveButton.textContent = 'Saving...';
-
-  fetch('/api/labels', {
+  fetch('/api/templates', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
     body: form.toString()
   })
-    .then(function (response) {
-      return response.json().catch(function () {
+    .then(function (r) {
+      return r.json().catch(function () {
         return { ok: false, error: 'invalid response' };
       }).then(function (json) {
-        return { ok: response.ok, body: json };
+        return { ok: r.ok, body: json };
       });
     })
     .then(function (result) {
       if (!result.ok || !result.body.ok) {
-        throw new Error(result.body.error || 'save failed');
+        throw new Error(buildApiErrorMessage(result.body, 'rename failed'));
       }
-      window.location.href = '/';
+      selectedTemplateFilename = String(result.body.filename || filename);
+      loadTemplateList();
     })
-    .catch(function (error) {
-      alert('Save failed: ' + error.message);
+    .catch(function (e) {
+      alert('Rename failed: ' + e.message);
     })
     .finally(function () {
-      saveButton.disabled = false;
-      saveButton.textContent = originalButtonText;
+      button.disabled = false;
+      button.textContent = 'Rename';
     });
+}
+
+function deleteSelectedTemplate() {
+  var filename = getSelectedTemplateFilename();
+  if (!filename) {
+    alert('Please select a template to remove.');
+    return;
+  }
+
+  if (!window.confirm('Remove template "' + filename + '"?')) {
+    return;
+  }
+
+  var button = document.getElementById('deleteTemplateButton');
+  button.disabled = true;
+  button.textContent = 'Removing...';
+
+  var form = new URLSearchParams();
+  form.set('action', 'delete');
+  form.set('filename', filename);
+
+  fetch('/api/templates', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+    body: form.toString()
+  })
+    .then(function (r) {
+      return r.json().catch(function () {
+        return { ok: false, error: 'invalid response' };
+      }).then(function (json) {
+        return { ok: r.ok, body: json };
+      });
+    })
+    .then(function (result) {
+      if (!result.ok || !result.body.ok) {
+        throw new Error(buildApiErrorMessage(result.body, 'remove failed'));
+      }
+      if (selectedTemplateFilename === filename) {
+        selectedTemplateFilename = '';
+      }
+      loadTemplateList();
+    })
+    .catch(function (e) {
+      alert('Remove failed: ' + e.message);
+    })
+    .finally(function () {
+      button.disabled = false;
+      button.textContent = 'Remove';
+    });
+}
+
+function uploadTemplateFile() {
+  var input = document.getElementById('templateUploadInput');
+  if (!input) {
+    return;
+  }
+
+  input.value = '';
+  input.click();
+}
+
+function uploadSelectedTemplateFile() {
+  var input = document.getElementById('templateUploadInput');
+  if (!input || !input.files || input.files.length === 0) {
+    return;
+  }
+
+  var file = input.files[0];
+  var button = document.getElementById('uploadTemplateButton');
+  button.disabled = true;
+  button.textContent = 'Uploading...';
+
+  var reader = new FileReader();
+  reader.onload = function () {
+    var content = String(reader.result || '');
+    var doc;
+    try {
+      doc = JSON.parse(content);
+    } catch (err) {
+      button.disabled = false;
+      button.textContent = 'Upload';
+      alert('Upload failed: invalid template json');
+      return;
+    }
+
+    var labels = [];
+    if (Array.isArray(doc)) {
+      labels = doc;
+    } else if (doc && Array.isArray(doc.labels)) {
+      labels = doc.labels;
+    }
+
+    if (!labels.length) {
+      button.disabled = false;
+      button.textContent = 'Upload';
+      alert('Upload failed: labels missing');
+      return;
+    }
+
+    var relayCount = parseInt(doc && doc.relayCount, 10);
+    if (!relayCount || relayCount < 1 || relayCount > 16) {
+      relayCount = labels.length;
+    }
+    if (relayCount < 1 || relayCount > 16) {
+      button.disabled = false;
+      button.textContent = 'Upload';
+      alert('Upload failed: invalid relay count');
+      return;
+    }
+
+    var title = String((doc && doc.title) || '').trim();
+    if (!title) {
+      title = String(file.name || 'Imported Template').replace(/\.json$/i, '');
+    }
+
+    var payload = new URLSearchParams();
+    payload.set('title', title);
+    payload.set('relayCount', String(relayCount));
+
+    for (var i = 0; i < relayCount; i++) {
+      var relayIndex = i + 1;
+      var label = labels[i] || {};
+      var mode = String(label.mode || 'latched');
+      if (mode !== 'interlocked' && mode !== 'pulsed') {
+        mode = 'latched';
+      }
+
+      var group = parseInt(label.group, 10);
+      if (!group || group < 0) {
+        group = 0;
+      }
+
+      var pulseTimeout = parseInt(label.pulseTimeout, 10);
+      if (!pulseTimeout || pulseTimeout < 1 || pulseTimeout > 30) {
+        pulseTimeout = 1;
+      }
+
+      payload.set('relay' + relayIndex + '_on', String(label.on || ''));
+      payload.set('relay' + relayIndex + '_off', String(label.off || ''));
+      payload.set('relay' + relayIndex + '_mode', mode);
+      payload.set('relay' + relayIndex + '_group', String(mode === 'interlocked' ? group : 0));
+      payload.set('relay' + relayIndex + '_pulseTimeout', String(mode === 'pulsed' ? pulseTimeout : 0));
+    }
+
+    fetch('/api/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+      body: payload.toString()
+    })
+      .then(function (r) {
+        return r.json().catch(function () {
+          return { ok: false, error: 'invalid response' };
+        }).then(function (json) {
+          return { ok: r.ok, body: json };
+        });
+      })
+      .then(function (result) {
+        if (!result.ok || !result.body.ok) {
+          throw new Error(buildApiErrorMessage(result.body, 'upload failed'));
+        }
+        input.value = '';
+        loadTemplateList();
+        alert('Template uploaded.');
+      })
+      .catch(function (e) {
+        alert('Upload failed: ' + e.message);
+      })
+      .finally(function () {
+        button.disabled = false;
+        button.textContent = 'Upload';
+      });
+  };
+
+  reader.onerror = function () {
+    button.disabled = false;
+    button.textContent = 'Upload';
+    alert('Failed to read selected file.');
+  };
+
+  reader.readAsText(file);
 }

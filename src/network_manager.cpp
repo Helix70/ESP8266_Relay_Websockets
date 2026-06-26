@@ -3,20 +3,20 @@
 #include <Arduino.h>
 
 #include "app_state.h"
+#include "web_runtime.h"
 
 #if defined(ESP32)
 #include <esp_wifi.h>
 #endif
 
-static const bool LOCK_TO_STRONGEST_BSSID = false;
-
 #if defined(ESP32) || defined(ESP8266)
-static bool beginWiFiOnStrongestBssid(const char *targetSsid, const char *targetPassword)
+static bool performStrongestBssidConnect(const char *targetSsid, const char *targetPassword, bool onlyIfDifferent)
 {
   int scanCount = WiFi.scanNetworks(false, true);
   if (scanCount <= 0)
   {
     Serial.println("WiFi scan found no APs, falling back to default connect");
+    wifiRescanStatus = "Scan complete: no APs found";
     return false;
   }
 
@@ -41,6 +41,7 @@ static bool beginWiFiOnStrongestBssid(const char *targetSsid, const char *target
   {
     Serial.printf("SSID '%s' not found in scan, falling back to default connect\n", targetSsid);
     WiFi.scanDelete();
+    wifiRescanStatus = "Scan complete: configured SSID not found";
     return false;
   }
 
@@ -49,16 +50,103 @@ static bool beginWiFiOnStrongestBssid(const char *targetSsid, const char *target
   int bestChannel = WiFi.channel(bestIndex);
   String bestBssidStr = WiFi.BSSIDstr(bestIndex);
 
+  bool connectedNow = (WiFi.status() == WL_CONNECTED);
+  String currentSsid = connectedNow ? WiFi.SSID() : String();
+  String currentBssid = connectedNow ? WiFi.BSSIDstr() : String();
+
+  if (onlyIfDifferent && connectedNow && currentSsid == desiredSsid && currentBssid == bestBssidStr)
+  {
+    WiFi.scanDelete();
+    wifiRescanStatus = "Already on strongest matching AP";
+    return false;
+  }
+
   Serial.printf("Connecting to strongest AP for '%s': BSSID=%s ch=%d RSSI=%d dBm\n",
                 targetSsid, bestBssidStr.c_str(), bestChannel, bestRssi);
 
   WiFi.scanDelete();
   WiFi.begin(targetSsid, targetPassword, bestChannel, bestBssid, true);
+  wifiRescanStatus = "Rescan complete, refreshing Wi-Fi link...";
   return true;
+}
+
+static bool beginWiFiOnStrongestBssid(const char *targetSsid, const char *targetPassword)
+{
+  return performStrongestBssidConnect(targetSsid, targetPassword, false);
 }
 #endif
 
-void initWiFi()
+void requestStrongestSsidRescan()
+{
+  if (wifiSsid.length() == 0)
+  {
+    wifiRescanStatus = "Cannot rescan: no configured SSID";
+    return;
+  }
+
+  if (wifiRescanInProgress)
+  {
+    return;
+  }
+
+  wifiRescanRequested = true;
+  wifiRescanStatus = "Rescan requested";
+}
+
+void processStrongestSsidRescan()
+{
+  static bool awaitingReconnect = false;
+  static uint32_t reconnectDeadline = 0;
+
+  if (!wifiRescanInProgress && wifiRescanRequested)
+  {
+    wifiRescanRequested = false;
+    wifiRescanInProgress = true;
+    wifiRescanStatus = "Scanning for strongest matching AP...";
+    notifyClients();
+
+#if defined(ESP32) || defined(ESP8266)
+    bool changedAp = performStrongestBssidConnect(wifiSsid.c_str(), wifiPassword.c_str(), true);
+    if (changedAp)
+    {
+      awaitingReconnect = true;
+      reconnectDeadline = millis() + 12000;
+      notifyClients();
+      return;
+    }
+#else
+    wifiRescanStatus = "Rescan not supported on this target";
+#endif
+
+    wifiRescanInProgress = false;
+    notifyClients();
+    return;
+  }
+
+  if (!wifiRescanInProgress || !awaitingReconnect)
+  {
+    return;
+  }
+
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    wifiRescanInProgress = false;
+    awaitingReconnect = false;
+    wifiRescanStatus = "Connected: " + WiFi.SSID() + " (" + String(WiFi.RSSI()) + " dBm)";
+    notifyClients();
+    return;
+  }
+
+  if ((int32_t)(millis() - reconnectDeadline) >= 0)
+  {
+    wifiRescanInProgress = false;
+    awaitingReconnect = false;
+    wifiRescanStatus = "Reconnect timed out after rescan";
+    notifyClients();
+  }
+}
+
+bool initWiFi()
 {
   int blinkCounter = 0;
   int attempts = 1;
@@ -108,11 +196,11 @@ void initWiFi()
   {
     WiFi.disconnect();
 #if defined(ESP32) || defined(ESP8266)
-    if (LOCK_TO_STRONGEST_BSSID && !beginWiFiOnStrongestBssid(wifiSsid.c_str(), wifiPassword.c_str()))
+    if (connectStrongestOnStartup && !beginWiFiOnStrongestBssid(wifiSsid.c_str(), wifiPassword.c_str()))
     {
       WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
     }
-    else if (!LOCK_TO_STRONGEST_BSSID)
+    else if (!connectStrongestOnStartup)
     {
       WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
     }
@@ -142,13 +230,11 @@ void initWiFi()
     Serial.print("IP Address: http://");
     Serial.println(WiFi.localIP().toString().c_str());
     WiFi.softAPdisconnect(true);
+    return true;
   }
-  else
-  {
-    WiFi.disconnect();
-    Serial.println("Status= NOT WL_CONNECTED");
-    Serial.println("Rebooting....");
-    delay(500);
-    ESP.restart();
-  }
+
+  WiFi.disconnect();
+  Serial.println("Status= NOT WL_CONNECTED");
+  Serial.println("Wi-Fi connect failed; entering provisioning mode instead of reboot loop.");
+  return false;
 }

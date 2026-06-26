@@ -24,6 +24,7 @@ const uint32_t DELAY_COUNTER = (1000 / DELAY_INTERVAL_MS);
 String boardName = "Relay Board";
 String wifiSsid;
 String wifiPassword;
+String selectedRelayTemplateFilename;
 String serialCommandBuffer;
 
 bool reportSignalStrength = true;
@@ -42,14 +43,16 @@ bool useStaticIp = false;
 
 bool doDelay = false;
 uint16_t startupDelaySeconds = 60;
-bool doLatched = false;
-bool doInterlocked = false;
-bool doPulsed = false;
+bool connectStrongestOnStartup = false;
+bool wifiRescanInProgress = false;
+bool wifiRescanRequested = false;
+String wifiRescanStatus = "Idle";
 
 bool pendingRestart = false;
 uint32_t pendingRestartAt = 0;
 
 String hardwareVariant = "";
+String activeBoardHardwareFilename = "";
 uint8_t relayCount = 0;
 bool useShiftRegister = false;
 
@@ -71,8 +74,6 @@ Latch latched_relays[APP_MAX_RELAYS] = {
     {5, 6, 0, 0}, {6, 5, 0, 0}, {7, 8, 0, 0}, {8, 7, 0, 0},
     {9, 10, 0, 0}, {10, 9, 0, 0}, {11, 12, 0, 0}, {12, 11, 0, 0},
     {13, 14, 0, 0}, {14, 13, 0, 0}, {15, 16, 0, 0}, {16, 15, 0, 0}};
-
-uint8_t interlocked_buttons[APP_INTERLOCKED_BUTTON_COUNT] = {1, 2, 3, 4, 5, 6, 8};
 
 Pulse pulsed_relays[APP_MAX_RELAYS] = {
     {1, 1, 0}, {2, 1, 0}, {3, 1, 0}, {4, 1, 0},

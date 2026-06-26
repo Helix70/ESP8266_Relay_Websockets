@@ -2,15 +2,221 @@
 
 #include "LittleFS.h"
 #include <ArduinoJson.h>
+#include <string.h>
+
+#include "route_data.h"
+
+#if defined(ESP8266)
+#include <EEPROM.h>
+#endif
 
 #if defined(ESP32)
 #include <Preferences.h>
 #endif
 
+extern RelayLabel relayLabels[16];
+
 namespace
 {
 constexpr uint8_t kMaxRelays = 16;
 constexpr size_t kMaxRelayLabelLength = 32;
+
+#if defined(ESP8266)
+constexpr size_t kEepromTotalSize = 4096;
+constexpr int kRelayLabelsEepromBase = 2048;
+constexpr size_t kRelayLabelsEepromRegionSize = 2048;
+constexpr uint32_t kRelayLabelsMagic = 0x31534C52u; // "RLS1"
+constexpr uint16_t kRelayLabelsVersion = 1;
+constexpr int kRelayLabelsHeaderOffsetMagic = kRelayLabelsEepromBase + 0;
+constexpr int kRelayLabelsHeaderOffsetVersion = kRelayLabelsEepromBase + 4;
+constexpr int kRelayLabelsHeaderOffsetCount = kRelayLabelsEepromBase + 6;
+constexpr int kRelayLabelsHeaderOffsetCrc = kRelayLabelsEepromBase + 7;
+constexpr int kRelayLabelsPayloadOffset = kRelayLabelsEepromBase + 9;
+constexpr size_t kRelayLabelNameBytes = kMaxRelayLabelLength + 1;
+constexpr size_t kRelayLabelRecordSize = 3 + (kRelayLabelNameBytes * 2);
+constexpr size_t kRelayLabelsMaxPayload = kRelayLabelsEepromRegionSize - 9;
+
+uint16_t labelsCrc16Ccitt(const uint8_t *data, size_t len)
+{
+  uint16_t crc = 0xFFFFu;
+  for (size_t i = 0; i < len; i++)
+  {
+    crc ^= (uint16_t)data[i] << 8;
+    for (uint8_t bit = 0; bit < 8; bit++)
+    {
+      if (crc & 0x8000u)
+      {
+        crc = (uint16_t)((crc << 1) ^ 0x1021u);
+      }
+      else
+      {
+        crc <<= 1;
+      }
+    }
+  }
+  return crc;
+}
+
+void labelsEepromWriteU16(int offset, uint16_t value)
+{
+  EEPROM.write(offset, (uint8_t)(value & 0xFFu));
+  EEPROM.write(offset + 1, (uint8_t)((value >> 8) & 0xFFu));
+}
+
+void labelsEepromWriteU32(int offset, uint32_t value)
+{
+  EEPROM.write(offset, (uint8_t)(value & 0xFFu));
+  EEPROM.write(offset + 1, (uint8_t)((value >> 8) & 0xFFu));
+  EEPROM.write(offset + 2, (uint8_t)((value >> 16) & 0xFFu));
+  EEPROM.write(offset + 3, (uint8_t)((value >> 24) & 0xFFu));
+}
+
+uint16_t labelsEepromReadU16(int offset)
+{
+  return (uint16_t)EEPROM.read(offset) |
+         (uint16_t)((uint16_t)EEPROM.read(offset + 1) << 8);
+}
+
+uint32_t labelsEepromReadU32(int offset)
+{
+  return (uint32_t)EEPROM.read(offset) |
+         ((uint32_t)EEPROM.read(offset + 1) << 8) |
+         ((uint32_t)EEPROM.read(offset + 2) << 16) |
+         ((uint32_t)EEPROM.read(offset + 3) << 24);
+}
+
+String labelStringFromFixed(const uint8_t *src)
+{
+  size_t len = 0;
+  while (len < kRelayLabelNameBytes && src[len] != 0)
+  {
+    len++;
+  }
+
+  String out;
+  out.reserve(len);
+  for (size_t i = 0; i < len; i++)
+  {
+    out += (char)src[i];
+  }
+  out.trim();
+  return out;
+}
+
+void labelStringToFixed(const String &src, uint8_t *dst)
+{
+  String cleaned = src;
+  cleaned.trim();
+  if (cleaned.length() > kMaxRelayLabelLength)
+  {
+    cleaned = cleaned.substring(0, kMaxRelayLabelLength);
+  }
+
+  memset(dst, 0, kRelayLabelNameBytes);
+  for (size_t i = 0; i < cleaned.length() && i < kMaxRelayLabelLength; i++)
+  {
+    dst[i] = (uint8_t)cleaned[i];
+  }
+}
+
+bool saveRelayLabelsToEeprom()
+{
+  const uint8_t count = kMaxRelays;
+  const size_t payloadLen = (size_t)count * kRelayLabelRecordSize;
+  if (payloadLen > kRelayLabelsMaxPayload)
+  {
+    return false;
+  }
+
+  uint8_t payload[kMaxRelays * kRelayLabelRecordSize];
+  memset(payload, 0, sizeof(payload));
+
+  for (uint8_t i = 0; i < count; i++)
+  {
+    size_t base = (size_t)i * kRelayLabelRecordSize;
+    payload[base + 0] = relayLabels[i].mode;
+    payload[base + 1] = relayLabels[i].group;
+    payload[base + 2] = relayLabels[i].pulseTimeout;
+    labelStringToFixed(relayLabels[i].on, payload + base + 3);
+    labelStringToFixed(relayLabels[i].off, payload + base + 3 + kRelayLabelNameBytes);
+  }
+
+  uint16_t crc = labelsCrc16Ccitt(payload, payloadLen);
+
+  EEPROM.begin((int)kEepromTotalSize);
+  labelsEepromWriteU32(kRelayLabelsHeaderOffsetMagic, kRelayLabelsMagic);
+  labelsEepromWriteU16(kRelayLabelsHeaderOffsetVersion, kRelayLabelsVersion);
+  EEPROM.write(kRelayLabelsHeaderOffsetCount, count);
+  labelsEepromWriteU16(kRelayLabelsHeaderOffsetCrc, crc);
+
+  for (size_t i = 0; i < payloadLen; i++)
+  {
+    EEPROM.write(kRelayLabelsPayloadOffset + (int)i, payload[i]);
+  }
+
+  bool ok = EEPROM.commit();
+  EEPROM.end();
+  return ok;
+}
+
+bool loadRelayLabelsFromEeprom()
+{
+  EEPROM.begin((int)kEepromTotalSize);
+
+  uint32_t magic = labelsEepromReadU32(kRelayLabelsHeaderOffsetMagic);
+  uint16_t version = labelsEepromReadU16(kRelayLabelsHeaderOffsetVersion);
+  uint8_t count = EEPROM.read(kRelayLabelsHeaderOffsetCount);
+  uint16_t expectedCrc = labelsEepromReadU16(kRelayLabelsHeaderOffsetCrc);
+
+  if (magic != kRelayLabelsMagic || version != kRelayLabelsVersion || count != kMaxRelays)
+  {
+    EEPROM.end();
+    return false;
+  }
+
+  const size_t payloadLen = (size_t)count * kRelayLabelRecordSize;
+  if (payloadLen > kRelayLabelsMaxPayload)
+  {
+    EEPROM.end();
+    return false;
+  }
+
+  uint8_t payload[kMaxRelays * kRelayLabelRecordSize];
+  for (size_t i = 0; i < payloadLen; i++)
+  {
+    payload[i] = EEPROM.read(kRelayLabelsPayloadOffset + (int)i);
+  }
+  EEPROM.end();
+
+  uint16_t actualCrc = labelsCrc16Ccitt(payload, payloadLen);
+  if (actualCrc != expectedCrc)
+  {
+    return false;
+  }
+
+  bool anyFound = false;
+  for (uint8_t i = 0; i < count; i++)
+  {
+    size_t base = (size_t)i * kRelayLabelRecordSize;
+    uint8_t mode = payload[base + 0];
+    uint8_t group = payload[base + 1];
+    uint8_t pulseTimeout = payload[base + 2];
+
+    String on = labelStringFromFixed(payload + base + 3);
+    String off = labelStringFromFixed(payload + base + 3 + kRelayLabelNameBytes);
+
+    if (on.length() > 0 || off.length() > 0)
+    {
+      anyFound = true;
+    }
+
+    assignRelayLabels(i + 1, on, off);
+    assignRelayMode(i + 1, mode, group, pulseTimeout);
+  }
+
+  return anyFound;
+}
+#endif
 
 String defaultRelayOnLabel(uint8_t relayNum)
 {
@@ -62,7 +268,7 @@ static const char *modeToStr(uint8_t mode)
 {
   if (mode == RELAY_MODE_INTERLOCKED) return "interlocked";
   if (mode == RELAY_MODE_PULSED)      return "pulsed";
-  return "onoff";
+  return "latched";
 }
 
 static uint8_t strToMode(const String &s)
@@ -78,7 +284,16 @@ void assignRelayMode(uint8_t relayNum, uint8_t mode, uint8_t group, uint8_t puls
   uint8_t idx = relayNum - 1;
   relayLabels[idx].mode         = (mode <= RELAY_MODE_PULSED) ? mode : RELAY_MODE_ONOFF;
   relayLabels[idx].group        = group;
-  relayLabels[idx].pulseTimeout = (pulseTimeout >= 1 && pulseTimeout <= 30) ? pulseTimeout : 1;
+  if (relayLabels[idx].mode == RELAY_MODE_PULSED)
+  {
+    relayLabels[idx].pulseTimeout = (pulseTimeout >= 1 && pulseTimeout <= kMaxPulseTimeoutSeconds)
+                                      ? pulseTimeout
+                                      : kDefaultPulseTimeoutSeconds;
+  }
+  else
+  {
+    relayLabels[idx].pulseTimeout = 0;
+  }
 }
 
 void assignRelayLabels(uint8_t relayNum, const String &requestedOnLabel, const String &requestedOffLabel)
@@ -126,8 +341,16 @@ bool saveRelayLabels()
   prefs.end();
   Serial.println("Saved relay labels to NVS");
   return true;
+#elif defined(ESP8266)
+  if (!saveRelayLabelsToEeprom())
+  {
+    Serial.println("Failed to save relay labels to EEPROM");
+    return false;
+  }
+  Serial.println("Saved relay labels to EEPROM");
+  return true;
 #else
-  StaticJsonDocument<4096> doc;
+  DynamicJsonDocument doc(6144);
   JsonArray labels = doc.createNestedArray("labels");
 
   for (uint8_t i = 0; i < kMaxRelays; i++)
@@ -207,10 +430,17 @@ bool loadRelayLabels()
   else
     Serial.println("NVS labels not found, using defaults");
   return anyFound;
-#else
+#elif defined(ESP8266)
+  bool loadedFromEeprom = loadRelayLabelsFromEeprom();
+  if (loadedFromEeprom)
+  {
+    Serial.println("Loaded relay labels from EEPROM");
+    return true;
+  }
+
   if (!LittleFS.exists(kRelayLabelsPath))
   {
-    Serial.println("Relay labels file not found, using defaults");
+    Serial.println("Relay labels not found in EEPROM/file, using defaults");
     return false;
   }
 
@@ -221,7 +451,7 @@ bool loadRelayLabels()
     return false;
   }
 
-  StaticJsonDocument<4096> doc;
+  DynamicJsonDocument doc(6144);
   DeserializationError error = deserializeJson(doc, file);
   file.close();
 
@@ -246,7 +476,59 @@ bool loadRelayLabels()
 
     assignRelayLabels(i + 1, String(label["on"] | ""), String(label["off"] | ""));
     assignRelayMode(i + 1,
-                    strToMode(String(label["mode"] | "onoff")),
+                    strToMode(String(label["mode"] | "latched")),
+                    (uint8_t)(label["group"] | (uint8_t)0),
+                    (uint8_t)(label["pulseTimeout"] | (uint8_t)1));
+  }
+
+  // Migrate legacy LittleFS labels into EEPROM for consistent persistence.
+  if (saveRelayLabelsToEeprom())
+  {
+    Serial.println("Migrated relay labels from LittleFS to EEPROM");
+  }
+
+  Serial.println("Loaded relay labels");
+  return true;
+#else
+  if (!LittleFS.exists(kRelayLabelsPath))
+  {
+    Serial.println("Relay labels file not found, using defaults");
+    return false;
+  }
+
+  File file = LittleFS.open(kRelayLabelsPath, "r");
+  if (!file)
+  {
+    Serial.println("Failed to open relay labels file for reading, using defaults");
+    return false;
+  }
+
+  DynamicJsonDocument doc(6144);
+  DeserializationError error = deserializeJson(doc, file);
+  file.close();
+
+  if (error)
+  {
+    Serial.printf("Failed to parse relay labels file (%s), using defaults\n", error.c_str());
+    return false;
+  }
+
+  JsonArray labels = doc["labels"].as<JsonArray>();
+  if (labels.isNull())
+  {
+    Serial.println("Relay labels file missing labels array, using defaults");
+    return false;
+  }
+
+  uint8_t count = labels.size() < relayCount ? labels.size() : relayCount;
+  for (uint8_t i = 0; i < count; i++)
+  {
+    JsonObject label = labels[i];
+    if (label.isNull()) continue;
+
+    assignRelayLabels(i + 1, String(label["on"] | ""), String(label["off"] | ""));
+    assignRelayMode(i + 1,
+            strToMode(String(label["mode"] | "latched")),
                     (uint8_t)(label["group"] | (uint8_t)0),
                     (uint8_t)(label["pulseTimeout"] | (uint8_t)1));
   }
@@ -259,21 +541,91 @@ bool loadRelayLabels()
 bool loadLabelsFromTemplate(uint8_t count)
 {
   String path = "/templates/template-" + String(count) + "relay.json";
+  return loadLabelsFromTemplateFile(path.substring(String("/templates/").length()), count);
+}
+
+bool loadLabelsFromTemplateFile(const String &filename, uint8_t count)
+{
+  String cleanName = filename;
+  cleanName.trim();
+  if (cleanName.length() == 0)
+  {
+    return false;
+  }
+
+  if (cleanName.startsWith("/templates/"))
+  {
+    cleanName = cleanName.substring(String("/templates/").length());
+  }
+
+  if (cleanName.indexOf('/') >= 0 || cleanName.indexOf('\\') >= 0 || cleanName.indexOf("..") >= 0)
+  {
+    return false;
+  }
+
+  String path = "/templates/" + cleanName;
   if (!LittleFS.exists(path))
   {
-    Serial.printf("No template found for %u relays (%s)\n", count, path.c_str());
-    return false;
+    for (uint8_t i = 0; i < count && i < kMaxRelays; i++)
+    {
+      assignRelayLabels(i + 1, "", "");
+      assignRelayMode(i + 1, RELAY_MODE_ONOFF, 0, 1);
+    }
+    Serial.printf("Template not found for %u relays (%s), generated defaults\n", count, path.c_str());
+    return cleanName == ("template-" + String(count) + "relay.json");
   }
 
   File f = LittleFS.open(path, "r");
   if (!f) return false;
 
-  StaticJsonDocument<4096> doc;
+  size_t fileSize = (size_t)f.size();
+  size_t docCapacity = fileSize + 3072;
+  if (docCapacity < 6144) docCapacity = 6144;
+  if (docCapacity > 32768) docCapacity = 32768;
+
+  DynamicJsonDocument doc(docCapacity);
   DeserializationError err = deserializeJson(doc, f);
+  if (err == DeserializationError::NoMemory && docCapacity < 32768)
+  {
+    f.close();
+    f = LittleFS.open(path, "r");
+    if (!f) return false;
+    DynamicJsonDocument retryDoc(32768);
+    err = deserializeJson(retryDoc, f);
+    f.close();
+    if (err) return false;
+
+    JsonArray labels = retryDoc["labels"].as<JsonArray>();
+    if (labels.isNull())
+    {
+      labels = retryDoc.as<JsonArray>();
+    }
+    if (labels.isNull()) return false;
+
+    uint8_t n = (uint8_t)labels.size() < count ? (uint8_t)labels.size() : count;
+    for (uint8_t i = 0; i < n; i++)
+    {
+      JsonObject label = labels[i];
+      if (label.isNull()) continue;
+      assignRelayLabels(i + 1, String(label["on"] | ""), String(label["off"] | ""));
+      assignRelayMode(i + 1,
+              strToMode(String(label["mode"] | "latched")),
+                      (uint8_t)(label["group"] | (uint8_t)0),
+                      (uint8_t)(label["pulseTimeout"] | (uint8_t)1));
+    }
+
+    Serial.printf("Loaded relay labels from template: %s\n", path.c_str());
+    return true;
+  }
+
   f.close();
   if (err) return false;
 
   JsonArray labels = doc["labels"].as<JsonArray>();
+  if (labels.isNull())
+  {
+    labels = doc.as<JsonArray>();
+  }
   if (labels.isNull()) return false;
 
   uint8_t n = (uint8_t)labels.size() < count ? (uint8_t)labels.size() : count;
@@ -283,7 +635,7 @@ bool loadLabelsFromTemplate(uint8_t count)
     if (label.isNull()) continue;
     assignRelayLabels(i + 1, String(label["on"] | ""), String(label["off"] | ""));
     assignRelayMode(i + 1,
-                    strToMode(String(label["mode"] | "onoff")),
+            strToMode(String(label["mode"] | "latched")),
                     (uint8_t)(label["group"] | (uint8_t)0),
                     (uint8_t)(label["pulseTimeout"] | (uint8_t)1));
   }

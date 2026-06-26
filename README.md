@@ -1,0 +1,308 @@
+# ESP Relay WebSockets Controller
+
+Firmware + web UI for ESP32/ESP8266 relay controllers with:
+- Real-time WebSocket control
+- Per-relay behavior modes (latched/interlocked/pulsed)
+- Board hardware variants (8-relay and 16-relay)
+- Template-based relay configuration management
+- Wi-Fi provisioning, static/DHCP config, strongest-SSID tools
+
+## AI Collaboration And Standards
+
+- Project-wide AI instructions: `.github/copilot-instructions.md`
+- Agent standards: `AGENTS.md`
+- Scoped workflow instructions: `.github/instructions/firmware-workflow.instructions.md`
+- AI runbook (updates, tests, device interaction, root-cause workflow): `docs/AI_COLLABORATION_RUNBOOK.md`
+- Claude project instructions: `CLAUDE.md`
+- Claude workflow command templates: `.claude/commands/`
+- Claude usage guide: `.claude/README.md`
+- Copilot prompt templates: `.github/prompts/`
+- Cursor rules: `.cursor/rules/project-standards.mdc`
+- Aider config: `.aider.conf.yml`
+- Continue guide: `.continue/README.md`
+- Cline instructions: `CLINE.md`
+- OpenHands guide: `.openhands/README.md`
+- Cross-engine matrix: `docs/AI_ENGINE_MATRIX.md`
+- One-command AI workflow scripts: `scripts/ai/README.md`
+
+## Architecture
+
+### High-Level System Diagram
+```mermaid
+flowchart LR
+  U[Browser UI\nindex/config/relay-config/boards] <-->|WebSocket /ws\nHTTP /api/*| FW[Device Firmware]
+
+  subgraph FW [ESP Firmware]
+    MAIN[main.cpp\nsetup/loop]
+    NET[network_manager\nWi-Fi + strongest AP]
+    WEB[web_runtime\n/ws + runtime routes]
+    CFG[config_system_routes\n/api/config /api/clearwifi]
+    TPL[template_routes\n/api/templates management]
+    BRD[board_routes\n/api/boards]
+    REL[relay_runtime\nrelay state/timers]
+    STO[storage_utils\nrelay labels/templates]
+    CST[config_store\nboard + Wi-Fi + selected template]
+    SER[serial_commands\nreset_wifi/help]
+  end
+
+  MAIN --> NET
+  MAIN --> WEB
+  MAIN --> CFG
+  MAIN --> TPL
+  MAIN --> BRD
+  MAIN --> REL
+  MAIN --> STO
+  MAIN --> CST
+  MAIN --> SER
+
+  STO <--> FS[(LittleFS)]
+  CST <--> CFGS[(ESP32 NVS / ESP8266 EEPROM)]
+```
+
+### Boot and Runtime Flow
+```mermaid
+sequenceDiagram
+  participant Boot as setup()
+  participant FS as LittleFS/NVS
+  participant WiFi as Wi-Fi Stack
+  participant Web as Web + WS
+  participant UI as Browser
+
+  Boot->>FS: loadRelayLabels()
+  Boot->>FS: loadBoardConfig()
+  Boot->>Boot: applyHardwareVariantPinsAndModes()
+  Boot->>FS: if selected template -> load + apply + save labels
+  Boot->>Boot: initRelayOutputs()
+
+  alt Wi-Fi credentials missing
+    Boot->>Web: startProvisioningPortal()
+  else Wi-Fi credentials present
+    Boot->>WiFi: initWiFi()
+    Boot->>Web: initWebSocket(), register routes, start server
+  end
+
+  UI->>Web: connect /ws
+  Web-->>UI: full runtime state payload
+  UI->>Web: commands (toggle, save config, template actions)
+  Web->>FS: persist changes
+  Web-->>UI: updated runtime state
+```
+
+## System Documentation
+
+### Core Subsystems
+
+- Runtime and scheduling:
+  - `src/main.cpp` controls startup, loop timing, restart scheduling, OTA, serial processing.
+- Networking:
+  - `src/network_manager.cpp` handles DHCP/static IP startup, strongest matching SSID connect, and rescan flow.
+- Realtime state transport:
+  - `src/web_runtime.cpp` publishes full system/relay state over `/ws` and serves runtime HTTP endpoints.
+- Config APIs:
+  - `src/config_system_routes.cpp` handles board config, Wi-Fi clear, label save.
+- Template management APIs:
+  - `src/template_routes.cpp` handles list/create/upload/set-active/rename/delete template operations and diagnostics.
+- Board hardware APIs:
+  - `src/board_routes.cpp` reads/writes hardware definition JSON in `/boards`.
+- Relay behaviors:
+  - `src/relay_runtime.cpp` enforces latched/interlocked/pulsed logic and timers.
+- Persistence:
+  - `src/config_store.cpp` persists board config, Wi-Fi creds, startup behavior, selected template (`ESP32 -> NVS`, `ESP8266 -> EEPROM with CRC`).
+  - `src/storage_utils.cpp` persists relay labels/modes and loads template data.
+
+### Web UI Pages
+
+- Main runtime page: `/` (`data/index.html`, `data/script.js`)
+- Board config page: `/config.html` (`data/config.html`, `data/config.js`)
+- Relay config + templates: `/relay-config.html` (`data/relay-config.html`, `data/relay-config.js`)
+- Board hardware editor: `/boards.html` (`data/boards.html`, `data/boards.js`)
+
+### Template System (Current Behavior)
+
+Templates contain full relay configuration per channel:
+- `on`, `off`
+- `mode` (`latched`, `interlocked`, `pulsed`)
+- `group`
+- `pulseTimeout` (`0` when mode is not `pulsed`, otherwise `1-30` seconds)
+
+Available operations:
+- List templates: `GET /api/templates`
+- Template diagnostics: `GET /api/templates/diagnostics`
+- Save template from current editor: `POST /api/templates` (default save action)
+- Upload template JSON: `POST /api/templates` with `action=upload`
+- Apply/select template (and persist for reboot): `POST /api/templates` with `action=setactive` (legacy alias: `action=select`)
+- Rename template: `POST /api/templates` with `action=rename`
+- Delete template: `POST /api/templates` with `action=delete` (legacy route also available: `DELETE /api/templates?filename=...`)
+- Download template: static file from `/templates/<filename>.json`
+
+Selected template persistence:
+- Stored in board config (`selectedRelayTemplateFilename`)
+- Reapplied during startup before normal runtime service starts
+
+Variant safety:
+- Switching 8-relay <-> 16-relay resets relay config to matching default template and updates selected template marker.
+
+## User Manual
+
+### 1. First Boot / Provisioning
+
+1. Flash firmware + filesystem.
+2. If Wi-Fi is not configured, device enters provisioning mode.
+3. Configure Wi-Fi via provisioning page or serial command `reset_wifi`.
+
+### 2. Configure Board
+
+1. Open `/config.html`.
+2. Set board name, startup behavior, Wi-Fi/network mode, and hardware variant.
+3. Save to apply. Some changes schedule restart.
+
+### 3. Configure Relays
+
+1. Open `/relay-config.html`.
+2. Edit labels and relay modes.
+3. Save to apply live.
+
+### 4. Manage Templates
+
+On `/relay-config.html` Template Management:
+- Load: preview/apply values into editor fields
+- Save Template: save current editor as a template file
+- Upload: import template JSON file
+- Download: export selected template JSON
+- Remove: delete selected template
+- Apply Template: apply selected template to relays now and set as boot default
+
+### 5. Manage Hardware Definition
+
+1. Open `/boards.html`.
+2. Edit active hardware JSON fields for current variant.
+3. Save board definition.
+
+## Setup and Build
+
+## Prerequisites
+
+- VS Code + PlatformIO extension (recommended)
+- Or PlatformIO Core CLI (`platformio`)
+- USB serial access to board (example uses `COM40` in `platformio.ini`)
+
+## PlatformIO Environments
+
+Defined in `platformio.ini`:
+- `esp8266_serial`
+- `esp8266_ota`
+- `esp32_serial`
+- `esp32_ota`
+
+## Build Commands
+
+- Build ESP32 serial:
+```bash
+platformio run -e esp32_serial
+```
+
+- Build ESP8266 serial:
+```bash
+platformio run -e esp8266_serial
+```
+
+## One-Command Validation (Preferred)
+
+- Full functional validation:
+```powershell
+pwsh ./scripts/ai/Run-AI-FullValidation.ps1 -Esp8266 <ESP8266_IP> -Esp32 <ESP32_IP> -Mode Full
+```
+
+- Release gate (build + optional updates + full + soak):
+```powershell
+pwsh ./scripts/ai/Run-AI-ReleaseGate.ps1 -Esp8266 <ESP8266_IP> -Esp32 <ESP32_IP> -UploadFirmware -UploadFilesystem
+```
+
+## Flash Commands
+
+- ESP32 serial firmware:
+```bash
+platformio run -e esp32_serial -t upload
+```
+
+- ESP32 filesystem:
+```bash
+platformio run -e esp32_serial -t uploadfs
+```
+
+- ESP32 combined firmware + filesystem (custom target):
+```bash
+platformio run -e esp32_serial -t upload_all
+```
+
+- ESP8266 serial firmware:
+```bash
+platformio run -e esp8266_serial -t upload
+```
+
+- ESP8266 filesystem:
+```bash
+platformio run -e esp8266_serial -t uploadfs
+```
+
+- OTA examples:
+```bash
+platformio run -e esp32_ota -t upload
+platformio run -e esp8266_ota -t upload
+```
+
+## Serial Monitor
+
+```bash
+platformio device monitor -b 115200
+```
+
+## Hardware Variant Setup and Customization
+
+Variant selection is runtime-configured (`8relay` or `16relay`), then mapped to board files:
+- `/boards/esp32-8relay.json`
+- `/boards/esp32-16relay.json`
+- `/boards/esp8266-8relay.json`
+- `/boards/esp8266-16relay.json`
+
+Customize either by:
+- UI editor at `/boards.html` (recommended)
+- Editing files under `data/boards/*.json` and re-uploading filesystem
+
+Hardware file controls:
+- `name`, `cpu`, `relayCount`, `ledPin`
+- `outputType` (`gpio` or `shiftregister`)
+- Per-relay pins (`relays[]`) or shift-register pins (`shiftRegister`)
+
+## Serial Command Reference
+
+Implemented in `src/serial_commands.cpp`:
+
+- `help`
+  - Prints available commands.
+
+- `reset_wifi`
+  - Asks for confirmation.
+  - Clears saved Wi-Fi credentials.
+  - Starts serial Wi-Fi provisioning wizard.
+  - On success, schedules restart.
+
+- `wifi_rescan`
+  - Triggers Wi-Fi scan and reconnect attempt to the strongest AP matching the configured SSID.
+  - Uses the same strongest-SSID logic as the web rescan action.
+
+- `wifi_strongest`
+  - Alias of `wifi_rescan`.
+
+Serial Wi-Fi wizard behavior (`src/serial_provision.cpp`):
+- Scans SSIDs
+- Lets user choose by index or type SSID
+- Prompts for password
+- Saves credentials to config store
+
+## Notes and Troubleshooting
+
+- If template upload/apply fails, verify JSON format includes `labels` and valid relay count.
+- If UI appears stale after updates, hard-refresh browser and verify `uploadfs` completed.
+- If device is unreachable after network change, reconnect via serial and use `reset_wifi`.
+- Child pages auto-redirect to main page when device restarts and comes back online.

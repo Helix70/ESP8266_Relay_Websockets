@@ -16,25 +16,34 @@
 
   <div class="labels-page" data-loading="true">
     <div class="template-section">
-      <h3 class="template-section-title">Load Template</h3>
-      <div class="template-row">
+      <h3 class="template-section-title">Template Selection</h3>
+      <div class="template-row template-primary-row">
         <select id="templateSelect" class="template-select">
           <option value="">-- Select a template --</option>
         </select>
-        <button id="loadTemplateButton" class="button button-inline">Load</button>
+        <button id="openTemplateEditorButton" class="button button-inline">Edit Templates</button>
+      </div>
+
+      <div class="template-file-actions">
+        <p class="template-subtitle">File Actions</p>
+        <div class="template-row template-actions-row">
+          <button id="uploadTemplateButton" class="button button-inline">Upload</button>
+          <button id="downloadTemplateButton" class="button button-inline">Download</button>
+          <button id="renameTemplateButton" class="button button-inline">Rename</button>
+          <button id="deleteTemplateButton" class="button button-inline">Remove</button>
+        </div>
+        <input type="file" id="templateUploadInput" class="template-upload-input-hidden" accept="application/json,.json">
+      </div>
+      <p id="templateSelectionStatus" class="config-note">Selected template: none</p>
+      <p id="templateDiagnosticsStatus" class="config-note">Template storage: loading...</p>
+
+      <div id="templateSummary" class="template-summary" aria-live="polite">
+        <p class="template-summary-empty">Select a template to view relay summary.</p>
       </div>
     </div>
 
-    <p class="labels-note">If ON label is left blank, it will use the OFF label.</p>
-    <div id="relay-label-grid" class="relay-label-grid"></div>
-
-    <div class="save-template-section">
-      <h3 class="template-section-title">Save as Template</h3>
-      <div class="template-save-row">
-        <input type="text" id="templateTitle" class="config-input" placeholder="Template name" maxlength="64">
-        <button id="saveTemplateButton" class="button button-inline">Save Template</button>
-      </div>
-    </div>
+    <p class="labels-note">Save applies the selected template to the current board configuration and stores it for boot.</p>
+    <p id="saveTemplateHint" class="config-note">Select a template to enable Save.</p>
 
     <div class="config-buttons">
       <p><button id="saveLabels" class="button">Save</button></p>

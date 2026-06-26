@@ -10,13 +10,12 @@ static constexpr const char *BOARD_CPU_TYPE = "ESP32";
 static constexpr const char *BOARD_CPU_TYPE = "Unknown";
 #endif
 
-constexpr uint8_t BOARD_OUTPUT_GPIO          = 0;
+constexpr uint8_t BOARD_OUTPUT_GPIO = 0;
 constexpr uint8_t BOARD_OUTPUT_SHIFTREGISTER = 1;
 
-struct BoardHardware
-{
-  String  name;
-  String  cpu;
+struct BoardHardware {
+  String name;
+  String cpu;
   uint8_t relayCount;
   uint8_t ledPin;
   uint8_t outputType;
@@ -25,7 +24,7 @@ struct BoardHardware
   uint8_t srClockPin;
   uint8_t srDataPin;
   uint8_t srOePin;
-  bool    loaded;
+  bool loaded;
 };
 
 extern BoardHardware activeBoardHardware;
@@ -38,3 +37,6 @@ String boardHardwarePath(const String &variant);
 // Returns true on success. Falls back to hardcoded defaults on failure.
 bool loadBoardHardware(const String &variant);
 
+// Reads board hardware config directly from a LittleFS path such as
+// "/boards/custom.json" and falls back to defaults derived from relay count.
+bool loadBoardHardwareFromPath(const String &path);
