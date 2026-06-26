@@ -16,32 +16,46 @@
 #define OTA_HOSTNAME "relay-board"
 #endif
 
-static void initializeRuntime()
+static bool initializeRuntime()
 {
-  initLittleFS();
+  bool littleFsReady = initLittleFS();
 
   bool labelsFound = loadRelayLabels();
   loadBoardConfig();
   applyHardwareVariantPinsAndModes();
-
-  if (relayCount > 0 && selectedRelayTemplateFilename.length() > 0)
+  if (littleFsReady)
   {
-    if (loadLabelsFromTemplateFile(selectedRelayTemplateFilename, relayCount))
+    bool templateReconciled = reconcileSelectedTemplateForActiveHardware(false);
+
+    if (relayCount > 0 && selectedRelayTemplateFilename.length() > 0)
     {
-      saveRelayLabels();
-      labelsFound = true;
-      Serial.printf("Applied selected relay template on boot: %s\n", selectedRelayTemplateFilename.c_str());
+      if (templateReconciled)
+      {
+        saveRelayLabels();
+        labelsFound = true;
+        Serial.printf("Applied selected relay template on boot: %s\n", selectedRelayTemplateFilename.c_str());
+      }
+      else if (loadLabelsFromTemplateFile(selectedRelayTemplateFilename, relayCount))
+      {
+        saveRelayLabels();
+        labelsFound = true;
+        Serial.printf("Applied selected relay template on boot: %s\n", selectedRelayTemplateFilename.c_str());
+      }
+      else
+      {
+        Serial.printf("Selected relay template unavailable: %s\n", selectedRelayTemplateFilename.c_str());
+      }
     }
-    else
+
+    if (!labelsFound && relayCount > 0)
     {
-      Serial.printf("Selected relay template unavailable: %s\n", selectedRelayTemplateFilename.c_str());
+      loadLabelsFromTemplate(relayCount);
+      saveRelayLabels();
     }
   }
-
-  if (!labelsFound && relayCount > 0)
+  else
   {
-    loadLabelsFromTemplate(relayCount);
-    saveRelayLabels();
+    Serial.println("Skipping filesystem-backed template hydration because LittleFS is unavailable");
   }
 
   if (onboard_led.pin != 255)
@@ -53,6 +67,7 @@ static void initializeRuntime()
   onboard_led.update();
 
   initRelayOutputs();
+  return littleFsReady;
 }
 
 static void setupOta()
@@ -87,7 +102,14 @@ void setup()
 {
   Serial.begin(115200);
 
-  initializeRuntime();
+  bool littleFsReady = initializeRuntime();
+
+  if (!littleFsReady)
+  {
+    Serial.println("LittleFS unavailable; starting provisioning portal for recovery.");
+    startProvisioningPortal();
+    return;
+  }
 
   if (wifiSsid.length() == 0)
   {

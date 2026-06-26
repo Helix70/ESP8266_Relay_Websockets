@@ -14,7 +14,7 @@ struct RelayLabel {
   uint8_t pulseTimeout = 1;
 };
 
-void initLittleFS();
+bool initLittleFS();
 
 void assignRelayLabels(uint8_t relayNum, const String &requestedOnLabel,
                        const String &requestedOffLabel);
@@ -28,4 +28,5 @@ bool loadRelayLabels();
 bool loadLabelsFromTemplate(uint8_t count);
 // Loads labels from a template filename under /templates/ for the given relay
 // count.
-bool loadLabelsFromTemplateFile(const String &filename, uint8_t count);
+bool loadLabelsFromTemplateFile(const String &filename, uint8_t count,
+                                String *failureReason = nullptr);

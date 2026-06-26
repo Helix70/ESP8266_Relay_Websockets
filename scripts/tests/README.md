@@ -27,6 +27,13 @@ This folder contains automated smoke/functional API tests for deployed boards.
   - `/api/templates/diagnostics`
   - `/api/boards`
   - `/netinfo`
+- UI selection and navigation consistency:
+  - active board file from `/api/boards` exists in current board list (valid default selection source)
+  - selected template from `/api/templates` exists in current template list when compatible templates are available; if no compatible templates are listed, existing persisted selection is accepted
+  - main page menu links include `/relay-config.html`, `/config.html`, and `/boards.html`
+  - `/netinfo` includes config fallback summary fields for read-only status rendering (`mcuType`, `hardwareVariant`, `relayCount`, `wifiConnected`, `wifiConfiguredSsid`)
+  - websocket client scripts (`/script.js`, `/relay-config.js`, `/config.js`, `/boards.js`, `/template-editor.js`) include reboot-session guard logic that redirects to `/?refresh=...`
+  - relay/config/boards pages expose back-to-main wiring (`Back` controls + script redirect to `/`)
 - Template CRUD workflow:
   - create
   - list contains created
@@ -47,7 +54,7 @@ Includes Smoke mode, plus:
 - WebSocket check:
   - connect to `/ws`
   - send `home`
-  - verify JSON state payload is received
+  - verify JSON state payload is received and includes `bootSessionId`
 
 ## Usage
 

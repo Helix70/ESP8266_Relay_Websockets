@@ -25,23 +25,9 @@ bool tryAcquireStorageWriteLock(uint32_t nowMs, uint32_t leaseMs)
 }
 }
 
-bool acquireStorageWriteLockWithBackoff(uint32_t waitMs, uint32_t backoffMs, uint32_t leaseMs)
+bool acquireStorageWriteLock(uint32_t leaseMs)
 {
-  uint32_t started = millis();
-
-  while ((uint32_t)(millis() - started) <= waitMs)
-  {
-    uint32_t nowMs = millis();
-    if (tryAcquireStorageWriteLock(nowMs, leaseMs))
-    {
-      return true;
-    }
-
-    delay(backoffMs);
-    yield();
-  }
-
-  return false;
+  return tryAcquireStorageWriteLock(millis(), leaseMs);
 }
 
 void releaseStorageWriteLock()

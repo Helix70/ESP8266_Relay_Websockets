@@ -1,20 +1,27 @@
 {
-  "startedAt": "2026-06-26T15:22:35.4258718+10:00",
-  "finishedAt": "2026-06-26T15:22:51.5094212+10:00",
-  "durationSec": 16.08,
+  "startedAt": "2026-06-26T17:47:20.5324294+10:00",
+  "finishedAt": "2026-06-26T17:47:40.4062147+10:00",
+  "durationSec": 19.87,
   "mode": "Full",
   "targets": [
     "192.168.2.154",
     "192.168.2.195"
   ],
   "summary": {
-    "passed": 39,
+    "passed": 56,
     "failed": 0,
-    "total": 39
+    "total": 56
   },
   "coverage": [
     {
       "endpoint": "/",
+      "mode": "Smoke",
+      "executed": true,
+      "passed": true,
+      "runCount": 2
+    },
+    {
+      "endpoint": "/ (menu navigation)",
       "mode": "Smoke",
       "executed": true,
       "passed": true,
@@ -26,6 +33,13 @@
       "executed": true,
       "passed": true,
       "runCount": 4
+    },
+    {
+      "endpoint": "/api/boards (active selection validity)",
+      "mode": "Smoke",
+      "executed": true,
+      "passed": true,
+      "runCount": 2
     },
     {
       "endpoint": "/api/boards (POST delete)",
@@ -63,6 +77,13 @@
       "runCount": 4
     },
     {
+      "endpoint": "/api/templates (active selection validity)",
+      "mode": "Smoke",
+      "executed": true,
+      "passed": true,
+      "runCount": 2
+    },
+    {
       "endpoint": "/api/templates (POST create/save)",
       "mode": "Smoke",
       "executed": true,
@@ -88,7 +109,7 @@
       "mode": "Smoke",
       "executed": true,
       "passed": true,
-      "runCount": 3
+      "runCount": 4
     },
     {
       "endpoint": "/api/templates/diagnostics",
@@ -105,7 +126,28 @@
       "runCount": 2
     },
     {
+      "endpoint": "/boards.html (back navigation wiring)",
+      "mode": "Smoke",
+      "executed": true,
+      "passed": true,
+      "runCount": 2
+    },
+    {
+      "endpoint": "/config.html (back navigation wiring)",
+      "mode": "Smoke",
+      "executed": true,
+      "passed": true,
+      "runCount": 2
+    },
+    {
       "endpoint": "/netinfo",
+      "mode": "Smoke",
+      "executed": true,
+      "passed": true,
+      "runCount": 2
+    },
+    {
+      "endpoint": "/netinfo (config fallback summary fields)",
       "mode": "Smoke",
       "executed": true,
       "passed": true,
@@ -119,8 +161,22 @@
       "runCount": 2
     },
     {
+      "endpoint": "/relay-config.html (back navigation wiring)",
+      "mode": "Smoke",
+      "executed": true,
+      "passed": true,
+      "runCount": 2
+    },
+    {
       "endpoint": "/ws",
       "mode": "Full",
+      "executed": true,
+      "passed": true,
+      "runCount": 2
+    },
+    {
+      "endpoint": "/ws client reboot redirect wiring",
+      "mode": "Smoke",
       "executed": true,
       "passed": true,
       "runCount": 2
@@ -185,11 +241,75 @@
     },
     {
       "target": "192.168.2.154",
+      "suite": "ui",
+      "test": "boards active selection is valid",
+      "endpoint": "/api/boards (active selection validity)",
+      "passed": true,
+      "details": "status=200, active=esp8266-16relay.json"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "ui",
+      "test": "templates selected entry is valid",
+      "endpoint": "/api/templates (active selection validity)",
+      "passed": true,
+      "details": "status=200, selected=eastern-tower-latched.json"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "ui",
+      "test": "main menu navigation links present",
+      "endpoint": "/ (menu navigation)",
+      "passed": true,
+      "details": "status=200, relay=True, boards=True, config=True"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "ui",
+      "test": "netinfo contains config fallback summary fields",
+      "endpoint": "/netinfo (config fallback summary fields)",
+      "passed": true,
+      "details": "status=200, mcu=True, hw=True, rc=True, wifi=True, ssid=True"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "ui",
+      "test": "client reboot redirect wiring present on ws pages",
+      "endpoint": "/ws client reboot redirect wiring",
+      "passed": true,
+      "details": "main=True, relay=True, boards=True, config=True, editor=True"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "ui",
+      "test": "relay page back navigation wiring",
+      "endpoint": "/relay-config.html (back navigation wiring)",
+      "passed": true,
+      "details": "pageStatus=200, scriptStatus=200"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "ui",
+      "test": "boards page back navigation wiring",
+      "endpoint": "/boards.html (back navigation wiring)",
+      "passed": true,
+      "details": "pageStatus=200, scriptStatus=200"
+    },
+    {
+      "target": "192.168.2.154",
+      "suite": "ui",
+      "test": "config page back navigation wiring",
+      "endpoint": "/config.html (back navigation wiring)",
+      "passed": true,
+      "details": "pageStatus=200, scriptStatus=200"
+    },
+    {
+      "target": "192.168.2.154",
       "suite": "templates",
       "test": "create",
       "endpoint": "/api/templates (POST create/save)",
       "passed": true,
-      "details": "status=200, body={\"ok\":true,\"filename\":\"ht-682154-152238.json\"}"
+      "details": "status=200, body={\"ok\":true,\"filename\":\"ht-682154-174725.json\"}"
     },
     {
       "target": "192.168.2.154",
@@ -197,7 +317,7 @@
       "test": "list contains created",
       "endpoint": "/api/templates",
       "passed": true,
-      "details": "status=200, requested=ht-682154-152238.json, fallback=ht-682154-152238.json"
+      "details": "status=200, requested=ht-682154-174725.json, fallback=ht-682154-174725.json"
     },
     {
       "target": "192.168.2.154",
@@ -205,7 +325,7 @@
       "test": "setactive",
       "endpoint": "/api/templates (POST setactive)",
       "passed": true,
-      "details": "status=200, body={\"ok\":true,\"selectedTemplate\":\"ht-682154-152238.json\"}"
+      "details": "status=200, body={\"ok\":true,\"selectedTemplate\":\"eastern-tower-latched.json\"}"
     },
     {
       "target": "192.168.2.154",
@@ -213,7 +333,7 @@
       "test": "rename",
       "endpoint": "/api/templates (POST rename)",
       "passed": true,
-      "details": "status=200, body={\"ok\":true,\"filename\":\"ht-682154-152238-r.json\"}"
+      "details": "status=200, body={\"ok\":true,\"filename\":\"ht-682154-174725-r.json\"}"
     },
     {
       "target": "192.168.2.154",
@@ -225,11 +345,19 @@
     },
     {
       "target": "192.168.2.154",
+      "suite": "templates",
+      "test": "restore selected",
+      "endpoint": "/api/templates (POST setactive)",
+      "passed": true,
+      "details": "status=200, body={\"ok\":true,\"selectedTemplate\":\"eastern-tower-latched.json\"}"
+    },
+    {
+      "target": "192.168.2.154",
       "suite": "boards",
       "test": "create",
       "endpoint": "/api/boards (POST save)",
       "passed": true,
-      "details": "status=200, body={\"ok\":true,\"filename\":\"boards/hb-682154-152240.json\"}"
+      "details": "status=200, body={\"ok\":true,\"filename\":\"boards/hb-682154-174726.json\"}"
     },
     {
       "target": "192.168.2.154",
@@ -237,7 +365,7 @@
       "test": "list contains created",
       "endpoint": "/api/boards",
       "passed": true,
-      "details": "status=200, requested=hb-682154-152240.json"
+      "details": "status=200, requested=hb-682154-174726.json"
     },
     {
       "target": "192.168.2.154",
@@ -245,7 +373,7 @@
       "test": "rename",
       "endpoint": "/api/boards (POST rename)",
       "passed": true,
-      "details": "status=200, body={\"ok\":true,\"filename\":\"boards/hb-682154-152240-r.json\"}"
+      "details": "status=200, body={\"ok\":true,\"filename\":\"boards/hb-682154-174726-r.json\"}"
     },
     {
       "target": "192.168.2.154",
@@ -253,7 +381,7 @@
       "test": "setactive",
       "endpoint": "/api/boards (POST setactive)",
       "passed": true,
-      "details": "status=200, body={\"ok\":true,\"activeBoardFile\":\"/boards/hb-682154-152240-r.json\"}"
+      "details": "status=200, body={\"ok\":true,\"activeBoardFile\":\"/boards/hb-682154-174726-r.json\"}"
     },
     {
       "target": "192.168.2.154",
@@ -261,7 +389,7 @@
       "test": "restore active",
       "endpoint": "/api/boards (POST setactive)",
       "passed": true,
-      "details": "status=200, body={\"ok\":true,\"activeBoardFile\":\"/boards/esp8266-8relay.json\"}"
+      "details": "status=200, body={\"ok\":true,\"activeBoardFile\":\"/boards/esp8266-16relay.json\"}"
     },
     {
       "target": "192.168.2.154",
@@ -277,7 +405,7 @@
       "test": "connect+home",
       "endpoint": "/ws",
       "passed": true,
-      "details": "json state received"
+      "details": "json state received with bootSessionId"
     },
     {
       "target": "192.168.2.195",
@@ -337,11 +465,75 @@
     },
     {
       "target": "192.168.2.195",
+      "suite": "ui",
+      "test": "boards active selection is valid",
+      "endpoint": "/api/boards (active selection validity)",
+      "passed": true,
+      "details": "status=200, active=esp32-8relay.json"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "ui",
+      "test": "templates selected entry is valid",
+      "endpoint": "/api/templates (active selection validity)",
+      "passed": true,
+      "details": "status=200, selected=flex-control.json"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "ui",
+      "test": "main menu navigation links present",
+      "endpoint": "/ (menu navigation)",
+      "passed": true,
+      "details": "status=200, relay=True, boards=True, config=True"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "ui",
+      "test": "netinfo contains config fallback summary fields",
+      "endpoint": "/netinfo (config fallback summary fields)",
+      "passed": true,
+      "details": "status=200, mcu=True, hw=True, rc=True, wifi=True, ssid=True"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "ui",
+      "test": "client reboot redirect wiring present on ws pages",
+      "endpoint": "/ws client reboot redirect wiring",
+      "passed": true,
+      "details": "main=True, relay=True, boards=True, config=True, editor=True"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "ui",
+      "test": "relay page back navigation wiring",
+      "endpoint": "/relay-config.html (back navigation wiring)",
+      "passed": true,
+      "details": "pageStatus=200, scriptStatus=200"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "ui",
+      "test": "boards page back navigation wiring",
+      "endpoint": "/boards.html (back navigation wiring)",
+      "passed": true,
+      "details": "pageStatus=200, scriptStatus=200"
+    },
+    {
+      "target": "192.168.2.195",
+      "suite": "ui",
+      "test": "config page back navigation wiring",
+      "endpoint": "/config.html (back navigation wiring)",
+      "passed": true,
+      "details": "pageStatus=200, scriptStatus=200"
+    },
+    {
+      "target": "192.168.2.195",
       "suite": "templates",
       "test": "create",
       "endpoint": "/api/templates (POST create/save)",
       "passed": true,
-      "details": "status=200, body={\"ok\":true,\"filename\":\"ht-682195-152246.json\"}"
+      "details": "status=200, body={\"ok\":true,\"filename\":\"ht-682195-174735.json\"}"
     },
     {
       "target": "192.168.2.195",
@@ -349,7 +541,7 @@
       "test": "list contains created",
       "endpoint": "/api/templates",
       "passed": true,
-      "details": "status=200, requested=ht-682195-152246.json, fallback=ht-682195-152246.json"
+      "details": "status=200, requested=ht-682195-174735.json, fallback=ht-682195-174735.json"
     },
     {
       "target": "192.168.2.195",
@@ -357,7 +549,7 @@
       "test": "setactive",
       "endpoint": "/api/templates (POST setactive)",
       "passed": true,
-      "details": "status=200, body={\"ok\":true,\"selectedTemplate\":\"ht-682195-152246.json\"}"
+      "details": "status=200, body={\"ok\":true,\"selectedTemplate\":\"antenna-disconnection.json\"}"
     },
     {
       "target": "192.168.2.195",
@@ -365,7 +557,7 @@
       "test": "rename",
       "endpoint": "/api/templates (POST rename)",
       "passed": true,
-      "details": "status=200, body={\"ok\":true,\"filename\":\"ht-682195-152246-r.json\"}"
+      "details": "status=200, body={\"ok\":true,\"filename\":\"ht-682195-174735-r.json\"}"
     },
     {
       "target": "192.168.2.195",
@@ -389,7 +581,7 @@
       "test": "create",
       "endpoint": "/api/boards (POST save)",
       "passed": true,
-      "details": "status=200, body={\"ok\":true,\"filename\":\"boards/hb-682195-152249.json\"}"
+      "details": "status=200, body={\"ok\":true,\"filename\":\"boards/hb-682195-174738.json\"}"
     },
     {
       "target": "192.168.2.195",
@@ -397,7 +589,7 @@
       "test": "list contains created",
       "endpoint": "/api/boards",
       "passed": true,
-      "details": "status=200, requested=hb-682195-152249.json"
+      "details": "status=200, requested=hb-682195-174738.json"
     },
     {
       "target": "192.168.2.195",
@@ -405,7 +597,7 @@
       "test": "rename",
       "endpoint": "/api/boards (POST rename)",
       "passed": true,
-      "details": "status=200, body={\"ok\":true,\"filename\":\"boards/hb-682195-152249-r.json\"}"
+      "details": "status=200, body={\"ok\":true,\"filename\":\"boards/hb-682195-174738-r.json\"}"
     },
     {
       "target": "192.168.2.195",
@@ -413,7 +605,7 @@
       "test": "setactive",
       "endpoint": "/api/boards (POST setactive)",
       "passed": true,
-      "details": "status=200, body={\"ok\":true,\"activeBoardFile\":\"/boards/hb-682195-152249-r.json\"}"
+      "details": "status=200, body={\"ok\":true,\"activeBoardFile\":\"/boards/hb-682195-174738-r.json\"}"
     },
     {
       "target": "192.168.2.195",
@@ -437,7 +629,7 @@
       "test": "connect+home",
       "endpoint": "/ws",
       "passed": true,
-      "details": "json state received"
+      "details": "json state received with bootSessionId"
     }
   ]
 }

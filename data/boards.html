@@ -27,9 +27,10 @@
           <option value="">-- Select a board --</option>
         </select>
       </div>
+      <p class="labels-note">Save applies the selected board to the current hardware configuration and stores it for boot.</p>
+      <p id="saveBoardHint" class="config-note">Select a board to enable Save.</p>
       <p id="boardStatus" class="config-note">Selected board: none</p>
       <div class="template-actions-row">
-        <button id="setActiveBoardButton" class="button button-inline" type="button">Set Active</button>
         <button id="editBoardButton" class="button button-inline" type="button">Edit</button>
         <button id="newBoardButton" class="button button-inline" type="button">New</button>
         <button id="downloadBoardButton" class="button button-inline" type="button">Download</button>
@@ -43,6 +44,7 @@
     <div id="boardEditorHost"></div>
 
     <div class="config-buttons">
+      <p><button id="setActiveBoardButton" class="button">Save</button></p>
       <p><button id="backButton" class="button">Back</button></p>
     </div>
   </div>

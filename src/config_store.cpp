@@ -4,6 +4,7 @@
 #include <ArduinoJson.h>
 
 #include "board_hardware.h"
+#include "storage_utils.h"
 
 #if defined(ESP8266)
 #include <ESP8266WiFi.h>
@@ -198,6 +199,85 @@ bool hexDecode(const String &hexText, String &decoded)
   }
   return true;
 }
+
+uint8_t detectTemplateRelayCountFromFilename(const String &filename)
+{
+  String lower = filename;
+  lower.toLowerCase();
+  return (lower.indexOf("16") >= 0) ? (uint8_t)16 : (uint8_t)8;
+}
+
+uint8_t parseTemplateRelayCount(const String &filename)
+{
+  String cleanName = filename;
+  cleanName.trim();
+  if (cleanName.length() == 0)
+  {
+    return 0;
+  }
+
+  if (cleanName.startsWith("/templates/"))
+  {
+    cleanName = cleanName.substring(String("/templates/").length());
+  }
+
+  if (cleanName.indexOf('/') >= 0 || cleanName.indexOf('\\') >= 0 || cleanName.indexOf("..") >= 0)
+  {
+    return 0;
+  }
+
+  String path = String("/templates/") + cleanName;
+  if (!LittleFS.exists(path))
+  {
+    return 0;
+  }
+
+  File f = LittleFS.open(path, "r");
+  if (!f)
+  {
+    return 0;
+  }
+
+  String probe;
+  probe.reserve(640);
+  while (f.available() && probe.length() < 640)
+  {
+    probe += (char)f.read();
+  }
+  f.close();
+
+  uint8_t relayCount = detectTemplateRelayCountFromFilename(cleanName);
+
+  int relayKey = probe.indexOf("\"relayCount\"");
+  if (relayKey >= 0)
+  {
+    int colon = probe.indexOf(':', relayKey);
+    if (colon > 0)
+    {
+      String parsedNumber;
+      for (int i = colon + 1; i < (int)probe.length(); i++)
+      {
+        char c = probe[i];
+        if (c >= '0' && c <= '9')
+        {
+          parsedNumber += c;
+        }
+        else if (parsedNumber.length() > 0)
+        {
+          break;
+        }
+      }
+
+      int parsedRelayCount = parsedNumber.toInt();
+      if (parsedRelayCount == 8 || parsedRelayCount == 16)
+      {
+        relayCount = (uint8_t)parsedRelayCount;
+      }
+    }
+  }
+
+  return relayCount;
+}
 } // namespace
 
 extern const char *kBoardConfigPath;
@@ -219,6 +299,49 @@ extern IPAddress boardGateway;
 extern IPAddress boardSubnet;
 
 extern void applyHardwareVariantPinsAndModes();
+
+bool reconcileSelectedTemplateForActiveHardware(bool applyFallbackLabels)
+{
+  if (relayCount == 0)
+  {
+    return false;
+  }
+
+  String selected = selectedRelayTemplateFilename;
+  selected.trim();
+  if (selected.length() == 0)
+  {
+    return false;
+  }
+
+  uint8_t templateRelayCount = parseTemplateRelayCount(selected);
+  if (templateRelayCount == relayCount)
+  {
+    return false;
+  }
+
+  String fallbackTemplate = "template-" + String(relayCount) + "relay.json";
+  bool fallbackAvailable = loadLabelsFromTemplateFile(fallbackTemplate, relayCount);
+
+  if (fallbackAvailable)
+  {
+    selectedRelayTemplateFilename = fallbackTemplate;
+    if (applyFallbackLabels)
+    {
+      saveRelayLabels();
+    }
+  }
+  else
+  {
+    selectedRelayTemplateFilename = "";
+  }
+
+  saveBoardConfig();
+
+  Serial.printf("Reset selected template due to relay-count mismatch (selected=%s, relayCount=%u, fallback=%s, applied=%d)\n",
+                selected.c_str(), relayCount, fallbackTemplate.c_str(), fallbackAvailable ? 1 : 0);
+  return true;
+}
 
 String encryptConfigSecret(const String &plain)
 {
@@ -385,8 +508,8 @@ void loadBoardConfig()
   boardName = kDefaultBoardName;
   useStaticIp = false;
   doDelay = false;
-  startupDelaySeconds = 60;
-  connectStrongestOnStartup = false;
+  startupDelaySeconds = 0;
+  connectStrongestOnStartup = true;
   hardwareVariant = kDefaultVariant;
   activeBoardHardwareFilename = boardHardwarePath(hardwareVariant);
   relayCount = 8;
@@ -414,8 +537,8 @@ void loadBoardConfig()
   }
 
   doDelay = prefs.getBool("doDelay", false);
-  startupDelaySeconds = prefs.getUShort("delaySec", 60);
-  connectStrongestOnStartup = prefs.getBool("strongestSsid", false);
+  startupDelaySeconds = prefs.getUShort("delaySec", 0);
+  connectStrongestOnStartup = prefs.getBool("strongestSsid", true);
   hardwareVariant = prefs.getString("hwVar", kDefaultVariant);
   hardwareVariant.trim();
   activeBoardHardwareFilename = prefs.getString("hwFile", "");
@@ -512,8 +635,8 @@ void loadBoardConfig()
   }
 
   if (doc.containsKey("doDelay")) doDelay = doc["doDelay"] | false;
-  if (doc.containsKey("startupDelaySeconds")) startupDelaySeconds = doc["startupDelaySeconds"] | 60;
-  if (doc.containsKey("connectStrongestOnStartup")) connectStrongestOnStartup = doc["connectStrongestOnStartup"] | false;
+  if (doc.containsKey("startupDelaySeconds")) startupDelaySeconds = doc["startupDelaySeconds"] | 0;
+  if (doc.containsKey("connectStrongestOnStartup")) connectStrongestOnStartup = doc["connectStrongestOnStartup"] | true;
   if (doc.containsKey("hardwareVariant"))
   {
     hardwareVariant = String(doc["hardwareVariant"] | kDefaultVariant);
@@ -582,8 +705,8 @@ void loadBoardConfig()
   }
 
   if (doc.containsKey("doDelay")) doDelay = doc["doDelay"] | false;
-  if (doc.containsKey("startupDelaySeconds")) startupDelaySeconds = doc["startupDelaySeconds"] | 60;
-  if (doc.containsKey("connectStrongestOnStartup")) connectStrongestOnStartup = doc["connectStrongestOnStartup"] | false;
+  if (doc.containsKey("startupDelaySeconds")) startupDelaySeconds = doc["startupDelaySeconds"] | 0;
+  if (doc.containsKey("connectStrongestOnStartup")) connectStrongestOnStartup = doc["connectStrongestOnStartup"] | true;
   if (doc.containsKey("hardwareVariant"))
   {
     hardwareVariant = String(doc["hardwareVariant"] | kDefaultVariant);

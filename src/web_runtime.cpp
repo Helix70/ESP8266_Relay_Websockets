@@ -176,6 +176,8 @@ static void buildRuntimeStatePayload(String &payload, bool includeSystemDetails)
   static DynamicJsonDocument JSONdoc(12288);
   JSONdoc.clear();
 
+  ensureMainGateToken();
+
   JsonArray array = JSONdoc.createNestedArray("buttons");
   for (int i = 0; i < relayCount; i++)
   {
@@ -196,12 +198,10 @@ static void buildRuntimeStatePayload(String &payload, bool includeSystemDetails)
   }
 
   JSONdoc["boardName"] = boardName;
+  JSONdoc["bootSessionId"] = mainGateToken;
   JSONdoc["setupComplete"] = (relayCount > 0 && hardwareVariant.length() > 0);
-  JSONdoc["hardwareVariant"] = hardwareVariant;
   JSONdoc["relayCount"] = relayCount;
   JSONdoc["selectedRelayTemplate"] = selectedRelayTemplateFilename;
-  JSONdoc["boardHardwareFile"] = activeBoardHardwareFilename;
-  JSONdoc["boardHardwareName"] = activeBoardHardware.name;
 
   if (includeSystemDetails)
   {
@@ -230,14 +230,7 @@ static void buildRuntimeStatePayload(String &payload, bool includeSystemDetails)
     JSONdoc["doDelay"] = doDelay;
     JSONdoc["startupDelaySeconds"] = startupDelaySeconds;
     JSONdoc["connectStrongestOnStartup"] = connectStrongestOnStartup;
-
-#if defined(ESP8266)
-    JSONdoc["mcuType"] = "ESP8266";
-#elif defined(ESP32)
-    JSONdoc["mcuType"] = "ESP32";
-#else
-    JSONdoc["mcuType"] = "Unknown";
-#endif
+    JSONdoc["mcuType"] = BOARD_CPU_TYPE;
   }
 
   payload = "";
@@ -291,6 +284,13 @@ static void notifyClient(AsyncWebSocketClient *client)
 
   static String payload;
   buildRuntimeStatePayload(payload, true);
+  Serial.printf("[WS][Home] client=%u ip=%s heap=%lu payload=%u relayCount=%u selected=%s\n",
+                (unsigned)client->id(),
+                client->remoteIP().toString().c_str(),
+                (unsigned long)ESP.getFreeHeap(),
+                (unsigned)payload.length(),
+                (unsigned)relayCount,
+                selectedRelayTemplateFilename.c_str());
   client->text(payload);
 }
 
@@ -574,7 +574,6 @@ static void onEvent(AsyncWebSocket *serverInstance, AsyncWebSocketClient *client
   {
   case WS_EVT_CONNECT:
     Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
-    notifyClient(client);
     break;
   case WS_EVT_DISCONNECT:
     Serial.printf("WebSocket client #%u disconnected\n", client->id());
@@ -649,6 +648,29 @@ void registerRuntimeHttpRoutes()
     doc["dns"] = activeDns;
     doc["gateway"] = activeGateway;
     doc["subnet"] = activeSubnet;
+
+    wl_status_t wifiStatus = WiFi.status();
+    bool wifiConnected = (wifiStatus == WL_CONNECTED);
+    doc["wifiConnected"] = wifiConnected;
+    doc["wifiConfiguredSsid"] = wifiSsid;
+    doc["wifiConnectedSsid"] = wifiConnected ? WiFi.SSID() : "";
+    doc["wifiRssi"] = wifiConnected ? WiFi.RSSI() : 0;
+    doc["wifiRescanInProgress"] = wifiRescanInProgress;
+    doc["wifiRescanStatus"] = wifiRescanStatus;
+
+    doc["boardName"] = boardName;
+    doc["hardwareVariant"] = hardwareVariant;
+    doc["relayCount"] = relayCount;
+    doc["boardHardwareFile"] = activeBoardHardwareFilename;
+    doc["boardHardwareName"] = activeBoardHardware.name;
+
+  #if defined(ESP8266)
+    doc["mcuType"] = "ESP8266";
+  #elif defined(ESP32)
+    doc["mcuType"] = "ESP32";
+  #else
+    doc["mcuType"] = "Unknown";
+  #endif
 
     String payload;
     serializeJson(doc, payload);

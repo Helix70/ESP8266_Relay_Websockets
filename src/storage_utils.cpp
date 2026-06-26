@@ -251,17 +251,15 @@ extern const char *kRelayLabelsPath;
 extern uint8_t relayCount;
 extern RelayLabel relayLabels[kMaxRelays];
 
-void initLittleFS()
+bool initLittleFS()
 {
   if (!LittleFS.begin())
   {
-    Serial.println("Cannot mount LittleFS volume...");
-    while (1)
-    {
-      delay(50);
-    }
+    Serial.println("Cannot mount LittleFS volume; filesystem-backed routes disabled");
+    return false;
   }
   Serial.println("LittleFS volume mounted...");
+  return true;
 }
 
 static const char *modeToStr(uint8_t mode)
@@ -544,13 +542,57 @@ bool loadLabelsFromTemplate(uint8_t count)
   return loadLabelsFromTemplateFile(path.substring(String("/templates/").length()), count);
 }
 
-bool loadLabelsFromTemplateFile(const String &filename, uint8_t count)
+bool loadLabelsFromTemplateFile(const String &filename, uint8_t count, String *failureReason)
 {
+  auto fail = [&](const String &reason, const String &path = String(), const DeserializationError *error = nullptr) -> bool
+  {
+    if (failureReason)
+    {
+      *failureReason = reason;
+    }
+
+    Serial.printf("Template load failed: reason=%s file=%s count=%u heap=%lu",
+                  reason.c_str(),
+                  path.c_str(),
+                  (unsigned)count,
+                  (unsigned long)ESP.getFreeHeap());
+    if (error)
+    {
+      Serial.printf(" error=%s", error->c_str());
+    }
+    Serial.println();
+    return false;
+  };
+
+  auto applyTemplateLabels = [&](JsonVariantConst root) -> bool
+  {
+    JsonArrayConst labels = root["labels"].as<JsonArrayConst>();
+    if (labels.isNull())
+    {
+      labels = root.as<JsonArrayConst>();
+    }
+    if (labels.isNull()) return false;
+
+    uint8_t n = (uint8_t)labels.size() < count ? (uint8_t)labels.size() : count;
+    for (uint8_t i = 0; i < n; i++)
+    {
+      JsonObjectConst label = labels[i];
+      if (label.isNull()) continue;
+      assignRelayLabels(i + 1, String(label["on"] | ""), String(label["off"] | ""));
+      assignRelayMode(i + 1,
+              strToMode(String(label["mode"] | "latched")),
+                      (uint8_t)(label["group"] | (uint8_t)0),
+                      (uint8_t)(label["pulseTimeout"] | (uint8_t)1));
+    }
+
+    return true;
+  };
+
   String cleanName = filename;
   cleanName.trim();
   if (cleanName.length() == 0)
   {
-    return false;
+    return fail("empty_filename");
   }
 
   if (cleanName.startsWith("/templates/"))
@@ -560,7 +602,7 @@ bool loadLabelsFromTemplateFile(const String &filename, uint8_t count)
 
   if (cleanName.indexOf('/') >= 0 || cleanName.indexOf('\\') >= 0 || cleanName.indexOf("..") >= 0)
   {
-    return false;
+    return fail("invalid_filename", cleanName);
   }
 
   String path = "/templates/" + cleanName;
@@ -572,16 +614,23 @@ bool loadLabelsFromTemplateFile(const String &filename, uint8_t count)
       assignRelayMode(i + 1, RELAY_MODE_ONOFF, 0, 1);
     }
     Serial.printf("Template not found for %u relays (%s), generated defaults\n", count, path.c_str());
-    return cleanName == ("template-" + String(count) + "relay.json");
+    if (cleanName == ("template-" + String(count) + "relay.json"))
+    {
+      return true;
+    }
+    return fail("template_not_found", path);
   }
 
   File f = LittleFS.open(path, "r");
-  if (!f) return false;
+  if (!f) return fail("open_failed", path);
 
+  size_t docCapacity = 6144;
+#ifndef ESP8266
   size_t fileSize = (size_t)f.size();
-  size_t docCapacity = fileSize + 3072;
+  docCapacity = fileSize + 3072;
   if (docCapacity < 6144) docCapacity = 6144;
   if (docCapacity > 32768) docCapacity = 32768;
+#endif
 
   DynamicJsonDocument doc(docCapacity);
   DeserializationError err = deserializeJson(doc, f);
@@ -589,57 +638,31 @@ bool loadLabelsFromTemplateFile(const String &filename, uint8_t count)
   {
     f.close();
     f = LittleFS.open(path, "r");
-    if (!f) return false;
+    if (!f) return fail("reopen_failed", path);
     DynamicJsonDocument retryDoc(32768);
     err = deserializeJson(retryDoc, f);
     f.close();
-    if (err) return false;
+    if (err) return fail(err == DeserializationError::NoMemory ? "parse_no_memory" : "parse_failed", path, &err);
 
-    JsonArray labels = retryDoc["labels"].as<JsonArray>();
-    if (labels.isNull())
-    {
-      labels = retryDoc.as<JsonArray>();
-    }
-    if (labels.isNull()) return false;
-
-    uint8_t n = (uint8_t)labels.size() < count ? (uint8_t)labels.size() : count;
-    for (uint8_t i = 0; i < n; i++)
-    {
-      JsonObject label = labels[i];
-      if (label.isNull()) continue;
-      assignRelayLabels(i + 1, String(label["on"] | ""), String(label["off"] | ""));
-      assignRelayMode(i + 1,
-              strToMode(String(label["mode"] | "latched")),
-                      (uint8_t)(label["group"] | (uint8_t)0),
-                      (uint8_t)(label["pulseTimeout"] | (uint8_t)1));
-    }
+    if (!applyTemplateLabels(retryDoc)) return fail("labels_missing", path);
 
     Serial.printf("Loaded relay labels from template: %s\n", path.c_str());
+    if (failureReason)
+    {
+      *failureReason = "";
+    }
     return true;
   }
 
   f.close();
-  if (err) return false;
+  if (err) return fail(err == DeserializationError::NoMemory ? "parse_no_memory" : "parse_failed", path, &err);
 
-  JsonArray labels = doc["labels"].as<JsonArray>();
-  if (labels.isNull())
-  {
-    labels = doc.as<JsonArray>();
-  }
-  if (labels.isNull()) return false;
-
-  uint8_t n = (uint8_t)labels.size() < count ? (uint8_t)labels.size() : count;
-  for (uint8_t i = 0; i < n; i++)
-  {
-    JsonObject label = labels[i];
-    if (label.isNull()) continue;
-    assignRelayLabels(i + 1, String(label["on"] | ""), String(label["off"] | ""));
-    assignRelayMode(i + 1,
-            strToMode(String(label["mode"] | "latched")),
-                    (uint8_t)(label["group"] | (uint8_t)0),
-                    (uint8_t)(label["pulseTimeout"] | (uint8_t)1));
-  }
+  if (!applyTemplateLabels(doc)) return fail("labels_missing", path);
 
   Serial.printf("Loaded relay labels from template: %s\n", path.c_str());
+  if (failureReason)
+  {
+    *failureReason = "";
+  }
   return true;
 }

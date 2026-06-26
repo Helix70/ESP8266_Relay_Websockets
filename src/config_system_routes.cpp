@@ -29,7 +29,6 @@ void registerSystemConfigRoutes()
     bool oldDoDelay = doDelay;
     uint16_t oldStartupDelaySeconds = startupDelaySeconds;
     bool oldConnectStrongestOnStartup = connectStrongestOnStartup;
-    String oldHardwareVariant = hardwareVariant;
 
     boardName = name;
     doDelay = routeParseBool(routeGetBodyParam(request, "doDelay"), doDelay);
@@ -51,32 +50,6 @@ void registerSystemConfigRoutes()
       if (parsedDelaySeconds < 0) parsedDelaySeconds = 0;
       if (parsedDelaySeconds > kMaxStartupDelaySeconds) parsedDelaySeconds = kMaxStartupDelaySeconds;
       startupDelaySeconds = (uint16_t)parsedDelaySeconds;
-    }
-
-    String requestedVariant = routeGetBodyParam(request, "hardwareVariant");
-    requestedVariant.trim();
-    requestedVariant.toLowerCase();
-    if (requestedVariant.length() == 0)
-    {
-      requestedVariant = hardwareVariant;
-    }
-    if (requestedVariant != kVariant8Relay && requestedVariant != kVariant16Relay)
-    {
-      request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid hardware variant\"}");
-      return;
-    }
-
-    hardwareVariant = requestedVariant;
-    applyHardwareVariantPinsAndModes();
-
-    if (hardwareVariant != oldHardwareVariant)
-    {
-      if (!loadLabelsFromTemplate(relayCount) || !saveRelayLabels())
-      {
-        request->send(500, "application/json", "{\"ok\":false,\"error\":\"failed to reset relay template for hardware variant\"}");
-        return;
-      }
-      selectedRelayTemplateFilename = "template-" + String(relayCount) + "relay.json";
     }
 
     bool restartNeeded = false;
@@ -119,11 +92,6 @@ void registerSystemConfigRoutes()
 
     if (doDelay != oldDoDelay || startupDelaySeconds != oldStartupDelaySeconds ||
         connectStrongestOnStartup != oldConnectStrongestOnStartup)
-    {
-      restartNeeded = true;
-    }
-
-    if (hardwareVariant != oldHardwareVariant)
     {
       restartNeeded = true;
     }

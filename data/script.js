@@ -7,6 +7,7 @@ var DEBUG_LOGS = false;
 var renderedRelayCount = 0;
 var relayButtonUi = {};
 var relayButtonStateCache = {};
+var bootSessionStorageKey = 'relayBootSessionId:' + window.location.hostname;
 
 var INTERLOCK_GROUP_COLORS = [
   '#2e8b57', '#1f6feb', '#d97706', '#7c3aed', '#0f766e', '#c2410c', '#b45309', '#4338ca'
@@ -16,6 +17,51 @@ function debugLog() {
   if (DEBUG_LOGS && window.console && typeof console.log === 'function') {
     console.log.apply(console, arguments);
   }
+}
+
+function forceRootRefreshAfterBootChange() {
+  var cacheBuster = Date.now();
+  window.location.replace('/?refresh=' + cacheBuster);
+}
+
+function clearRefreshQueryParam() {
+  if (!window.history || typeof window.history.replaceState !== 'function') {
+    return;
+  }
+
+  if (window.location.search.indexOf('refresh=') === -1) {
+    return;
+  }
+
+  window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+}
+
+function trackBootSessionAndRedirectIfChanged(payload) {
+  if (!payload || !payload.bootSessionId) {
+    return false;
+  }
+
+  var incomingBootSessionId = String(payload.bootSessionId);
+  var previousBootSessionId = '';
+
+  try {
+    previousBootSessionId = window.localStorage.getItem(bootSessionStorageKey) || '';
+  } catch (e) {
+    previousBootSessionId = '';
+  }
+
+  try {
+    window.localStorage.setItem(bootSessionStorageKey, incomingBootSessionId);
+  } catch (e) {
+    // Ignore storage failures; reconnect behavior still works.
+  }
+
+  if (previousBootSessionId && previousBootSessionId !== incomingBootSessionId) {
+    forceRootRefreshAfterBootChange();
+    return true;
+  }
+
+  return false;
 }
 
 window.addEventListener('load', onLoad);
@@ -30,6 +76,7 @@ function initWebSocket() {
 
 function onOpen(event) {
   debugLog('Connection opened');
+  websocket.send('home');
 }
 
 function onClose(event) {
@@ -290,6 +337,11 @@ function applySetupState(complete) {
 function onMessage(event) {
   var jsonObj = JSON.parse(event.data);
   debugLog("Received message: ", jsonObj);
+
+  if (trackBootSessionAndRedirectIfChanged(jsonObj)) {
+    return;
+  }
+
   var isPartial = !!jsonObj.partial;
 
   if (!pageContentReady) {
@@ -339,6 +391,7 @@ function onMessage(event) {
 }
 
 function onLoad(event) {
+  clearRefreshQueryParam();
   initWebSocket();
   initMenu();
 }

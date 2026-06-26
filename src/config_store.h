@@ -7,3 +7,4 @@ String decryptConfigSecret(const String &encoded);
 
 bool saveBoardConfig();
 void loadBoardConfig();
+bool reconcileSelectedTemplateForActiveHardware(bool applyFallbackLabels);

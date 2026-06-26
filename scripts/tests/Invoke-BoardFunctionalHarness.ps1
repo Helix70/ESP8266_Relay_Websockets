@@ -24,6 +24,14 @@ $endpointCatalog = @(
   [pscustomobject]@{ endpoint = '/api/templates/diagnostics'; mode = 'Smoke' },
   [pscustomobject]@{ endpoint = '/api/boards'; mode = 'Smoke' },
   [pscustomobject]@{ endpoint = '/netinfo'; mode = 'Smoke' },
+  [pscustomobject]@{ endpoint = '/ (menu navigation)'; mode = 'Smoke' },
+  [pscustomobject]@{ endpoint = '/api/boards (active selection validity)'; mode = 'Smoke' },
+  [pscustomobject]@{ endpoint = '/api/templates (active selection validity)'; mode = 'Smoke' },
+  [pscustomobject]@{ endpoint = '/netinfo (config fallback summary fields)'; mode = 'Smoke' },
+  [pscustomobject]@{ endpoint = '/ws client reboot redirect wiring'; mode = 'Smoke' },
+  [pscustomobject]@{ endpoint = '/relay-config.html (back navigation wiring)'; mode = 'Smoke' },
+  [pscustomobject]@{ endpoint = '/boards.html (back navigation wiring)'; mode = 'Smoke' },
+  [pscustomobject]@{ endpoint = '/config.html (back navigation wiring)'; mode = 'Smoke' },
   [pscustomobject]@{ endpoint = '/api/templates (POST create/save)'; mode = 'Smoke' },
   [pscustomobject]@{ endpoint = '/api/templates (POST setactive)'; mode = 'Smoke' },
   [pscustomobject]@{ endpoint = '/api/templates (POST rename)'; mode = 'Smoke' },
@@ -207,6 +215,108 @@ function Test-BasicEndpoints {
   }
 }
 
+function Test-UiSelectionAndNavigation {
+  param([string]$Target, [string]$BaseUrl)
+
+  $suite = 'ui'
+
+  $boards = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/api/boards') -TimeoutSec $TimeoutSec
+  $activeBoard = if ($boards.json) { Normalize-BoardFilename -Filename ([string]$boards.json.activeBoardFile) } else { '' }
+  $activeBoardValid = $true
+  if ($activeBoard) {
+    $activeBoardValid = $false
+    foreach ($b in ($boards.json.boards | Where-Object { $_ })) {
+      $f = Normalize-BoardFilename -Filename ([string]$b.filename)
+      if ($f -eq $activeBoard) {
+        $activeBoardValid = $true
+        break
+      }
+    }
+  }
+  Add-Result -Target $Target -Suite $suite -Test 'boards active selection is valid' -Endpoint '/api/boards (active selection validity)' -Passed ($boards.status -eq 200 -and $activeBoardValid) -Details ("status=" + $boards.status + ", active=" + $activeBoard)
+
+  $templates = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/api/templates') -TimeoutSec $TimeoutSec
+  $selectedTemplate = if ($templates.json) { Normalize-TemplateFilename -Filename ([string]$templates.json.selectedTemplate) } else { '' }
+  $listedTemplates = @()
+  if ($templates.json) {
+    $listedTemplates = @($templates.json.templates | Where-Object { $_ })
+  }
+  $selectedTemplateValid = $true
+  if ($selectedTemplate) {
+    if ($listedTemplates.Count -eq 0) {
+      # No compatible templates are currently listed for active hardware.
+      # Keep this check non-flaky by accepting existing persisted selection.
+      $selectedTemplateValid = $true
+    } else {
+      $selectedTemplateValid = $false
+      foreach ($tpl in $listedTemplates) {
+        $f = Normalize-TemplateFilename -Filename ([string]$tpl.filename)
+        if ($f -eq $selectedTemplate) {
+          $selectedTemplateValid = $true
+          break
+        }
+      }
+    }
+  }
+  Add-Result -Target $Target -Suite $suite -Test 'templates selected entry is valid' -Endpoint '/api/templates (active selection validity)' -Passed ($templates.status -eq 200 -and $selectedTemplateValid) -Details ("status=" + $templates.status + ", selected=" + $selectedTemplate)
+
+  $main = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/') -TimeoutSec $TimeoutSec
+  $mainBody = [string]$main.body
+  $hasRelayNav = ($mainBody -match 'href="/relay-config\.html"')
+  $hasBoardsNav = ($mainBody -match 'href="/boards\.html"')
+  $hasConfigNav = ($mainBody -match 'href="/config\.html"')
+  $mainNavOk = ($main.status -eq 200 -and $hasRelayNav -and $hasBoardsNav -and $hasConfigNav)
+  Add-Result -Target $Target -Suite $suite -Test 'main menu navigation links present' -Endpoint '/ (menu navigation)' -Passed $mainNavOk -Details ("status=" + $main.status + ", relay=" + $hasRelayNav + ", boards=" + $hasBoardsNav + ", config=" + $hasConfigNav)
+
+  $netinfo = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/netinfo') -TimeoutSec $TimeoutSec
+  $hasMcuType = ($netinfo.json -and $netinfo.json.PSObject.Properties.Name -contains 'mcuType' -and [string]$netinfo.json.mcuType)
+  $hasHardwareVariant = ($netinfo.json -and $netinfo.json.PSObject.Properties.Name -contains 'hardwareVariant' -and [string]$netinfo.json.hardwareVariant)
+  $hasRelayCount = ($netinfo.json -and $netinfo.json.PSObject.Properties.Name -contains 'relayCount')
+  $hasWifiConnected = ($netinfo.json -and $netinfo.json.PSObject.Properties.Name -contains 'wifiConnected')
+  $hasWifiConfiguredSsid = ($netinfo.json -and $netinfo.json.PSObject.Properties.Name -contains 'wifiConfiguredSsid')
+  $netinfoSummaryOk = ($netinfo.status -eq 200 -and $hasMcuType -and $hasHardwareVariant -and $hasRelayCount -and $hasWifiConnected -and $hasWifiConfiguredSsid)
+  Add-Result -Target $Target -Suite $suite -Test 'netinfo contains config fallback summary fields' -Endpoint '/netinfo (config fallback summary fields)' -Passed $netinfoSummaryOk -Details ("status=" + $netinfo.status + ", mcu=" + $hasMcuType + ", hw=" + $hasHardwareVariant + ", rc=" + $hasRelayCount + ", wifi=" + $hasWifiConnected + ", ssid=" + $hasWifiConfiguredSsid)
+
+  $mainJs = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/script.js') -TimeoutSec $TimeoutSec
+  $relayJsForBoot = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/relay-config.js') -TimeoutSec $TimeoutSec
+  $boardsJsForBoot = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/boards.js') -TimeoutSec $TimeoutSec
+  $configJsForBoot = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/config.js') -TimeoutSec $TimeoutSec
+  $templateEditorJsForBoot = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/template-editor.js') -TimeoutSec $TimeoutSec
+
+  $bootGuardPattern = 'trackBootSessionAndRedirectIfChanged'
+  $rootRefreshPattern = 'window\.location\.replace\(\''/\?refresh='
+
+  $mainBootGuardOk = ($mainJs.status -eq 200 -and ([string]$mainJs.body -match $bootGuardPattern) -and ([string]$mainJs.body -match $rootRefreshPattern))
+  $relayBootGuardOk = ($relayJsForBoot.status -eq 200 -and ([string]$relayJsForBoot.body -match $bootGuardPattern) -and ([string]$relayJsForBoot.body -match $rootRefreshPattern))
+  $boardsBootGuardOk = ($boardsJsForBoot.status -eq 200 -and ([string]$boardsJsForBoot.body -match $bootGuardPattern) -and ([string]$boardsJsForBoot.body -match $rootRefreshPattern))
+  $configBootGuardOk = ($configJsForBoot.status -eq 200 -and ([string]$configJsForBoot.body -match $bootGuardPattern) -and ([string]$configJsForBoot.body -match $rootRefreshPattern))
+  $templateEditorBootGuardOk = ($templateEditorJsForBoot.status -eq 200 -and ([string]$templateEditorJsForBoot.body -match $bootGuardPattern) -and ([string]$templateEditorJsForBoot.body -match $rootRefreshPattern))
+
+  $bootGuardAllOk = ($mainBootGuardOk -and $relayBootGuardOk -and $boardsBootGuardOk -and $configBootGuardOk -and $templateEditorBootGuardOk)
+  Add-Result -Target $Target -Suite $suite -Test 'client reboot redirect wiring present on ws pages' -Endpoint '/ws client reboot redirect wiring' -Passed $bootGuardAllOk -Details ("main=" + $mainBootGuardOk + ", relay=" + $relayBootGuardOk + ", boards=" + $boardsBootGuardOk + ", config=" + $configBootGuardOk + ", editor=" + $templateEditorBootGuardOk)
+
+  $relayPage = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/relay-config.html') -TimeoutSec $TimeoutSec
+  $relayJs = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/relay-config.js') -TimeoutSec $TimeoutSec
+  $relayScriptBody = [string]$relayJs.body
+  $relayBackBindingOk = ($relayScriptBody -match 'backLabelsButton' -and $relayScriptBody -match 'backLabelsButton[\s\S]{0,240}window\.location\.href\s*=\s*["'']\/["'']')
+  $relayBackOk = ($relayPage.status -eq 200 -and $relayJs.status -eq 200 -and $relayBackBindingOk)
+  Add-Result -Target $Target -Suite $suite -Test 'relay page back navigation wiring' -Endpoint '/relay-config.html (back navigation wiring)' -Passed $relayBackOk -Details ("pageStatus=" + $relayPage.status + ", scriptStatus=" + $relayJs.status)
+
+  $boardsPage = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/boards.html') -TimeoutSec $TimeoutSec
+  $boardsJs = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/boards.js') -TimeoutSec $TimeoutSec
+  $boardsScriptBody = [string]$boardsJs.body
+  $boardsBackBindingOk = ($boardsScriptBody -match 'backButton' -and $boardsScriptBody -match 'backButton[\s\S]{0,240}window\.location\.href\s*=\s*["'']\/["'']')
+  $boardsBackOk = ($boardsPage.status -eq 200 -and $boardsJs.status -eq 200 -and $boardsBackBindingOk)
+  Add-Result -Target $Target -Suite $suite -Test 'boards page back navigation wiring' -Endpoint '/boards.html (back navigation wiring)' -Passed $boardsBackOk -Details ("pageStatus=" + $boardsPage.status + ", scriptStatus=" + $boardsJs.status)
+
+  $configPage = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/config.html') -TimeoutSec $TimeoutSec
+  $configJs = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/config.js') -TimeoutSec $TimeoutSec
+  $configScriptBody = [string]$configJs.body
+  $configBackBindingOk = ($configScriptBody -match 'backButton' -and $configScriptBody -match 'backButton[\s\S]{0,240}window\.location\.href\s*=\s*["'']\/["'']')
+  $configBackOk = ($configPage.status -eq 200 -and $configJs.status -eq 200 -and $configBackBindingOk)
+  Add-Result -Target $Target -Suite $suite -Test 'config page back navigation wiring' -Endpoint '/config.html (back navigation wiring)' -Passed $configBackOk -Details ("pageStatus=" + $configPage.status + ", scriptStatus=" + $configJs.status)
+}
+
 function New-TemplateSaveForm {
   param([string]$Title, [int]$RelayCount)
 
@@ -242,6 +352,30 @@ function Get-ActiveRelayCount {
   return 8
 }
 
+function Get-CompatibleTemplateFilename {
+  param(
+    [object]$TemplatesJson,
+    [int]$RelayCount
+  )
+
+  if (-not $TemplatesJson -or -not $TemplatesJson.templates) {
+    return ''
+  }
+
+  foreach ($tpl in ($TemplatesJson.templates | Where-Object { $_ })) {
+    $filename = Normalize-TemplateFilename -Filename ([string]$tpl.filename)
+    $tplRelayCount = 0
+    if ($tpl.PSObject.Properties.Name -contains 'relayCount') {
+      $tplRelayCount = [int]$tpl.relayCount
+    }
+    if ($filename -and $tplRelayCount -eq $RelayCount) {
+      return $filename
+    }
+  }
+
+  return ''
+}
+
 function Test-TemplateCrud {
   param([string]$Target, [string]$BaseUrl)
 
@@ -268,6 +402,8 @@ function Test-TemplateCrud {
   if ($boards.json) {
     $relayCount = Get-ActiveRelayCount -BoardsJson $boards.json
   }
+
+  $outputType = if ($relayCount -eq 16) { 'shiftregister' } else { 'gpio' }
 
   $shortId = Get-TargetShortId -Target $Target
   $stamp = Get-Date -Format 'HHmmss'
@@ -315,7 +451,12 @@ function Test-TemplateCrud {
     return
   }
 
-  $set = Invoke-ApiWithRetry -Method 'POST' -Url ($BaseUrl + '/api/templates') -Form @{ action = 'setactive'; filename = $createdFile } -TimeoutSec $TimeoutSec
+  $compatibleTemplate = Get-CompatibleTemplateFilename -TemplatesJson $before.json -RelayCount $relayCount
+  if (-not $compatibleTemplate) {
+    $compatibleTemplate = $createdFile
+  }
+
+  $set = Invoke-ApiWithRetry -Method 'POST' -Url ($BaseUrl + '/api/templates') -Form @{ action = 'setactive'; filename = $compatibleTemplate } -TimeoutSec $TimeoutSec
   $setOk = ($set.status -eq 200 -and $set.json -and $set.json.ok)
   Add-Result -Target $Target -Suite $suite -Test 'setactive' -Endpoint '/api/templates (POST setactive)' -Passed $setOk -Details ("status=" + $set.status + ", body=" + $set.body)
 
@@ -341,17 +482,25 @@ function Test-TemplateCrud {
 function New-BoardSaveForm {
   param([string]$Title, [int]$RelayCount)
 
+  $outputType = if ($RelayCount -eq 16) { 'shiftregister' } else { 'gpio' }
   $form = @{
     action     = 'save'
     title      = $Title
     name       = $Title
     relayCount = [string]$RelayCount
-    outputType = 'gpio'
+    outputType = $outputType
     ledPin     = '2'
   }
 
-  for ($i = 1; $i -le $RelayCount; $i++) {
-    $form["relay${i}_pin"] = '255'
+  if ($outputType -eq 'gpio') {
+    for ($i = 1; $i -le $RelayCount; $i++) {
+      $form["relay${i}_pin"] = '255'
+    }
+  } else {
+    $form['sr_latchPin'] = '12'
+    $form['sr_clockPin'] = '13'
+    $form['sr_dataPin'] = '14'
+    $form['sr_oePin'] = '5'
   }
 
   return $form
@@ -435,11 +584,27 @@ function Test-WebSocketHome {
 
     $buffer = New-Object byte[] 4096
     $recvSeg = [System.ArraySegment[byte]]::new($buffer)
-    $result = $ws.ReceiveAsync($recvSeg, $cts.Token).GetAwaiter().GetResult()
-    $msg = [System.Text.Encoding]::UTF8.GetString($buffer, 0, $result.Count)
+    $builder = [System.Text.StringBuilder]::new()
+    do {
+      $result = $ws.ReceiveAsync($recvSeg, $cts.Token).GetAwaiter().GetResult()
+      if ($result.Count -gt 0) {
+        $chunk = [System.Text.Encoding]::UTF8.GetString($buffer, 0, $result.Count)
+        $null = $builder.Append($chunk)
+      }
+    } while (-not $result.EndOfMessage)
 
-    $ok = $msg.StartsWith('{')
-    $details = if ($ok) { 'json state received' } else { $msg }
+    $msg = $builder.ToString()
+
+    $json = $null
+    try { $json = $msg | ConvertFrom-Json } catch { }
+
+    $hasBootSessionId = $false
+    if ($json -and $json.PSObject.Properties.Name -contains 'bootSessionId') {
+      $hasBootSessionId = ([string]$json.bootSessionId).Length -gt 0
+    }
+
+    $ok = ($msg.StartsWith('{') -and $hasBootSessionId)
+    $details = if ($ok) { 'json state received with bootSessionId' } else { $msg }
     Add-Result -Target $Target -Suite $suite -Test 'connect+home' -Endpoint '/ws' -Passed $ok -Details $details
 
     $ws.Dispose()
@@ -455,6 +620,7 @@ foreach ($targetRaw in $Targets) {
   $base = Normalize-BaseUrl -Target $target
 
   Test-BasicEndpoints -Target $target -BaseUrl $base
+  Test-UiSelectionAndNavigation -Target $target -BaseUrl $base
   Test-TemplateCrud -Target $target -BaseUrl $base
 
   if ($Mode -eq 'Full') {

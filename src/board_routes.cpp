@@ -8,6 +8,7 @@
 #include "route_utils.h"
 #include "config_store.h"
 #include "relay_runtime.h"
+#include "storage_utils.h"
 #include "storage_lock.h"
 #include "web_runtime.h"
 
@@ -16,6 +17,7 @@ namespace
 constexpr size_t kMaxBoardFilenameLength = 64;
 constexpr size_t kBoardDocMinCapacity = 2048;
 constexpr size_t kBoardDocMaxCapacity = 4096;
+constexpr size_t kBoardListDocCapacity = 512;
 
 String sanitizeBoardSlug(const String &title)
 {
@@ -93,48 +95,68 @@ size_t boardDocCapacityForFile(File &f)
 
 bool parseBoardFile(const String &path, DynamicJsonDocument &doc)
 {
-  for (uint8_t attempt = 0; attempt < 3; attempt++)
+  File f = LittleFS.open(path, "r");
+  if (!f)
   {
-    File f = LittleFS.open(path, "r");
-    if (!f)
+    return false;
+  }
+
+  size_t cap = boardDocCapacityForFile(f);
+  doc.clear();
+  doc.garbageCollect();
+
+  DynamicJsonDocument localDoc(cap);
+  DeserializationError err = deserializeJson(localDoc, f);
+  f.close();
+
+  if (!err)
+  {
+    doc = localDoc;
+    return true;
+  }
+
+  if (err == DeserializationError::NoMemory && cap < kBoardDocMaxCapacity)
+  {
+    File fRetry = LittleFS.open(path, "r");
+    if (!fRetry)
     {
-      delay(20);
-      yield();
-      continue;
+      return false;
     }
 
-    size_t cap = boardDocCapacityForFile(f);
-    doc.clear();
-    doc.garbageCollect();
-
-    DynamicJsonDocument localDoc(cap);
-    DeserializationError err = deserializeJson(localDoc, f);
-    f.close();
-
+    DynamicJsonDocument retryDoc(kBoardDocMaxCapacity);
+    err = deserializeJson(retryDoc, fRetry);
+    fRetry.close();
     if (!err)
     {
-      doc = localDoc;
+      doc = retryDoc;
       return true;
     }
+  }
 
-    if (err == DeserializationError::NoMemory && cap < kBoardDocMaxCapacity)
-    {
-      File fRetry = LittleFS.open(path, "r");
-      if (fRetry)
-      {
-        DynamicJsonDocument retryDoc(kBoardDocMaxCapacity);
-        err = deserializeJson(retryDoc, fRetry);
-        fRetry.close();
-        if (!err)
-        {
-          doc = retryDoc;
-          return true;
-        }
-      }
-    }
+  return false;
+}
 
-    delay(20);
-    yield();
+bool parseBoardMetadataFile(const String &path, DynamicJsonDocument &doc)
+{
+  File f = LittleFS.open(path, "r");
+  if (!f)
+  {
+    return false;
+  }
+
+  doc.clear();
+
+  StaticJsonDocument<160> filter;
+  filter["name"] = true;
+  filter["cpu"] = true;
+  filter["relayCount"] = true;
+  filter["outputType"] = true;
+
+  DeserializationError err = deserializeJson(doc, f, DeserializationOption::Filter(filter));
+  f.close();
+  if (!err)
+  {
+    return true;
   }
 
   return false;
@@ -145,18 +167,7 @@ bool writeBoardJson(const String &filename, const JsonDocument &doc)
   String finalPath = boardPathFromFilename(filename);
   String tempPath = finalPath + ".tmp";
 
-  File f;
-  for (uint8_t attempt = 0; attempt < 4; attempt++)
-  {
-    f = LittleFS.open(tempPath, "w");
-    if (f)
-    {
-      break;
-    }
-    delay(20);
-    yield();
-  }
-
+  File f = LittleFS.open(tempPath, "w");
   if (!f)
   {
     return false;
@@ -193,6 +204,16 @@ String detectCpuFromFilename(const String &filename)
   if (lower.startsWith("esp8266-")) return "ESP8266";
   if (lower.startsWith("esp32-")) return "ESP32";
   return String(BOARD_CPU_TYPE);
+}
+
+bool cpuMatchesCurrentHardware(String cpu)
+{
+  cpu.trim();
+  cpu.toUpperCase();
+
+  String currentCpu = String(BOARD_CPU_TYPE);
+  currentCpu.toUpperCase();
+  return cpu == currentCpu;
 }
 
 uint8_t normalizeRelayCount(uint8_t rc)
@@ -291,18 +312,21 @@ void addBoardListEntry(JsonArray &arr, const String &filename)
 {
   String path = boardPathFromFilename(filename);
 
-  DynamicJsonDocument entry(kBoardDocMinCapacity);
-  if (!parseBoardFile(path, entry))
+  DynamicJsonDocument entry(kBoardListDocCapacity);
+  parseBoardMetadataFile(path, entry);
+
+  fillBoardDefaults(entry, filename);
+
+  String entryCpu = String(entry["cpu"] | detectCpuFromFilename(filename));
+  if (!cpuMatchesCurrentHardware(entryCpu))
   {
     return;
   }
 
-  fillBoardDefaults(entry, filename);
-
   JsonObject board = arr.createNestedObject();
   board["filename"] = String("boards/") + filename;
   board["name"] = String(entry["name"] | filename);
-  board["cpu"] = String(entry["cpu"] | detectCpuFromFilename(filename));
+  board["cpu"] = entryCpu;
   board["relayCount"] = (uint8_t)(entry["relayCount"] | kVariantRelayCount8);
   board["outputType"] = String(entry["outputType"] | "gpio");
 }
@@ -374,12 +398,7 @@ bool collectBoardDocumentFromRequest(AsyncWebServerRequest *request, DynamicJson
     boardName.trim();
   }
 
-  String cpu = String(doc["cpu"] | "");
-  cpu.trim();
-  if (cpu.length() < 3)
-  {
-    cpu = detectCpuFromFilename(normalizedFilename);
-  }
+  String cpu = String(BOARD_CPU_TYPE);
 
   doc["name"] = boardName.length() ? boardName : (cpu + " " + String(relayCount) + "-Relay");
   doc["cpu"] = cpu;
@@ -562,6 +581,13 @@ void registerBoardRoutes()
 
       fillBoardDefaults(inDoc, normalizedFilename);
 
+      String boardCpu = String(inDoc["cpu"] | "");
+      if (!cpuMatchesCurrentHardware(boardCpu))
+      {
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"board cpu incompatible with running hardware\",\"reason\":\"cpu_mismatch\"}");
+        return;
+      }
+
       if (!writeBoardJson(normalizedFilename, inDoc))
       {
         request->send(500, "application/json", "{\"ok\":false,\"error\":\"save failed\"}");
@@ -701,11 +727,20 @@ void registerBoardRoutes()
       }
 
       fillBoardDefaults(boardDoc, normalizedFilename);
+
+      String boardCpu = String(boardDoc["cpu"] | "");
+      if (!cpuMatchesCurrentHardware(boardCpu))
+      {
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"board cpu incompatible with running hardware\",\"reason\":\"cpu_mismatch\"}");
+        return;
+      }
+
       uint8_t rc = normalizeRelayCount((uint8_t)(boardDoc["relayCount"] | kVariantRelayCount8));
 
       hardwareVariant = (rc == kVariantRelayCount16) ? String(kVariant16Relay) : String(kVariant8Relay);
       activeBoardHardwareFilename = path;
       applyHardwareVariantPinsAndModes();
+      reconcileSelectedTemplateForActiveHardware(true);
 
       if (!saveBoardConfig())
       {

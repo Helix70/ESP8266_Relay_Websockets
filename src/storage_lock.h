@@ -2,17 +2,13 @@
 
 #include <Arduino.h>
 
-bool acquireStorageWriteLockWithBackoff(uint32_t waitMs = 800,
-                                        uint32_t backoffMs = 25,
-                                        uint32_t leaseMs = 3000);
+bool acquireStorageWriteLock(uint32_t leaseMs = 3000);
 void releaseStorageWriteLock();
 
 class StorageWriteLockGuard {
 public:
-  StorageWriteLockGuard(uint32_t waitMs = 800, uint32_t backoffMs = 25,
-                        uint32_t leaseMs = 3000)
-      : acquired_(
-            acquireStorageWriteLockWithBackoff(waitMs, backoffMs, leaseMs)) {}
+  explicit StorageWriteLockGuard(uint32_t leaseMs = 3000)
+      : acquired_(acquireStorageWriteLock(leaseMs)) {}
 
   ~StorageWriteLockGuard() {
     if (acquired_) {

@@ -4,11 +4,58 @@ var activeBoardFile = '';
 var restartRedirectDelayTimer = null;
 var restartRedirectPollTimer = null;
 var websocketEverConnected = false;
+var bootSessionStorageKey = 'relayBootSessionId:' + window.location.hostname;
 
 var boardData = [];
 var currentEditorFilename = '';
 
+function forceRootRefreshAfterBootChange() {
+  var cacheBuster = Date.now();
+  window.location.replace('/?refresh=' + cacheBuster);
+}
+
+function clearRefreshQueryParam() {
+  if (!window.history || typeof window.history.replaceState !== 'function') {
+    return;
+  }
+
+  if (window.location.search.indexOf('refresh=') === -1) {
+    return;
+  }
+
+  window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+}
+
+function trackBootSessionAndRedirectIfChanged(payload) {
+  if (!payload || !payload.bootSessionId) {
+    return false;
+  }
+
+  var incomingBootSessionId = String(payload.bootSessionId);
+  var previousBootSessionId = '';
+
+  try {
+    previousBootSessionId = window.localStorage.getItem(bootSessionStorageKey) || '';
+  } catch (e) {
+    previousBootSessionId = '';
+  }
+
+  try {
+    window.localStorage.setItem(bootSessionStorageKey, incomingBootSessionId);
+  } catch (e) {
+    // Ignore storage failures; restart watchers still handle reconnect.
+  }
+
+  if (previousBootSessionId && previousBootSessionId !== incomingBootSessionId) {
+    forceRootRefreshAfterBootChange();
+    return true;
+  }
+
+  return false;
+}
+
 window.addEventListener('load', function () {
+  clearRefreshQueryParam();
   document.getElementById('backButton').addEventListener('click', function () {
     window.location.href = '/';
   });
@@ -46,17 +93,12 @@ function initWebSocket() {
   websocket.onmessage = function (event) {
     var obj;
     try { obj = JSON.parse(event.data); } catch (e) { return; }
+    if (trackBootSessionAndRedirectIfChanged(obj)) {
+      return;
+    }
     if (obj.boardName) {
       document.getElementById('boardsPageTitle').textContent = obj.boardName;
       document.title = obj.boardName + ' - Board Hardware';
-    }
-    if (obj.boardHardwareFile) {
-      activeBoardFile = obj.boardHardwareFile;
-      updateBoardStatus();
-    }
-    if (obj.boardHardwareName) {
-      document.getElementById('activeBoardInfo').textContent =
-        'Active: ' + obj.boardHardwareName + ' (' + (obj.boardHardwareFile || '') + ')';
     }
   };
 }
@@ -111,11 +153,26 @@ function getBoardByFilename(filename) {
   return boardData.find(function (b) { return b.filename === filename; }) || null;
 }
 
+function normalizeBoardFilenameRef(value) {
+  var normalized = String(value || '').trim();
+  if (!normalized) {
+    return '';
+  }
+  if (normalized.charAt(0) === '/') {
+    normalized = normalized.substring(1);
+  }
+  if (normalized.indexOf('boards/') !== 0) {
+    return '';
+  }
+  return normalized;
+}
+
 function updateBoardStatus() {
   var status = document.getElementById('boardStatus');
   var filename = getSelectedBoardFilename();
   if (!filename) {
     status.textContent = 'Selected board: none';
+    updateSaveButtonState();
     return;
   }
 
@@ -123,6 +180,22 @@ function updateBoardStatus() {
   var name = board ? (board.name || filename) : filename;
   var isActive = (activeBoardFile === ('/' + filename)) || (activeBoardFile === filename);
   status.textContent = 'Selected board: ' + name + (isActive ? ' (Active)' : '');
+  updateSaveButtonState();
+}
+
+function updateSaveButtonState() {
+  var saveButton = document.getElementById('setActiveBoardButton');
+  var hint = document.getElementById('saveBoardHint');
+  var filename = getSelectedBoardFilename();
+  var enabled = !!filename;
+
+  saveButton.disabled = !enabled;
+  saveButton.textContent = enabled ? 'Save' : 'Save (select board)';
+  saveButton.title = enabled ? '' : 'Select a board to enable Save.';
+
+  if (hint) {
+    hint.style.display = enabled ? 'none' : '';
+  }
 }
 
 function setActiveSelectedBoard() {
@@ -155,7 +228,6 @@ function setActiveSelectedBoard() {
       activeBoardFile = String(result.body.activeBoardFile || activeBoardFile || '');
       updateBoardStatus();
       loadBoards(filename);
-      alert('Active board updated.');
     })
     .catch(function (e) {
       alert('Set active failed: ' + e.message);
@@ -173,16 +245,35 @@ function loadBoards(preferredFilename) {
 
       var select = document.getElementById('boardSelect');
       select.innerHTML = '<option value="">-- Select a board --</option>';
+      var activeBoardRef = normalizeBoardFilenameRef(activeBoardFile);
       boardData.forEach(function (board) {
         var opt = document.createElement('option');
         opt.value = board.filename;
-        opt.textContent = (board.name || board.filename) + ' [' + (board.cpu || '') + ', ' + (board.relayCount || 0) + ' relays]';
+        var isActive = activeBoardRef && board.filename === activeBoardRef;
+        opt.textContent = (board.name || board.filename) + ' [' + (board.cpu || '') + ', ' + (board.relayCount || 0) + ' relays]' + (isActive ? ' (Active)' : '');
         select.appendChild(opt);
       });
 
-      var desired = preferredFilename || currentEditorFilename || '';
+      var desired = normalizeBoardFilenameRef(preferredFilename) ||
+        normalizeBoardFilenameRef(currentEditorFilename) ||
+        normalizeBoardFilenameRef(activeBoardFile) ||
+        '';
       if (desired && boardData.some(function (b) { return b.filename === desired; })) {
         select.value = desired;
+      }
+
+      var activeBoard = boardData.find(function (board) {
+        return normalizeBoardFilenameRef(activeBoardFile) && board.filename === normalizeBoardFilenameRef(activeBoardFile);
+      }) || null;
+      var activeInfo = document.getElementById('activeBoardInfo');
+      if (activeInfo) {
+        if (activeBoard) {
+          activeInfo.textContent = 'Active: ' + (activeBoard.name || activeBoard.filename) + ' (' + (activeBoard.filename || '') + ')';
+        } else if (activeBoardFile) {
+          activeInfo.textContent = 'Active: ' + activeBoardFile;
+        } else {
+          activeInfo.textContent = 'Active: unknown';
+        }
       }
 
       updateBoardStatus();

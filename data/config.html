@@ -100,12 +100,9 @@
       <label class="config-input-label">MCU Type:</label>
       <input type="text" id="mcuTypeDisplay" class="config-input" readonly value="—">
 
-      <label for="hardwareVariantSelect" class="config-input-label">Number of Relays:</label>
-      <select id="hardwareVariantSelect" class="config-input">
-        <option value="8relay">8 Relays</option>
-        <option value="16relay">16 Relays</option>
-      </select>
-      <p class="config-note">MCU type is set at firmware compile time. Changing the relay count requires a restart.</p>
+      <label class="config-input-label">Board Relay Configuration:</label>
+      <input type="text" id="hardwareVariantDisplay" class="config-input" readonly value="—">
+      <p class="config-note">MCU type and relay count are derived from the active board selection on the Board Hardware page.</p>
     </div>
 
     <div class="config-buttons">

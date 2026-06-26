@@ -1,14 +1,20 @@
-var gateway = 'ws://' + window.location.hostname + '/ws';
-var websocket;
 var allTemplates = [];
 var selectedTemplateFilename = '';
 var relayCount = 0;
 var templateSummaryCache = {};
-var restartRedirectDelayTimer = null;
-var restartRedirectPollTimer = null;
-var websocketEverConnected = false;
+var diagnosticsLoadTimer = null;
 
 window.addEventListener('load', onLoad);
+
+function clearRefreshQueryParam() {
+  if (!window.history || typeof window.history.replaceState !== 'function') {
+    return;
+  }
+
+  if (window.location.search.indexOf('refresh=') !== -1) {
+    window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+  }
+}
 
 function setRelayConfigPageReady() {
   var page = document.querySelector('.labels-page');
@@ -18,6 +24,7 @@ function setRelayConfigPageReady() {
 }
 
 function onLoad() {
+  clearRefreshQueryParam();
   // Show the page immediately, then hydrate async data as it arrives.
   setRelayConfigPageReady();
 
@@ -35,9 +42,18 @@ function onLoad() {
   document.getElementById('uploadTemplateButton').addEventListener('click', uploadTemplateFile);
   document.getElementById('templateUploadInput').addEventListener('change', uploadSelectedTemplateFile);
   loadTemplateList();
-  loadTemplateDiagnostics();
-  initWebSocket();
   onTemplateSelectionChanged();
+}
+
+function scheduleTemplateDiagnosticsLoad() {
+  if (diagnosticsLoadTimer) {
+    clearTimeout(diagnosticsLoadTimer);
+  }
+
+  diagnosticsLoadTimer = setTimeout(function () {
+    diagnosticsLoadTimer = null;
+    loadTemplateDiagnostics();
+  }, 250);
 }
 
 function loadTemplateDiagnostics() {
@@ -80,81 +96,20 @@ function onTemplateSelectionChanged() {
   updateTemplateSummary();
 }
 
-function initWebSocket() {
-  websocket = new WebSocket(gateway);
-  websocket.onopen = onOpen;
-  websocket.onclose = onClose;
-  websocket.onmessage = onMessage;
+function normalizeTemplateFilenameRef(value) {
+  var normalized = String(value || '').trim();
+  if (!normalized) {
+    return '';
+  }
+  if (normalized.indexOf('/templates/') === 0) {
+    normalized = normalized.substring('/templates/'.length);
+  }
+  return normalized;
 }
 
-function stopRestartRedirectWatcher() {
-  if (restartRedirectDelayTimer) {
-    clearTimeout(restartRedirectDelayTimer);
-    restartRedirectDelayTimer = null;
-  }
-  if (restartRedirectPollTimer) {
-    clearInterval(restartRedirectPollTimer);
-    restartRedirectPollTimer = null;
-  }
-}
-
-function startRestartRedirectWatcher() {
-  if (window.location.pathname === '/') {
-    return;
-  }
-  if (restartRedirectDelayTimer || restartRedirectPollTimer) {
-    return;
-  }
-
-  restartRedirectDelayTimer = setTimeout(function () {
-    restartRedirectDelayTimer = null;
-
-    if (restartRedirectPollTimer) {
-      return;
-    }
-
-    restartRedirectPollTimer = setInterval(function () {
-      fetch('/', { cache: 'no-store' })
-        .then(function (response) {
-          if (response.ok) {
-            stopRestartRedirectWatcher();
-            window.location.href = '/';
-          }
-        })
-        .catch(function () {
-          // Keep polling until reachable.
-        });
-    }, 1200);
-  }, 1500);
-}
-
-function onOpen() {
-  websocketEverConnected = true;
-  stopRestartRedirectWatcher();
-  websocket.send('home');
-}
-
-function onClose() {
-  if (websocketEverConnected) {
-    startRestartRedirectWatcher();
-  }
-  setTimeout(initWebSocket, 2000);
-}
-
-function onMessage(event) {
-  var obj;
-  try {
-    obj = JSON.parse(event.data);
-  } catch (e) {
-    return;
-  }
-
-  if (obj.partial) {
-    return;
-  }
-
-  if (obj.boardName) {
-    var normalized = String(obj.boardName || '').trim();
+function applyRelayConfigBootstrap(data) {
+  if (data && data.boardName) {
+    var normalized = String(data.boardName || '').trim();
     if (!normalized) {
       normalized = 'Relay Board';
     }
@@ -162,33 +117,28 @@ function onMessage(event) {
     document.title = normalized + ' - Relay Configuration';
   }
 
-  if (typeof obj.relayCount === 'number' && obj.relayCount > 0) {
-    relayCount = obj.relayCount;
-  } else if (obj.buttons && obj.buttons.length > 0) {
-    relayCount = obj.buttons.length;
+  if (data && typeof data.relayCount === 'number' && data.relayCount > 0) {
+    relayCount = data.relayCount;
   }
 
-  if (obj.hasOwnProperty('selectedRelayTemplate')) {
-    selectedTemplateFilename = String(obj.selectedRelayTemplate || '');
-    refreshTemplateDropdown();
-  }
+  templateSummaryCache = {};
+  allTemplates = (data && data.templates ? data.templates : []).slice().sort(function (a, b) {
+    return String(a.title || '').localeCompare(String(b.title || ''));
+  });
+  selectedTemplateFilename = normalizeTemplateFilenameRef((data && data.selectedTemplate) || selectedTemplateFilename || '');
+  refreshTemplateDropdown();
 }
 
 function loadTemplateList() {
-  fetch('/api/templates')
+  fetch('/api/templates/bootstrap', { cache: 'no-store' })
     .then(function (r) { return r.json(); })
     .then(function (data) {
-      templateSummaryCache = {};
-      allTemplates = (data.templates || []).slice().sort(function (a, b) {
-        return String(a.title || '').localeCompare(String(b.title || ''));
-      });
-      selectedTemplateFilename = String(data.selectedTemplate || selectedTemplateFilename || '');
-      refreshTemplateDropdown();
-      loadTemplateDiagnostics();
+      applyRelayConfigBootstrap(data);
+      scheduleTemplateDiagnosticsLoad();
       setRelayConfigPageReady();
     })
     .catch(function () {
-      loadTemplateDiagnostics();
+      scheduleTemplateDiagnosticsLoad();
       setRelayConfigPageReady();
     });
 }
@@ -196,6 +146,7 @@ function loadTemplateList() {
 function refreshTemplateDropdown() {
   var select = document.getElementById('templateSelect');
   var previousValue = select.value;
+  var activeTemplate = normalizeTemplateFilenameRef(selectedTemplateFilename);
   while (select.options.length > 1) {
     select.remove(1);
   }
@@ -210,7 +161,7 @@ function refreshTemplateDropdown() {
   visibleTemplates.forEach(function (t) {
     var opt = document.createElement('option');
     opt.value = t.filename;
-    opt.textContent = t.title;
+    opt.textContent = t.title + ((activeTemplate && t.filename === activeTemplate) ? ' (Active)' : '');
     select.appendChild(opt);
   });
 
@@ -667,8 +618,17 @@ function uploadSelectedTemplateFile() {
       title = String(file.name || 'Imported Template').replace(/\.json$/i, '');
     }
 
+    var uploadFilename = String(file.name || '').trim();
+    if (uploadFilename && !/\.json$/i.test(uploadFilename)) {
+      uploadFilename += '.json';
+    }
+
     var payload = new URLSearchParams();
+    payload.set('action', 'upload');
     payload.set('title', title);
+    if (uploadFilename) {
+      payload.set('filename', uploadFilename);
+    }
     payload.set('relayCount', String(relayCount));
 
     for (var i = 0; i < relayCount; i++) {

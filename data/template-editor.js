@@ -11,6 +11,63 @@ var websocketEverConnected = false;
 var activeLabelInput = null;
 var suppressTemplateSelectChange = false;
 var invalidTemplateFilenames = {};
+var bootSessionStorageKey = 'relayBootSessionId:' + window.location.hostname;
+
+function forceRootRefreshAfterBootChange() {
+  var cacheBuster = Date.now();
+  window.location.replace('/?refresh=' + cacheBuster);
+}
+
+function clearRefreshQueryParam() {
+  if (!window.history || typeof window.history.replaceState !== 'function') {
+    return;
+  }
+
+  if (window.location.search.indexOf('refresh=') === -1) {
+    return;
+  }
+
+  window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+}
+
+function trackBootSessionAndRedirectIfChanged(payload) {
+  if (!payload || !payload.bootSessionId) {
+    return false;
+  }
+
+  var incomingBootSessionId = String(payload.bootSessionId);
+  var previousBootSessionId = '';
+
+  try {
+    previousBootSessionId = window.localStorage.getItem(bootSessionStorageKey) || '';
+  } catch (e) {
+    previousBootSessionId = '';
+  }
+
+  try {
+    window.localStorage.setItem(bootSessionStorageKey, incomingBootSessionId);
+  } catch (e) {
+    // Ignore storage failures; restart watchers still handle reconnect.
+  }
+
+  if (previousBootSessionId && previousBootSessionId !== incomingBootSessionId) {
+    forceRootRefreshAfterBootChange();
+    return true;
+  }
+
+  return false;
+}
+
+function normalizeTemplateFilenameRef(value) {
+  var normalized = String(value || '').trim();
+  if (!normalized) {
+    return '';
+  }
+  if (normalized.indexOf('/templates/') === 0) {
+    normalized = normalized.substring('/templates/'.length);
+  }
+  return normalized;
+}
 
 var INTERLOCK_GROUP_COLORS = [
   '#2e8b57', '#1f6feb', '#d97706', '#7c3aed', '#0f766e', '#c2410c', '#b45309', '#4338ca'
@@ -21,6 +78,7 @@ var MODES = ['latched', 'interlocked', 'pulsed'];
 window.addEventListener('load', onLoad);
 
 function onLoad() {
+  clearRefreshQueryParam();
   document.getElementById('saveTemplateButton').addEventListener('click', saveAsTemplate);
   document.getElementById('templateSelect').addEventListener('change', function () {
     if (suppressTemplateSelectChange) {
@@ -219,6 +277,10 @@ function onMessage(event) {
     return;
   }
 
+  if (trackBootSessionAndRedirectIfChanged(jsonObj)) {
+    return;
+  }
+
   if (jsonObj.partial) {
     return;
   }
@@ -228,7 +290,7 @@ function onMessage(event) {
   }
 
   if (jsonObj.hasOwnProperty('selectedRelayTemplate')) {
-    selectedTemplateFilename = String(jsonObj.selectedRelayTemplate || '');
+    selectedTemplateFilename = normalizeTemplateFilenameRef(jsonObj.selectedRelayTemplate || '');
   }
 
   var buttons = jsonObj.buttons || [];
@@ -485,7 +547,7 @@ function loadTemplateList() {
       allTemplates = (data.templates || []).slice().sort(function (a, b) {
         return String(a.title || '').localeCompare(String(b.title || ''));
       });
-      selectedTemplateFilename = String(data.selectedTemplate || selectedTemplateFilename || '');
+      selectedTemplateFilename = normalizeTemplateFilenameRef(data.selectedTemplate || selectedTemplateFilename || '');
       refreshTemplateDropdown();
     });
 }
@@ -493,6 +555,7 @@ function loadTemplateList() {
 function refreshTemplateDropdown() {
   var select = document.getElementById('templateSelect');
   var previousValue = select.value;
+  var activeTemplate = normalizeTemplateFilenameRef(selectedTemplateFilename);
   while (select.options.length > 1) {
     select.remove(1);
   }
@@ -505,7 +568,7 @@ function refreshTemplateDropdown() {
   visibleTemplates.forEach(function (t) {
     var opt = document.createElement('option');
     opt.value = t.filename;
-    opt.textContent = t.title;
+    opt.textContent = t.title + ((activeTemplate && t.filename === activeTemplate) ? ' (Active)' : '');
     select.appendChild(opt);
   });
 

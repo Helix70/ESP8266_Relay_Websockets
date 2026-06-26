@@ -140,7 +140,16 @@ Selected template persistence:
 - Reapplied during startup before normal runtime service starts
 
 Variant safety:
-- Switching 8-relay <-> 16-relay resets relay config to matching default template and updates selected template marker.
+- Active board selection is the single source of truth for CPU and relay count.
+- Board selection is restricted to board definitions matching the running MCU (ESP8266 vs ESP32).
+- Template list/apply/upload are restricted to templates matching the active board relay count.
+- When the active board relay count changes, an incompatible selected template is replaced with the matching default template.
+- At startup, if a persisted selected template no longer matches the active board relay count, it is reset to the matching default template before runtime template application.
+
+Unconfigured board defaults:
+- Startup delay disabled (`doDelay=false`, `startupDelaySeconds=0`)
+- DHCP enabled (`useStaticIp=false`)
+- Connect strongest AP on startup enabled (`connectStrongestOnStartup=true`)
 
 ## User Manual
 
@@ -153,8 +162,9 @@ Variant safety:
 ### 2. Configure Board
 
 1. Open `/config.html`.
-2. Set board name, startup behavior, Wi-Fi/network mode, and hardware variant.
-3. Save to apply. Some changes schedule restart.
+2. Set board name, startup behavior, and Wi-Fi/network mode.
+3. Relay count and MCU type are read-only on this page and are derived from the active board selection.
+4. Save to apply. Some changes schedule restart.
 
 ### 3. Configure Relays
 
@@ -175,8 +185,8 @@ On `/relay-config.html` Template Management:
 ### 5. Manage Hardware Definition
 
 1. Open `/boards.html`.
-2. Edit active hardware JSON fields for current variant.
-3. Save board definition.
+2. Select a board definition that matches the running MCU and set it active.
+3. Edit board JSON fields as needed and save.
 
 ## Setup and Build
 
@@ -306,3 +316,5 @@ Serial Wi-Fi wizard behavior (`src/serial_provision.cpp`):
 - If UI appears stale after updates, hard-refresh browser and verify `uploadfs` completed.
 - If device is unreachable after network change, reconnect via serial and use `reset_wifi`.
 - Child pages auto-redirect to main page when device restarts and comes back online.
+- After a reboot is detected through WebSocket state (`bootSessionId` change), clients force-return to `/?refresh=...` to ensure a fresh main-page load.
+- `/netinfo` now includes Wi-Fi and hardware summary fields (`wifiConnected`, SSID/status, `mcuType`, `hardwareVariant`, `relayCount`, board hardware name/file) so the configuration page can render read-only status even if WebSocket state is delayed.
