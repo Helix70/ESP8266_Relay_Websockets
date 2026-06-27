@@ -5,5 +5,8 @@
         "string": "cpp"
     },
     "cmake.configureOnOpen": false,
-    "terminal.integrated.stickyScroll.enabled": false
+    "terminal.integrated.stickyScroll.enabled": false,
+    "cmake.ignoreCMakeListsMissing": true,
+    "cmake.enableAutomaticKitScan": false,
+    "cmake.sourceDirectory": "${workspaceFolder}/nonexistent"
 }

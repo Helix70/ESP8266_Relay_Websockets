@@ -628,10 +628,10 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
     }
   }
 
-  // Set pending flags only — never call ws.textAll() from interrupt context.
-  // ws.textAll() → makeBuffer() → new uint8_t[] corrupts the heap allocator
-  // and causes WDT resets or exceptions (observed: MDNSResponder crash, Exception 9).
-  // dispatchPendingNotifications() in loop() drains these flags safely.
+#ifdef ESP8266
+  // On ESP8266, ws.textAll() → makeBuffer() → new uint8_t[] allocates from
+  // lwIP interrupt context (ctx: sys), corrupting the heap allocator.
+  // Defer sends to loop(); dispatchPendingNotifications() drains these flags.
   if (notifyAll)      pendingNotifyAll = true;
   if (notifyRelayAll) pendingNotifyRelayAll = true;
   if (notifyRelaySingle)
@@ -644,6 +644,14 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
     pendingNotifyRequesterId = client->id();
     pendingNotifyRequester = true;
   }
+#else
+  // On ESP32, the WebSocket handler runs in a FreeRTOS task where malloc is safe.
+  // Call directly for minimum UI latency.
+  if (notifyAll)         notifyClients();
+  if (notifyRelayAll)    notifyRelayStates();
+  if (notifyRelaySingle) notifyRelayState((uint8_t)relayNum);
+  if (notifyRequester)   notifyClient(client);
+#endif
 }
 
 static void onEvent(AsyncWebSocket *serverInstance, AsyncWebSocketClient *client, AwsEventType type,
@@ -654,6 +662,11 @@ static void onEvent(AsyncWebSocket *serverInstance, AsyncWebSocketClient *client
   switch (type)
   {
   case WS_EVT_CONNECT:
+#ifdef ESP32
+    // Disable Nagle's algorithm per-connection: lwIP buffers small segments until
+    // an ACK arrives, adding 40-200ms per send for 50-byte relay state messages.
+    client->client()->setNoDelay(true);
+#endif
     Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
     break;
   case WS_EVT_DISCONNECT:
