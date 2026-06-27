@@ -26,13 +26,13 @@ struct RuntimeWsMetrics
 
 static RuntimeWsMetrics runtimeWsMetrics;
 
-static uint32_t hashPayload(const String &payload)
+static uint32_t hashPayload(const char *data, size_t len)
 {
   // FNV-1a 32-bit hash for fast duplicate detection without retaining a full copy.
   uint32_t hash = 2166136261u;
-  for (size_t i = 0; i < payload.length(); i++)
+  for (size_t i = 0; i < len; i++)
   {
-    hash ^= (uint8_t)payload[i];
+    hash ^= (uint8_t)data[i];
     hash *= 16777619u;
   }
   return hash;
@@ -171,40 +171,12 @@ static int parseRelayNumberFromCommand(const String &command)
   return 0;
 }
 
-static void buildRuntimeStatePayload(String &payload, bool includeSystemDetails)
+static void buildRuntimeStatePayload(String &payload)
 {
   ensureMainGateToken();
 
-  if (!includeSystemDetails)
-  {
-    // Hot path: called on every relay toggle. Static allocation avoids repeated
-    // heap churn; sized for 16 relays × 4 fields + 5 top-level fields (~900 bytes actual).
-    static DynamicJsonDocument JSONdoc(1536);
-    JSONdoc.clear();
-
-    JsonArray array = JSONdoc.createNestedArray("buttons");
-    for (int i = 0; i < relayCount; i++)
-    {
-      JsonObject button = array.createNestedObject();
-      button["id"] = i + 1;
-      button["on"] = relays[i].on;
-      button["d"] = relays[i].disabled;
-      button["last"] = relays[i].last;
-    }
-
-    JSONdoc["boardName"] = boardName;
-    JSONdoc["bootSessionId"] = mainGateToken;
-    JSONdoc["setupComplete"] = (relayCount > 0 && hardwareVariant.length() > 0);
-    JSONdoc["n"] = relayCount;
-    JSONdoc["selectedRelayTemplate"] = selectedRelayTemplateFilename;
-
-    payload = "";
-    serializeJson(JSONdoc, payload);
-    return;
-  }
-
-  // Full state path: only called when a new client connects. Allocated on demand
-  // and freed on return so 6 KB is not held permanently between connections.
+  // Full state path: only called when a new client connects ("home" command).
+  // Allocated on demand and freed on return so 6 KB is not held permanently.
 #ifdef ESP8266
   if (ESP.getMaxFreeBlockSize() < 8192)
   {
@@ -273,15 +245,35 @@ static void buildRuntimeStatePayload(String &payload, bool includeSystemDetails)
 
 void notifyClients()
 {
-  static String payload;
+  // Hot path: called on every config change (setLabel, setBoardName, etc.).
+  // Uses char[] to avoid String realloc from interrupt context (ctx: sys).
+  // Sized for 16 relays × 4 fields + 6 top-level fields: worst-case ~750 chars.
+  static DynamicJsonDocument JSONdoc(1536);
+  static char payload[1024];
   static uint32_t lastPayloadHash = 0;
   static size_t lastPayloadLen = 0;
   uint32_t buildStartUs = micros();
 
-  buildRuntimeStatePayload(payload, false);
+  ensureMainGateToken();
+  JSONdoc.clear();
+  JsonArray array = JSONdoc.createNestedArray("buttons");
+  for (int i = 0; i < relayCount; i++)
+  {
+    JsonObject button = array.createNestedObject();
+    button["id"] = i + 1;
+    button["on"] = relays[i].on;
+    button["d"] = relays[i].disabled;
+    button["last"] = relays[i].last;
+  }
+  JSONdoc["boardName"] = boardName;
+  JSONdoc["bootSessionId"] = mainGateToken;
+  JSONdoc["setupComplete"] = (relayCount > 0 && hardwareVariant.length() > 0);
+  JSONdoc["n"] = relayCount;
+  JSONdoc["selectedRelayTemplate"] = selectedRelayTemplateFilename;
+
+  size_t payloadLen = serializeJson(JSONdoc, payload, sizeof(payload));
   uint32_t buildElapsedUs = micros() - buildStartUs;
-  uint32_t payloadHash = hashPayload(payload);
-  size_t payloadLen = payload.length();
+  uint32_t payloadHash = hashPayload(payload, payloadLen);
 
   if (payloadHash == lastPayloadHash && payloadLen == lastPayloadLen)
   {
@@ -317,7 +309,7 @@ static void notifyClient(AsyncWebSocketClient *client)
   }
 
   static String payload;
-  buildRuntimeStatePayload(payload, true);
+  buildRuntimeStatePayload(payload);
   if (payload.length() == 0)
   {
     return;
@@ -334,9 +326,12 @@ static void notifyClient(AsyncWebSocketClient *client)
 
 void notifyRelayStates()
 {
-  // 16 relays × 4 fields + 2 top-level fields = ~800 bytes actual usage.
-  static DynamicJsonDocument doc(1024);
-  static String payload;
+  // Capacity: JSON_OBJECT_SIZE(2) + JSON_ARRAY_SIZE(MAX) + MAX*JSON_OBJECT_SIZE(4)
+  // On ESP8266 (sizeof(VariantSlot)=16): 32+256+1024 = 1312 bytes minimum.
+  // char[] avoids String realloc from interrupt context (ctx: sys).
+  static DynamicJsonDocument doc(
+      JSON_OBJECT_SIZE(2) + JSON_ARRAY_SIZE(APP_MAX_RELAYS) + APP_MAX_RELAYS * JSON_OBJECT_SIZE(4));
+  static char payload[640];
 
   doc.clear();
   doc["partial"] = true;
@@ -350,8 +345,7 @@ void notifyRelayStates()
     button["last"] = relays[i].last;
   }
 
-  payload = "";
-  serializeJson(doc, payload);
+  serializeJson(doc, payload, sizeof(payload));
   ws.textAll(payload);
 }
 
@@ -363,8 +357,9 @@ void notifyRelayState(uint8_t relayNum)
   }
 
   uint8_t idx = relayNum - 1;
+  // char[] avoids String realloc from interrupt context (ctx: sys).
   static DynamicJsonDocument doc(256);
-  static String payload;
+  static char payload[128];
 
   doc.clear();
   doc["partial"] = true;
@@ -375,8 +370,7 @@ void notifyRelayState(uint8_t relayNum)
   button["d"] = relays[idx].disabled;
   button["last"] = relays[idx].last;
 
-  payload = "";
-  serializeJson(doc, payload);
+  serializeJson(doc, payload, sizeof(payload));
   ws.textAll(payload);
 }
 
