@@ -22,12 +22,15 @@ Apply these rules for all work in this repository.
 1. Treat extra allocations/copies in runtime and WebSocket paths as regressions unless justified.
 2. Prefer compact payloads and avoid unnecessary JSON expansion in frequently called routes.
 3. For ESP8266 paths, avoid large temporary documents and keep memory use bounded.
+4. **ESP8266 WebSocket interrupt rule:** Never call `ws.textAll()`, `ws.text()`, or `client->text()` from inside an `AsyncWebSocket` event callback on ESP8266. These callbacks run in lwIP interrupt context (`ctx: sys`); `malloc` is not reentrant there and heap corruption results. Set a `volatile bool` pending flag instead and dispatch from `loop()` via `dispatchPendingNotifications()`. Hardware writes (`writeRelaysToShiftRegister`) may remain in the callback since they do not allocate heap.
+5. **ESP32 WebSocket latency:** Set `TCP_NODELAY` per client at `WS_EVT_CONNECT` (`client->client()->setNoDelay(true)`) to prevent Nagle's algorithm from buffering small relay-state messages. WiFi modem sleep must remain disabled (`esp_wifi_set_ps(WIFI_PS_NONE)` in `initWiFi`).
 
 ## Compatibility Rules
 
 1. Verify all logic paths for both `esp8266_serial` and `esp32_serial` builds.
 2. Keep API contracts stable unless a versioned change is explicitly intended.
 3. When changing storage schema or semantics, include migration/compatibility handling.
+4. WebSocket notification paths are platform-divergent by design: ESP8266 uses deferred flag dispatch; ESP32 calls notification functions directly. Preserve this split when editing `web_runtime.cpp`.
 
 ## Device Update And Verification
 

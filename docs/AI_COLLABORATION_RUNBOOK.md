@@ -78,7 +78,28 @@ pwsh ./scripts/tests/Run-SoakTests.ps1 -Esp8266 <ESP8266_IP> -Esp32 <ESP32_IP> -
    - `scripts/tests/last-functional-report.json`
    - `scripts/tests/soak-report-full.json`
 
-## 5. Root-Cause Troubleshooting Workflow
+## 5. Known Platform Constraints
+
+### ESP8266 — WebSocket Sends From Interrupt Context
+
+`AsyncWebSocket` callbacks on ESP8266 run in lwIP interrupt context (`ctx: sys`). Calling `ws.textAll()` or `client->text()` from this context calls `malloc`, which is not reentrant. Symptoms of violating this rule include:
+
+- `rst cause:4` (software WDT reset) — `malloc` enters an infinite loop on a corrupted free-list
+- Exception 9 (`LoadStoreAlignmentCause`) — corrupted heap block header dereferenced
+- Crashes in unrelated subsystems (mDNS, etc.) — function pointers corrupted by heap overwrites
+
+**Fix pattern:** Set `volatile bool` pending flags in the callback; call notify functions from `loop()` via `dispatchPendingNotifications()` in `src/main.cpp`. Hardware writes (`writeRelaysToShiftRegister`) are safe in the callback. Use `static char[]` (BSS) for JSON payload buffers, never `static String`.
+
+### ESP32 — WebSocket Latency
+
+On ESP32, callbacks run in a FreeRTOS task (safe for `malloc`). Known latency sources:
+
+- **Nagle's algorithm:** lwIP buffers small TCP segments until an ACK arrives. Fixed by `client->client()->setNoDelay(true)` at `WS_EVT_CONNECT`.
+- **WiFi modem sleep:** adds up to one DTIM interval per packet. Fixed by `esp_wifi_set_ps(WIFI_PS_NONE)` in `initWiFi()`.
+
+Both fixes are in place. Do not remove them.
+
+## 6. Root-Cause Troubleshooting Workflow
 
 When failures occur:
 
@@ -88,7 +109,7 @@ When failures occur:
 4. Fix at root cause and avoid test-only workarounds.
 5. Re-run Full and Soak to confirm stability.
 
-## 6. Change Documentation Requirements
+## 7. Change Documentation Requirements
 
 For any behavioral change, update at least one of:
 

@@ -93,7 +93,7 @@ sequenceDiagram
 ### Core Subsystems
 
 - Runtime and scheduling:
-  - `src/main.cpp` controls startup, loop timing, restart scheduling, OTA, serial processing.
+  - `src/main.cpp` controls startup, loop timing, restart scheduling, OTA, serial processing. Calls `dispatchPendingNotifications()` each loop iteration to drain deferred WebSocket sends.
 - Networking:
   - `src/network_manager.cpp` handles DHCP/static IP startup, strongest matching SSID connect, and rescan flow.
 - Realtime state transport:
@@ -150,6 +150,20 @@ Unconfigured board defaults:
 - Startup delay disabled (`doDelay=false`, `startupDelaySeconds=0`)
 - DHCP enabled (`useStaticIp=false`)
 - Connect strongest AP on startup enabled (`connectStrongestOnStartup=true`)
+
+### Platform-Specific WebSocket Behavior
+
+**ESP8266 — interrupt-safe deferred dispatch**
+
+On ESP8266, `ESPAsyncWebServer` WebSocket callbacks run in `ctx: sys` (lwIP interrupt context). Calling `ws.textAll()` from that context invokes `new AsyncWebSocketMessageBuffer()` → `malloc()`, which is not reentrant on ESP8266. This corrupts the heap allocator and causes Exception 9, WDT resets, and crashes in unrelated subsystems (e.g., mDNS).
+
+All WebSocket notification calls (`notifyClients`, `notifyRelayStates`, `notifyRelayState`, `notifyClient`) are deferred to `loop()` via `volatile bool` pending flags. `dispatchPendingNotifications()` in `loop()` drains these flags. Hardware relay writes (`writeRelaysToShiftRegister`) remain synchronous in the interrupt handler for immediate physical response. JSON payload buffers use `static char[]` (BSS) instead of `String` to eliminate realloc from interrupt context.
+
+**Rule:** Never call `ws.textAll()`, `ws.text()`, or `client->text()` directly from a WebSocket event callback on ESP8266. Set a pending flag and dispatch from `loop()`.
+
+**ESP32 — TCP_NODELAY for low-latency sends**
+
+On ESP32, callbacks run in a FreeRTOS task where `malloc` is safe, so notifications are called directly. WiFi modem sleep is disabled (`esp_wifi_set_ps(WIFI_PS_NONE)` in `initWiFi()`). `TCP_NODELAY` is set per client at `WS_EVT_CONNECT` via `client->client()->setNoDelay(true)` to disable Nagle's algorithm — without it, small relay-state messages (~50 bytes) are held by lwIP until an ACK returns or the buffer fills, adding 40–200 ms per send.
 
 ## User Manual
 
