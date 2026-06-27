@@ -77,7 +77,7 @@ function applyHardwareSummaryFields(state) {
 
   var variantDisplay = document.getElementById('hardwareVariantDisplay');
   if (variantDisplay) {
-    var relayCountValue = parseInt((state && state.relayCount), 10);
+    var relayCountValue = parseInt((state && state.n), 10);
     var relayCountLabel = '';
     if (!isNaN(relayCountValue) && relayCountValue > 0) {
       relayCountLabel = String(relayCountValue) + ' Relays';

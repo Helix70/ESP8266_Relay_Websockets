@@ -73,7 +73,7 @@ var INTERLOCK_GROUP_COLORS = [
   '#2e8b57', '#1f6feb', '#d97706', '#7c3aed', '#0f766e', '#c2410c', '#b45309', '#4338ca'
 ];
 
-var MODES = ['latched', 'interlocked', 'pulsed'];
+var MODES = ['L', 'I', 'P'];
 
 window.addEventListener('load', onLoad);
 
@@ -145,15 +145,15 @@ function buildCurrentTemplateSnapshot() {
     var offEl = document.getElementById('offLabel' + relayId);
     var modeEl = document.getElementById('mode' + relayId);
     var groupEl = document.getElementById('group' + relayId);
-    var pulseEl = document.getElementById('pulseTimeout' + relayId);
+    var pulseEl = document.getElementById('pulse' + relayId);
 
     payload.push({
       relay: relayId,
       on: onEl ? String(onEl.value || '').trim() : '',
       off: offEl ? String(offEl.value || '').trim() : '',
-      mode: modeEl ? String(modeEl.value || 'latched') : 'latched',
+      mode: modeEl ? String(modeEl.value || 'L') : 'L',
       group: groupEl ? (parseInt(groupEl.value, 10) || 0) : 0,
-      pulseTimeout: pulseEl ? (parseInt(pulseEl.value, 10) || 0) : 0
+      pulse: pulseEl ? (parseInt(pulseEl.value, 10) || 0) : 0
     });
   }
 
@@ -309,14 +309,14 @@ function extractTemplateLabels(doc) {
   if (Array.isArray(doc)) {
     return doc;
   }
-  if (doc && Array.isArray(doc.labels)) {
-    return doc.labels;
+  if (doc && Array.isArray(doc.l)) {
+    return doc.l;
   }
   return [];
 }
 
 function modeNumToStr(num) {
-  return MODES[num] || 'latched';
+  return MODES[num] || 'L';
 }
 
 function getInterlockGroupColor(group) {
@@ -332,7 +332,7 @@ function updateGroupDecoration(relayId) {
     return;
   }
 
-  if (modeEl.value === 'interlocked') {
+  if (modeEl.value === 'I') {
     var group = groupEl ? (parseInt(groupEl.value, 10) || 1) : 1;
     card.classList.add('interlock-group');
     card.style.setProperty('--group-accent', getInterlockGroupColor(group));
@@ -349,8 +349,8 @@ function updateModeUI(relayId) {
   var pulseEl = document.getElementById('pulseSection' + relayId);
   if (!modeEl) return;
   var val = modeEl.value;
-  if (grpEl) grpEl.style.display = (val === 'interlocked') ? 'block' : 'none';
-  if (pulseEl) pulseEl.style.display = (val === 'pulsed') ? 'block' : 'none';
+  if (grpEl) grpEl.style.display = (val === 'I') ? 'block' : 'none';
+  if (pulseEl) pulseEl.style.display = (val === 'P') ? 'block' : 'none';
   updateGroupDecoration(relayId);
 }
 
@@ -413,7 +413,7 @@ function renderRelayEditor() {
     var modeSelect = document.createElement('select');
     modeSelect.id = 'mode' + relayId;
     modeSelect.className = 'relay-label-input';
-    [['latched', 'Latched (On/Off)'], ['interlocked', 'Interlocked'], ['pulsed', 'Pulsed']].forEach(function (pair) {
+    [['L', 'Latched (On/Off)'], ['I', 'Interlocked'], ['P', 'Pulsed']].forEach(function (pair) {
       var o = document.createElement('option');
       o.value = pair[0];
       o.textContent = pair[1];
@@ -426,7 +426,7 @@ function renderRelayEditor() {
 
     var groupSection = document.createElement('div');
     groupSection.id = 'groupSection' + relayId;
-    groupSection.style.display = (modeStr === 'interlocked') ? 'block' : 'none';
+    groupSection.style.display = (modeStr === 'I') ? 'block' : 'none';
 
     var grpLbl = document.createElement('label');
     grpLbl.className = 'relay-input-label';
@@ -442,7 +442,7 @@ function renderRelayEditor() {
       go.textContent = 'Group ' + g;
       grpSelect.appendChild(go);
     }
-    grpSelect.value = String(relay.group || 1);
+    grpSelect.value = String(relay.g || 1);
     grpSelect.addEventListener('change', (function (id) {
       return function () { updateGroupDecoration(id); };
     })(relayId));
@@ -452,20 +452,20 @@ function renderRelayEditor() {
 
     var pulseSection = document.createElement('div');
     pulseSection.id = 'pulseSection' + relayId;
-    pulseSection.style.display = (modeStr === 'pulsed') ? 'block' : 'none';
+    pulseSection.style.display = (modeStr === 'P') ? 'block' : 'none';
 
     var pulseLbl = document.createElement('label');
     pulseLbl.className = 'relay-input-label';
-    pulseLbl.setAttribute('for', 'pulseTimeout' + relayId);
+    pulseLbl.setAttribute('for', 'pulse' + relayId);
     pulseLbl.textContent = 'Duration (1-30 seconds)';
 
     var ptInput = document.createElement('input');
     ptInput.type = 'number';
-    ptInput.id = 'pulseTimeout' + relayId;
+    ptInput.id = 'pulse' + relayId;
     ptInput.className = 'relay-label-input';
     ptInput.min = '1';
     ptInput.max = '30';
-    ptInput.value = String(relay.pulseTimeout || 1);
+    ptInput.value = String(relay.p || 1);
 
     pulseSection.appendChild(pulseLbl);
     pulseSection.appendChild(ptInput);
@@ -502,32 +502,32 @@ function collectRelayConfig(validate) {
     if (onValue.length === 0) onValue = offValue;
 
     var modeEl = document.getElementById('mode' + relayId);
-    var mode = modeEl ? modeEl.value : 'latched';
+    var mode = modeEl ? modeEl.value : 'L';
     var group = 0;
     var pt = 0;
 
-    if (mode === 'interlocked') {
+    if (mode === 'I') {
       group = parseInt((document.getElementById('group' + relayId).value || '1'), 10) || 1;
       groupCounts[group] = (groupCounts[group] || 0) + 1;
-    } else if (mode === 'pulsed') {
-      pt = parseInt((document.getElementById('pulseTimeout' + relayId).value || '1'), 10) || 1;
+    } else if (mode === 'P') {
+      pt = parseInt((document.getElementById('pulse' + relayId).value || '1'), 10) || 1;
       if (pt < 1) pt = 1;
       if (pt > 30) pt = 30;
     }
 
-    configs.push({ relay: relayId, on: onValue, off: offValue, mode: mode, group: group, pulseTimeout: pt });
+    configs.push({ relay: relayId, o: onValue, f: offValue, m: mode, g: group, p: pt });
   }
 
   if (validate) {
     var converted = [];
     configs.forEach(function (cfg) {
-      if (cfg.mode === 'interlocked' && (groupCounts[cfg.group] || 0) < 2) {
-        cfg.mode = 'latched';
-        cfg.group = 0;
+      if (cfg.m === 'I' && (groupCounts[cfg.g] || 0) < 2) {
+        cfg.m = 'L';
+        cfg.g = 0;
         converted.push('Relay ' + cfg.relay);
         var modeEl = document.getElementById('mode' + cfg.relay);
         if (modeEl) {
-          modeEl.value = 'latched';
+          modeEl.value = 'L';
           updateModeUI(cfg.relay);
         }
       }
@@ -545,7 +545,7 @@ function loadTemplateList() {
     .then(function (r) { return r.json(); })
     .then(function (data) {
       allTemplates = (data.templates || []).slice().sort(function (a, b) {
-        return String(a.title || '').localeCompare(String(b.title || ''));
+        return String(a.t || '').localeCompare(String(b.t || ''));
       });
       selectedTemplateFilename = normalizeTemplateFilenameRef(data.selectedTemplate || selectedTemplateFilename || '');
       refreshTemplateDropdown();
@@ -562,13 +562,13 @@ function refreshTemplateDropdown() {
 
   var count = relayButtons.length;
   var visibleTemplates = allTemplates.filter(function (t) {
-    return count > 0 ? (t.relayCount === count) : true;
+    return count > 0 ? (t.n === count) : true;
   });
 
   visibleTemplates.forEach(function (t) {
     var opt = document.createElement('option');
     opt.value = t.filename;
-    opt.textContent = t.title + ((activeTemplate && t.filename === activeTemplate) ? ' (Active)' : '');
+    opt.textContent = t.t + ((activeTemplate && t.filename === activeTemplate) ? ' (Active)' : '');
     select.appendChild(opt);
   });
 
@@ -605,7 +605,7 @@ function updateTemplateEditorStatus() {
   }
 
   var meta = allTemplates.find(function (t) { return t.filename === loadedTemplateFilename; });
-  var title = meta ? meta.title : loadedTemplateFilename;
+  var title = meta ? meta.t : loadedTemplateFilename;
   status.textContent = 'Loaded template: ' + title;
 }
 
@@ -622,19 +622,19 @@ function applyTemplateLabels(labels) {
 
     var onEl = document.getElementById('onLabel' + relayId);
     var offEl = document.getElementById('offLabel' + relayId);
-    if (onEl) onEl.value = label.on || '';
-    if (offEl) offEl.value = label.off || '';
+    if (onEl) onEl.value = label.o || '';
+    if (offEl) offEl.value = label.f || '';
 
-    var modeRaw = label.mode;
-    var modeStr = (typeof modeRaw === 'number') ? modeNumToStr(modeRaw) : (modeRaw || 'latched');
+    var modeRaw = label.m;
+    var modeStr = (typeof modeRaw === 'number') ? modeNumToStr(modeRaw) : (modeRaw || 'L');
     if (modeStr === 'onoff') {
-      modeStr = 'latched';
+      modeStr = 'L';
     }
 
-    if (modeStr === 'interlocked') {
+    if (modeStr === 'I') {
       var grpEl = document.getElementById('group' + relayId);
       if (grpEl) {
-        grpEl.value = String(label.group || 1);
+        grpEl.value = String(label.g || 1);
       }
     }
 
@@ -644,9 +644,9 @@ function applyTemplateLabels(labels) {
       updateModeUI(relayId);
     }
 
-    if (modeStr === 'pulsed') {
-      var ptEl = document.getElementById('pulseTimeout' + relayId);
-      if (ptEl) ptEl.value = String(label.pulseTimeout || 1);
+    if (modeStr === 'P') {
+      var ptEl = document.getElementById('pulse' + relayId);
+      if (ptEl) ptEl.value = String(label.p || 1);
     }
 
     updateGroupDecoration(relayId);
@@ -661,7 +661,7 @@ function loadTemplateByFilename(filename) {
   fetch('/templates/' + encodeURIComponent(filename), { cache: 'no-store' })
     .then(function (r) {
       if (!r.ok) {
-        throw new Error('template not found');
+        throw new Error('template not found (HTTP ' + r.status + ')');
       }
       return r.json();
     })
@@ -701,7 +701,7 @@ function buildDefaultNewTemplateName() {
 
   var titles = {};
   allTemplates.forEach(function (t) {
-    var title = String(t.title || '').trim().toLowerCase();
+    var title = String(t.t || '').trim().toLowerCase();
     if (title.length > 0) {
       titles[title] = true;
     }
@@ -723,13 +723,13 @@ function buildDefaultNewTemplateName() {
 
 function getDefaultTemplateNameForSave() {
   var loadedMeta = getTemplateMetaByFilename(loadedTemplateFilename);
-  if (loadedMeta && loadedMeta.title) {
-    return loadedMeta.title;
+  if (loadedMeta && loadedMeta.t) {
+    return loadedMeta.t;
   }
 
   var selectedMeta = getTemplateMetaByFilename(getSelectedTemplateFilename());
-  if (selectedMeta && selectedMeta.title) {
-    return selectedMeta.title;
+  if (selectedMeta && selectedMeta.t) {
+    return selectedMeta.t;
   }
 
   return buildDefaultNewTemplateName();
@@ -756,13 +756,13 @@ function saveAsTemplate() {
   var configs = collectRelayConfig(true);
   var form = new URLSearchParams();
   form.set('title', title);
-  form.set('relayCount', String(relayButtons.length));
+  form.set('n', String(relayButtons.length));
   configs.forEach(function (cfg) {
-    form.set('relay' + cfg.relay + '_on', cfg.on);
-    form.set('relay' + cfg.relay + '_off', cfg.off);
-    form.set('relay' + cfg.relay + '_mode', cfg.mode);
-    form.set('relay' + cfg.relay + '_group', String(cfg.group));
-    form.set('relay' + cfg.relay + '_pulseTimeout', String(cfg.pulseTimeout));
+    form.set('relay' + cfg.relay + '_on', cfg.o);
+    form.set('relay' + cfg.relay + '_off', cfg.f);
+    form.set('relay' + cfg.relay + '_mode', cfg.m);
+    form.set('relay' + cfg.relay + '_group', String(cfg.g));
+    form.set('relay' + cfg.relay + '_pulse', String(cfg.p));
   });
 
   var btn = document.getElementById('saveTemplateButton');

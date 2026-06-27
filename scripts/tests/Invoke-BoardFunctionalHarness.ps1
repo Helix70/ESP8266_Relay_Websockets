@@ -328,9 +328,9 @@ function New-TemplateSaveForm {
   for ($i = 1; $i -le $RelayCount; $i++) {
     $form["relay${i}_on"] = "H${i}-ON"
     $form["relay${i}_off"] = "H${i}-OFF"
-    $form["relay${i}_mode"] = 'latched'
+    $form["relay${i}_mode"] = 'L'
     $form["relay${i}_group"] = '0'
-    $form["relay${i}_pulseTimeout"] = '0'
+    $form["relay${i}_pulse"] = '0'
   }
 
   return $form

@@ -4,5 +4,6 @@
         "*.h": "c",
         "string": "cpp"
     },
-    "cmake.configureOnOpen": false
+    "cmake.configureOnOpen": false,
+    "terminal.integrated.stickyScroll.enabled": false
 }

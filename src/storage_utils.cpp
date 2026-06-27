@@ -264,15 +264,15 @@ bool initLittleFS()
 
 static const char *modeToStr(uint8_t mode)
 {
-  if (mode == RELAY_MODE_INTERLOCKED) return "interlocked";
-  if (mode == RELAY_MODE_PULSED)      return "pulsed";
-  return "latched";
+  if (mode == RELAY_MODE_INTERLOCKED) return "I";
+  if (mode == RELAY_MODE_PULSED)      return "P";
+  return "L";
 }
 
 static uint8_t strToMode(const String &s)
 {
-  if (s == "interlocked") return RELAY_MODE_INTERLOCKED;
-  if (s == "pulsed")      return RELAY_MODE_PULSED;
+  if (s == "I") return RELAY_MODE_INTERLOCKED;
+  if (s == "P") return RELAY_MODE_PULSED;
   return RELAY_MODE_ONOFF;
 }
 
@@ -354,11 +354,11 @@ bool saveRelayLabels()
   for (uint8_t i = 0; i < kMaxRelays; i++)
   {
     JsonObject label = labels.createNestedObject();
-    label["on"]           = relayLabels[i].on;
-    label["off"]          = relayLabels[i].off;
-    label["mode"]         = modeToStr(relayLabels[i].mode);
-    label["group"]        = relayLabels[i].group;
-    label["pulseTimeout"] = relayLabels[i].pulseTimeout;
+    label["o"]            = relayLabels[i].on;
+    label["f"]            = relayLabels[i].off;
+    label["m"]            = modeToStr(relayLabels[i].mode);
+    label["g"]        = relayLabels[i].group;
+    label["p"] = relayLabels[i].pulseTimeout;
   }
 
   File file = LittleFS.open(kRelayLabelsPath, "w");
@@ -459,7 +459,7 @@ bool loadRelayLabels()
     return false;
   }
 
-  JsonArray labels = doc["labels"].as<JsonArray>();
+  JsonArray labels = doc["l"].as<JsonArray>();
   if (labels.isNull())
   {
     Serial.println("Relay labels file missing labels array, using defaults");
@@ -472,11 +472,11 @@ bool loadRelayLabels()
     JsonObject label = labels[i];
     if (label.isNull()) continue;
 
-    assignRelayLabels(i + 1, String(label["on"] | ""), String(label["off"] | ""));
+    assignRelayLabels(i + 1, String(label["o"] | ""), String(label["f"] | ""));
     assignRelayMode(i + 1,
-                    strToMode(String(label["mode"] | "latched")),
-                    (uint8_t)(label["group"] | (uint8_t)0),
-                    (uint8_t)(label["pulseTimeout"] | (uint8_t)1));
+                    strToMode(String(label["m"] | "L")),
+                    (uint8_t)(label["g"] | (uint8_t)0),
+                    (uint8_t)(label["p"] | (uint8_t)1));
   }
 
   // Migrate legacy LittleFS labels into EEPROM for consistent persistence.
@@ -511,7 +511,7 @@ bool loadRelayLabels()
     return false;
   }
 
-  JsonArray labels = doc["labels"].as<JsonArray>();
+  JsonArray labels = doc["l"].as<JsonArray>();
   if (labels.isNull())
   {
     Serial.println("Relay labels file missing labels array, using defaults");
@@ -524,11 +524,11 @@ bool loadRelayLabels()
     JsonObject label = labels[i];
     if (label.isNull()) continue;
 
-    assignRelayLabels(i + 1, String(label["on"] | ""), String(label["off"] | ""));
+    assignRelayLabels(i + 1, String(label["o"] | ""), String(label["f"] | ""));
     assignRelayMode(i + 1,
-            strToMode(String(label["mode"] | "latched")),
-                    (uint8_t)(label["group"] | (uint8_t)0),
-                    (uint8_t)(label["pulseTimeout"] | (uint8_t)1));
+            strToMode(String(label["m"] | "L")),
+                    (uint8_t)(label["g"] | (uint8_t)0),
+                    (uint8_t)(label["p"] | (uint8_t)1));
   }
 
   Serial.println("Loaded relay labels");
@@ -566,7 +566,7 @@ bool loadLabelsFromTemplateFile(const String &filename, uint8_t count, String *f
 
   auto applyTemplateLabels = [&](JsonVariantConst root) -> bool
   {
-    JsonArrayConst labels = root["labels"].as<JsonArrayConst>();
+    JsonArrayConst labels = root["l"].as<JsonArrayConst>();
     if (labels.isNull())
     {
       labels = root.as<JsonArrayConst>();
@@ -578,11 +578,11 @@ bool loadLabelsFromTemplateFile(const String &filename, uint8_t count, String *f
     {
       JsonObjectConst label = labels[i];
       if (label.isNull()) continue;
-      assignRelayLabels(i + 1, String(label["on"] | ""), String(label["off"] | ""));
+      assignRelayLabels(i + 1, String(label["o"] | ""), String(label["f"] | ""));
       assignRelayMode(i + 1,
-              strToMode(String(label["mode"] | "latched")),
-                      (uint8_t)(label["group"] | (uint8_t)0),
-                      (uint8_t)(label["pulseTimeout"] | (uint8_t)1));
+              strToMode(String(label["m"] | "L")),
+                      (uint8_t)(label["g"] | (uint8_t)0),
+                      (uint8_t)(label["p"] | (uint8_t)1));
     }
 
     return true;
@@ -624,19 +624,36 @@ bool loadLabelsFromTemplateFile(const String &filename, uint8_t count, String *f
   File f = LittleFS.open(path, "r");
   if (!f) return fail("open_failed", path);
 
-  size_t docCapacity = 6144;
+  size_t docCapacity = 2560;
 #ifndef ESP8266
   size_t fileSize = (size_t)f.size();
-  docCapacity = fileSize + 3072;
-  if (docCapacity < 6144) docCapacity = 6144;
+  docCapacity = fileSize + 2560;
+  if (docCapacity < 2560) docCapacity = 2560;
   if (docCapacity > 32768) docCapacity = 32768;
+#endif
+
+#ifdef ESP8266
+  // Guard against fragmented heap before committing to a large allocation.
+  if (ESP.getMaxFreeBlockSize() < (docCapacity + 2048))
+  {
+    f.close();
+    Serial.printf("[Template] Heap too fragmented: free=%lu maxBlock=%lu need=%u\n",
+                  (unsigned long)ESP.getFreeHeap(),
+                  (unsigned long)ESP.getMaxFreeBlockSize(),
+                  (unsigned)(docCapacity + 2048));
+    return fail("low_heap", path);
+  }
 #endif
 
   DynamicJsonDocument doc(docCapacity);
   DeserializationError err = deserializeJson(doc, f);
+  f.close();
+
+#ifndef ESP8266
+  // On ESP32 only: retry with a larger allocation if the file was bigger than expected.
+  // Not safe on ESP8266 — 32 KB is likely to OOM on a fragmented heap.
   if (err == DeserializationError::NoMemory && docCapacity < 32768)
   {
-    f.close();
     f = LittleFS.open(path, "r");
     if (!f) return fail("reopen_failed", path);
     DynamicJsonDocument retryDoc(32768);
@@ -653,8 +670,8 @@ bool loadLabelsFromTemplateFile(const String &filename, uint8_t count, String *f
     }
     return true;
   }
+#endif
 
-  f.close();
   if (err) return fail(err == DeserializationError::NoMemory ? "parse_no_memory" : "parse_failed", path, &err);
 
   if (!applyTemplateLabels(doc)) return fail("labels_missing", path);

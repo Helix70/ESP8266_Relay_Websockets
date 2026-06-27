@@ -173,10 +173,50 @@ static int parseRelayNumberFromCommand(const String &command)
 
 static void buildRuntimeStatePayload(String &payload, bool includeSystemDetails)
 {
-  static DynamicJsonDocument JSONdoc(12288);
-  JSONdoc.clear();
-
   ensureMainGateToken();
+
+  if (!includeSystemDetails)
+  {
+    // Hot path: called on every relay toggle. Static allocation avoids repeated
+    // heap churn; sized for 16 relays × 4 fields + 5 top-level fields (~900 bytes actual).
+    static DynamicJsonDocument JSONdoc(1536);
+    JSONdoc.clear();
+
+    JsonArray array = JSONdoc.createNestedArray("buttons");
+    for (int i = 0; i < relayCount; i++)
+    {
+      JsonObject button = array.createNestedObject();
+      button["id"] = i + 1;
+      button["on"] = relays[i].on;
+      button["d"] = relays[i].disabled;
+      button["last"] = relays[i].last;
+    }
+
+    JSONdoc["boardName"] = boardName;
+    JSONdoc["bootSessionId"] = mainGateToken;
+    JSONdoc["setupComplete"] = (relayCount > 0 && hardwareVariant.length() > 0);
+    JSONdoc["n"] = relayCount;
+    JSONdoc["selectedRelayTemplate"] = selectedRelayTemplateFilename;
+
+    payload = "";
+    serializeJson(JSONdoc, payload);
+    return;
+  }
+
+  // Full state path: only called when a new client connects. Allocated on demand
+  // and freed on return so 6 KB is not held permanently between connections.
+#ifdef ESP8266
+  if (ESP.getMaxFreeBlockSize() < 8192)
+  {
+    Serial.printf("[WS] Heap too fragmented for full state: free=%lu maxBlock=%lu\n",
+                  (unsigned long)ESP.getFreeHeap(),
+                  (unsigned long)ESP.getMaxFreeBlockSize());
+    payload = "";
+    return;
+  }
+#endif
+
+  DynamicJsonDocument JSONdoc(6144);
 
   JsonArray array = JSONdoc.createNestedArray("buttons");
   for (int i = 0; i < relayCount; i++)
@@ -184,54 +224,48 @@ static void buildRuntimeStatePayload(String &payload, bool includeSystemDetails)
     JsonObject button = array.createNestedObject();
     button["id"] = i + 1;
     button["on"] = relays[i].on;
-    button["disabled"] = relays[i].disabled;
+    button["d"] = relays[i].disabled;
     button["last"] = relays[i].last;
-    if (includeSystemDetails)
-    {
-      button["onLabel"] = relayLabels[i].on;
-      button["offLabel"] = relayLabels[i].off;
-      button["mode"] = relayLabels[i].mode;
-      button["group"] = relayLabels[i].group;
-      button["pulseTimeout"] = relayLabels[i].pulseTimeout;
-      button["gpio"] = (relays[i].pin == 255) ? -1 : (int)relays[i].pin;
-    }
+    button["onLabel"] = relayLabels[i].on;
+    button["offLabel"] = relayLabels[i].off;
+    button["m"] = relayLabels[i].mode;
+    button["g"] = relayLabels[i].group;
+    button["p"] = relayLabels[i].pulseTimeout;
+    button["gpio"] = (relays[i].pin == 255) ? -1 : (int)relays[i].pin;
   }
 
   JSONdoc["boardName"] = boardName;
   JSONdoc["bootSessionId"] = mainGateToken;
   JSONdoc["setupComplete"] = (relayCount > 0 && hardwareVariant.length() > 0);
-  JSONdoc["relayCount"] = relayCount;
+  JSONdoc["n"] = relayCount;
   JSONdoc["selectedRelayTemplate"] = selectedRelayTemplateFilename;
 
-  if (includeSystemDetails)
-  {
-    JSONdoc["useStaticIp"] = useStaticIp;
-    JSONdoc["useDhcp"] = !useStaticIp;
+  JSONdoc["useStaticIp"] = useStaticIp;
+  JSONdoc["useDhcp"] = !useStaticIp;
 
-    String activeIp = useStaticIp ? boardIp.toString() : WiFi.localIP().toString();
-    String activeDns = useStaticIp ? boardDns.toString() : WiFi.dnsIP().toString();
-    String activeGateway = useStaticIp ? boardGateway.toString() : WiFi.gatewayIP().toString();
-    String activeSubnet = useStaticIp ? boardSubnet.toString() : WiFi.subnetMask().toString();
+  String activeIp = useStaticIp ? boardIp.toString() : WiFi.localIP().toString();
+  String activeDns = useStaticIp ? boardDns.toString() : WiFi.dnsIP().toString();
+  String activeGateway = useStaticIp ? boardGateway.toString() : WiFi.gatewayIP().toString();
+  String activeSubnet = useStaticIp ? boardSubnet.toString() : WiFi.subnetMask().toString();
 
-    wl_status_t wifiStatus = WiFi.status();
-    bool wifiConnected = (wifiStatus == WL_CONNECTED);
+  wl_status_t wifiStatus = WiFi.status();
+  bool wifiConnected = (wifiStatus == WL_CONNECTED);
 
-    JSONdoc["ipAddress"] = activeIp;
-    JSONdoc["dns"] = activeDns;
-    JSONdoc["gateway"] = activeGateway;
-    JSONdoc["subnet"] = activeSubnet;
-    JSONdoc["wifiConnected"] = wifiConnected;
-    JSONdoc["wifiConfiguredSsid"] = wifiSsid;
-    JSONdoc["wifiConnectedSsid"] = wifiConnected ? WiFi.SSID() : "";
-    JSONdoc["wifiRssi"] = wifiConnected ? WiFi.RSSI() : 0;
-    JSONdoc["wifiRescanInProgress"] = wifiRescanInProgress;
-    JSONdoc["wifiRescanStatus"] = wifiRescanStatus;
+  JSONdoc["ipAddress"] = activeIp;
+  JSONdoc["dns"] = activeDns;
+  JSONdoc["gateway"] = activeGateway;
+  JSONdoc["subnet"] = activeSubnet;
+  JSONdoc["wifiConnected"] = wifiConnected;
+  JSONdoc["wifiConfiguredSsid"] = wifiSsid;
+  JSONdoc["wifiConnectedSsid"] = wifiConnected ? WiFi.SSID() : "";
+  JSONdoc["wifiRssi"] = wifiConnected ? WiFi.RSSI() : 0;
+  JSONdoc["wifiRescanInProgress"] = wifiRescanInProgress;
+  JSONdoc["wifiRescanStatus"] = wifiRescanStatus;
 
-    JSONdoc["doDelay"] = doDelay;
-    JSONdoc["startupDelaySeconds"] = startupDelaySeconds;
-    JSONdoc["connectStrongestOnStartup"] = connectStrongestOnStartup;
-    JSONdoc["mcuType"] = BOARD_CPU_TYPE;
-  }
+  JSONdoc["doDelay"] = doDelay;
+  JSONdoc["startupDelaySeconds"] = startupDelaySeconds;
+  JSONdoc["connectStrongestOnStartup"] = connectStrongestOnStartup;
+  JSONdoc["mcuType"] = BOARD_CPU_TYPE;
 
   payload = "";
   serializeJson(JSONdoc, payload);
@@ -284,6 +318,10 @@ static void notifyClient(AsyncWebSocketClient *client)
 
   static String payload;
   buildRuntimeStatePayload(payload, true);
+  if (payload.length() == 0)
+  {
+    return;
+  }
   Serial.printf("[WS][Home] client=%u ip=%s heap=%lu payload=%u relayCount=%u selected=%s\n",
                 (unsigned)client->id(),
                 client->remoteIP().toString().c_str(),
@@ -296,7 +334,8 @@ static void notifyClient(AsyncWebSocketClient *client)
 
 void notifyRelayStates()
 {
-  static DynamicJsonDocument doc(2048);
+  // 16 relays × 4 fields + 2 top-level fields = ~800 bytes actual usage.
+  static DynamicJsonDocument doc(1024);
   static String payload;
 
   doc.clear();
@@ -307,7 +346,7 @@ void notifyRelayStates()
     JsonObject button = array.createNestedObject();
     button["id"] = i + 1;
     button["on"] = relays[i].on;
-    button["disabled"] = relays[i].disabled;
+    button["d"] = relays[i].disabled;
     button["last"] = relays[i].last;
   }
 
@@ -333,7 +372,7 @@ void notifyRelayState(uint8_t relayNum)
   JsonObject button = array.createNestedObject();
   button["id"] = relayNum;
   button["on"] = relays[idx].on;
-  button["disabled"] = relays[idx].disabled;
+  button["d"] = relays[idx].disabled;
   button["last"] = relays[idx].last;
 
   payload = "";
@@ -364,7 +403,18 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
 
   if (str.startsWith("{"))
   {
-    DynamicJsonDocument command(4096);
+#ifdef ESP8266
+    // Guard threshold: 2560 (doc) + 512 (str already allocated) + 512 (library overhead).
+    if (ESP.getMaxFreeBlockSize() < 3072)
+    {
+      Serial.printf("[WS] Heap too fragmented for JSON command: free=%lu maxBlock=%lu\n",
+                    (unsigned long)ESP.getFreeHeap(),
+                    (unsigned long)ESP.getMaxFreeBlockSize());
+      return;
+    }
+#endif
+    // Sized for worst-case setLabels: 16 relays × {relay,on(32),off(32),mode,group,pulse} = ~2200 bytes.
+    DynamicJsonDocument command(2560);
     DeserializationError error = deserializeJson(command, str);
     if (!error)
     {
@@ -374,16 +424,16 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
         relayNum = command["relay"] | 0;
         if (relayNum > 0 && relayNum <= relayCount)
         {
-          assignRelayLabels(relayNum, String(command["on"] | ""), String(command["off"] | ""));
+          assignRelayLabels(relayNum, String(command["o"] | ""), String(command["f"] | ""));
           if (command.containsKey("mode"))
           {
-            String modeStr = String(command["mode"] | "latched");
+            String modeStr = String(command["m"] | "L");
             uint8_t mode = RELAY_MODE_ONOFF;
-            if (modeStr == "interlocked") mode = RELAY_MODE_INTERLOCKED;
-            else if (modeStr == "pulsed") mode = RELAY_MODE_PULSED;
+            if (modeStr == "I") mode = RELAY_MODE_INTERLOCKED;
+            else if (modeStr == "P") mode = RELAY_MODE_PULSED;
             assignRelayMode(relayNum, mode,
-                            (uint8_t)(command["group"] | (uint8_t)0),
-                            (uint8_t)(command["pulseTimeout"] | (uint8_t)1));
+                            (uint8_t)(command["g"] | (uint8_t)0),
+                            (uint8_t)(command["p"] | (uint8_t)1));
           }
           saveRelayLabels();
           notifyAll = true;
@@ -391,7 +441,7 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
       }
       else if (cmd == "setLabels")
       {
-        JsonArray labels = command["labels"].as<JsonArray>();
+        JsonArray labels = command["l"].as<JsonArray>();
         bool changed = false;
 
         if (!labels.isNull())
@@ -405,14 +455,14 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
             relayNum = label["relay"] | (i + 1);
             if (relayNum > 0 && relayNum <= relayCount)
             {
-              assignRelayLabels(relayNum, String(label["on"] | ""), String(label["off"] | ""));
-              String modeStr = String(label["mode"] | "latched");
+              assignRelayLabels(relayNum, String(label["o"] | ""), String(label["f"] | ""));
+              String modeStr = String(label["m"] | "L");
               uint8_t mode = RELAY_MODE_ONOFF;
-              if (modeStr == "interlocked") mode = RELAY_MODE_INTERLOCKED;
-              else if (modeStr == "pulsed") mode = RELAY_MODE_PULSED;
+              if (modeStr == "I") mode = RELAY_MODE_INTERLOCKED;
+              else if (modeStr == "P") mode = RELAY_MODE_PULSED;
               assignRelayMode(relayNum, mode,
-                              (uint8_t)(label["group"] | (uint8_t)0),
-                              (uint8_t)(label["pulseTimeout"] | (uint8_t)1));
+                              (uint8_t)(label["g"] | (uint8_t)0),
+                              (uint8_t)(label["p"] | (uint8_t)1));
               changed = true;
             }
           }
@@ -660,7 +710,7 @@ void registerRuntimeHttpRoutes()
 
     doc["boardName"] = boardName;
     doc["hardwareVariant"] = hardwareVariant;
-    doc["relayCount"] = relayCount;
+    doc["n"] = relayCount;
     doc["boardHardwareFile"] = activeBoardHardwareFilename;
     doc["boardHardwareName"] = activeBoardHardware.name;
 

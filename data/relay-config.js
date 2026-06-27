@@ -117,13 +117,13 @@ function applyRelayConfigBootstrap(data) {
     document.title = normalized + ' - Relay Configuration';
   }
 
-  if (data && typeof data.relayCount === 'number' && data.relayCount > 0) {
-    relayCount = data.relayCount;
+  if (data && typeof data.n === 'number' && data.n > 0) {
+    relayCount = data.n;
   }
 
   templateSummaryCache = {};
   allTemplates = (data && data.templates ? data.templates : []).slice().sort(function (a, b) {
-    return String(a.title || '').localeCompare(String(b.title || ''));
+    return String(a.t || '').localeCompare(String(b.t || ''));
   });
   selectedTemplateFilename = normalizeTemplateFilenameRef((data && data.selectedTemplate) || selectedTemplateFilename || '');
   refreshTemplateDropdown();
@@ -155,13 +155,13 @@ function refreshTemplateDropdown() {
     if (!relayCount) {
       return true;
     }
-    return t.relayCount === relayCount;
+    return t.n === relayCount;
   });
 
   visibleTemplates.forEach(function (t) {
     var opt = document.createElement('option');
     opt.value = t.filename;
-    opt.textContent = t.title + ((activeTemplate && t.filename === activeTemplate) ? ' (Active)' : '');
+    opt.textContent = t.t + ((activeTemplate && t.filename === activeTemplate) ? ' (Active)' : '');
     select.appendChild(opt);
   });
 
@@ -207,7 +207,7 @@ function updateTemplateSelectionStatus() {
     return t.filename === selectedTemplateFilename;
   });
 
-  var title = selected ? selected.title : selectedTemplateFilename;
+  var title = selected ? selected.t : selectedTemplateFilename;
   status.textContent = 'Selected template: ' + title;
 }
 
@@ -229,19 +229,19 @@ function buildApiErrorMessage(body, fallback) {
   return message;
 }
 
-function summarizeMode(mode, group, pulseTimeout) {
-  if (mode === 'interlocked') {
+function summarizeMode(mode, group, pulse) {
+  if (mode === 'I') {
     return 'interlocked' + (group > 0 ? (' G' + group) : '');
   }
-  if (mode === 'pulsed') {
-    return 'pulsed' + (pulseTimeout > 0 ? (' ' + pulseTimeout + 's') : '');
+  if (mode === 'P') {
+    return 'pulsed' + (pulse > 0 ? (' ' + pulse + 's') : '');
   }
   return 'latched';
 }
 
 function getCompactLabelText(label) {
-  var on = String(label.on || '').trim();
-  var off = String(label.off || '').trim();
+  var on = String(label.o || '').trim();
+  var off = String(label.f || '').trim();
 
   if (!on && !off) {
     return '(blank)';
@@ -256,9 +256,9 @@ function getCompactLabelText(label) {
 }
 
 function normalizeSummaryMode(modeValue) {
-  var mode = String(modeValue || 'latched');
-  if (mode !== 'interlocked' && mode !== 'pulsed') {
-    mode = 'latched';
+  var mode = String(modeValue || 'L');
+  if (mode !== 'I' && mode !== 'P') {
+    mode = 'L';
   }
   return mode;
 }
@@ -271,7 +271,7 @@ function renderTemplateSummaryDoc(doc, filename) {
 
   container.innerHTML = '';
 
-  var labels = Array.isArray(doc.labels) ? doc.labels : [];
+  var labels = Array.isArray(doc.l) ? doc.l : [];
   if (!labels.length) {
     var empty = document.createElement('p');
     empty.className = 'template-summary-error';
@@ -280,17 +280,17 @@ function renderTemplateSummaryDoc(doc, filename) {
     return;
   }
 
-  var title = String(doc.title || filename);
+  var title = String(doc.t || filename);
   var header = document.createElement('p');
   header.className = 'template-summary-header';
   header.textContent = title;
   container.appendChild(header);
 
-  var modeCounts = { latched: 0, interlocked: 0, pulsed: 0 };
+  var modeCounts = { L: 0, I: 0, P: 0 };
   labels.forEach(function (label) {
-    var mode = String(label.mode || 'latched');
-    if (mode !== 'interlocked' && mode !== 'pulsed') {
-      mode = 'latched';
+    var mode = String(label.mode || 'L');
+    if (mode !== 'I' && mode !== 'P') {
+      mode = 'L';
     }
     modeCounts[mode] += 1;
   });
@@ -299,9 +299,9 @@ function renderTemplateSummaryDoc(doc, filename) {
   meta.className = 'template-summary-meta';
   meta.textContent =
     'Relays: ' + labels.length +
-    ' | Latched: ' + modeCounts.latched +
-    ' | Interlocked: ' + modeCounts.interlocked +
-    ' | Pulsed: ' + modeCounts.pulsed;
+    ' | Latched: ' + modeCounts.L +
+    ' | Interlocked: ' + modeCounts.I +
+    ' | Pulsed: ' + modeCounts.P;
   container.appendChild(meta);
 
   var grid = document.createElement('div');
@@ -310,7 +310,7 @@ function renderTemplateSummaryDoc(doc, filename) {
   for (var i = 0; i < labels.length; i++) {
     var label = labels[i] || {};
     var mode = normalizeSummaryMode(label.mode);
-    var modeText = summarizeMode(mode, parseInt(label.group, 10) || 0, parseInt(label.pulseTimeout, 10) || 0);
+    var modeText = summarizeMode(mode, parseInt(label.g, 10) || 0, parseInt(label.p, 10) || 0);
 
     var card = document.createElement('div');
     card.className = 'relay-label-card template-summary-card';
@@ -322,13 +322,13 @@ function renderTemplateSummaryDoc(doc, filename) {
     var onRow = document.createElement('p');
     onRow.className = 'template-summary-row';
     onRow.innerHTML = '<span class="template-summary-key">ON</span><span class="template-summary-value">' +
-      escapeHtml(String(label.on || '').trim() || '(blank)') + '</span>';
+      escapeHtml(String(label.o || '').trim() || '(blank)') + '</span>';
     card.appendChild(onRow);
 
     var offRow = document.createElement('p');
     offRow.className = 'template-summary-row';
     offRow.innerHTML = '<span class="template-summary-key">OFF</span><span class="template-summary-value">' +
-      escapeHtml(String(label.off || '').trim() || '(blank)') + '</span>';
+      escapeHtml(String(label.f || '').trim() || '(blank)') + '</span>';
     card.appendChild(offRow);
 
     var modeRow = document.createElement('p');
@@ -374,7 +374,7 @@ function updateTemplateSummary() {
   fetch('/templates/' + encodeURIComponent(filename), { cache: 'no-store' })
     .then(function (response) {
       if (!response.ok) {
-        throw new Error('template not found');
+        throw new Error('template not found (HTTP ' + response.status + ')');
       }
       return response.json();
     })
@@ -456,7 +456,7 @@ function renameSelectedTemplate() {
   }
 
   var current = allTemplates.find(function (t) { return t.filename === filename; });
-  var defaultTitle = current && current.title ? current.title : filename.replace(/\.json$/i, '');
+  var defaultTitle = current && current.t ? current.t : filename.replace(/\.json$/i, '');
   var prompted = window.prompt('New template name:', defaultTitle);
   if (prompted === null) {
     return;
@@ -591,8 +591,8 @@ function uploadSelectedTemplateFile() {
     var labels = [];
     if (Array.isArray(doc)) {
       labels = doc;
-    } else if (doc && Array.isArray(doc.labels)) {
-      labels = doc.labels;
+    } else if (doc && Array.isArray(doc.l)) {
+      labels = doc.l;
     }
 
     if (!labels.length) {
@@ -602,7 +602,7 @@ function uploadSelectedTemplateFile() {
       return;
     }
 
-    var relayCount = parseInt(doc && doc.relayCount, 10);
+    var relayCount = parseInt(doc && doc.n, 10);
     if (!relayCount || relayCount < 1 || relayCount > 16) {
       relayCount = labels.length;
     }
@@ -634,26 +634,26 @@ function uploadSelectedTemplateFile() {
     for (var i = 0; i < relayCount; i++) {
       var relayIndex = i + 1;
       var label = labels[i] || {};
-      var mode = String(label.mode || 'latched');
-      if (mode !== 'interlocked' && mode !== 'pulsed') {
-        mode = 'latched';
+      var mode = String(label.mode || 'L');
+      if (mode !== 'I' && mode !== 'P') {
+        mode = 'L';
       }
 
-      var group = parseInt(label.group, 10);
+      var group = parseInt(label.g, 10);
       if (!group || group < 0) {
         group = 0;
       }
 
-      var pulseTimeout = parseInt(label.pulseTimeout, 10);
-      if (!pulseTimeout || pulseTimeout < 1 || pulseTimeout > 30) {
-        pulseTimeout = 1;
+      var pulse = parseInt(label.p, 10);
+      if (!pulse || pulse < 1 || pulse > 30) {
+        pulse = 1;
       }
 
-      payload.set('relay' + relayIndex + '_on', String(label.on || ''));
-      payload.set('relay' + relayIndex + '_off', String(label.off || ''));
+      payload.set('relay' + relayIndex + '_on', String(label.o || ''));
+      payload.set('relay' + relayIndex + '_off', String(label.f || ''));
       payload.set('relay' + relayIndex + '_mode', mode);
-      payload.set('relay' + relayIndex + '_group', String(mode === 'interlocked' ? group : 0));
-      payload.set('relay' + relayIndex + '_pulseTimeout', String(mode === 'pulsed' ? pulseTimeout : 0));
+      payload.set('relay' + relayIndex + '_group', String(mode === 'I' ? group : 0));
+      payload.set('relay' + relayIndex + '_pulse', String(mode === 'P' ? pulse : 0));
     }
 
     fetch('/api/templates', {

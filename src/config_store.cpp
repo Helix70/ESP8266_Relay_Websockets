@@ -249,6 +249,10 @@ uint8_t parseTemplateRelayCount(const String &filename)
   uint8_t relayCount = detectTemplateRelayCountFromFilename(cleanName);
 
   int relayKey = probe.indexOf("\"relayCount\"");
+  if (relayKey < 0)
+  {
+    relayKey = probe.indexOf("\"n\"");
+  }
   if (relayKey >= 0)
   {
     int colon = probe.indexOf(':', relayKey);

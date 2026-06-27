@@ -107,9 +107,9 @@ size_t estimateTemplateWriteBytesFromLabels(const String &title, uint8_t rc, con
   for (uint8_t i = 0; i < rc; i++)
   {
     JsonObject src = labels[i];
-    estimate += (size_t)String(src["on"] | "").length() * 2;
-    estimate += (size_t)String(src["off"] | "").length() * 2;
-    estimate += (size_t)String(src["mode"] | "latched").length() * 2;
+    estimate += (size_t)String(src["o"] | "").length() * 2;
+    estimate += (size_t)String(src["f"] | "").length() * 2;
+    estimate += (size_t)String(src["m"] | "L").length() * 2;
   }
   return estimate;
 }
@@ -349,7 +349,7 @@ bool parseTemplateListEntryMetadata(const String &filename, File &file, uint8_t 
     probe += (char)file.read();
   }
 
-  int titleKey = probe.indexOf("\"title\"");
+  int titleKey = probe.indexOf("\"t\"");
   if (titleKey >= 0)
   {
     int colon = probe.indexOf(':', titleKey);
@@ -369,7 +369,7 @@ bool parseTemplateListEntryMetadata(const String &filename, File &file, uint8_t 
     }
   }
 
-  int relayKey = probe.indexOf("\"relayCount\"");
+  int relayKey = probe.indexOf("\"n\"");
   if (relayKey >= 0)
   {
     int colon = probe.indexOf(':', relayKey);
@@ -451,9 +451,9 @@ void writeTemplateListEntriesJson(Print &out, uint8_t requiredRelayCount,
       firstEntry = false;
       out.print("{\"filename\":");
       writeEscapedJsonString(out, fname);
-      out.print(",\"title\":");
+      out.print(",\"t\":");
       writeEscapedJsonString(out, title);
-      out.print(",\"relayCount\":");
+      out.print(",\"n\":");
       out.print(entryRelayCount);
       out.print('}');
       addedEntries++;
@@ -486,9 +486,9 @@ void writeTemplateListEntriesJson(Print &out, uint8_t requiredRelayCount,
             firstEntry = false;
             out.print("{\"filename\":");
             writeEscapedJsonString(out, fname);
-            out.print(",\"title\":");
+            out.print(",\"t\":");
             writeEscapedJsonString(out, title);
-            out.print(",\"relayCount\":");
+            out.print(",\"n\":");
             out.print(entryRelayCount);
             out.print('}');
             addedEntries++;
@@ -516,29 +516,29 @@ bool writeTemplateJson(const String &filename, const String &title, uint8_t rc, 
   bool ok = true;
 
   f.println("{");
-  f.print("  \"title\": ");
+  f.print("  \"t\": ");
   writeEscapedJsonString(f, title);
   f.println(",");
-  f.print("  \"relayCount\": ");
+  f.print("  \"n\": ");
   f.print(rc);
   f.println(",");
-  f.println("  \"labels\": [");
+  f.println("  \"l\": [");
 
   for (uint8_t i = 0; i < rc; i++)
   {
     JsonObject src = labels[i];
 
-    String on = String(src["on"] | "");
-    String off = String(src["off"] | "");
+    String on = String(src["o"] | "");
+    String off = String(src["f"] | "");
     on.trim();
     off.trim();
 
-    String mode = String(src["mode"] | "latched");
-    if (mode != "interlocked" && mode != "pulsed") mode = "latched";
+    String mode = String(src["m"] | "L");
+    if (mode != "I" && mode != "P") mode = "L";
 
-    uint8_t group = (uint8_t)(src["group"] | (uint8_t)0);
-    uint8_t pulseTimeout = (uint8_t)(src["pulseTimeout"] | (uint8_t)0);
-    if (mode == "pulsed")
+    uint8_t group = (uint8_t)(src["g"] | (uint8_t)0);
+    uint8_t pulseTimeout = (uint8_t)(src["p"] | (uint8_t)0);
+    if (mode == "P")
     {
       if (pulseTimeout == 0 || pulseTimeout > kMaxPulseTimeoutSeconds)
       {
@@ -550,15 +550,15 @@ bool writeTemplateJson(const String &filename, const String &title, uint8_t rc, 
       pulseTimeout = 0;
     }
 
-    f.print("    {\"on\": ");
+    f.print("    {\"o\": ");
     writeEscapedJsonString(f, on);
-    f.print(", \"off\": ");
+    f.print(", \"f\": ");
     writeEscapedJsonString(f, off);
-    f.print(", \"mode\": ");
+    f.print(", \"m\": ");
     writeEscapedJsonString(f, mode);
-    f.print(", \"group\": ");
+    f.print(", \"g\": ");
     f.print(group);
-    f.print(", \"pulseTimeout\": ");
+    f.print(", \"p\": ");
     f.print(pulseTimeout);
     f.print("}");
     if (i + 1 < rc)
@@ -616,13 +616,13 @@ bool writeTemplateJsonFromRequest(AsyncWebServerRequest *request, const String &
   bool ok = true;
 
   f.println("{");
-  f.print("  \"title\": ");
+  f.print("  \"t\": ");
   writeEscapedJsonString(f, title);
   f.println(",");
-  f.print("  \"relayCount\": ");
+  f.print("  \"n\": ");
   f.print(rc);
   f.println(",");
-  f.println("  \"labels\": [");
+  f.println("  \"l\": [");
 
   for (uint8_t i = 1; i <= rc; i++)
   {
@@ -633,11 +633,11 @@ bool writeTemplateJsonFromRequest(AsyncWebServerRequest *request, const String &
     offLabel.trim();
 
     String modeStr = routeGetBodyParam(request, (prefix + "_mode").c_str());
-    if (modeStr != "interlocked" && modeStr != "pulsed") modeStr = "latched";
+    if (modeStr != "I" && modeStr != "P") modeStr = "L";
 
     uint8_t group = (uint8_t)routeGetBodyParam(request, (prefix + "_group").c_str()).toInt();
-    uint8_t pt = (uint8_t)routeGetBodyParam(request, (prefix + "_pulseTimeout").c_str()).toInt();
-    if (modeStr == "pulsed")
+    uint8_t pt = (uint8_t)routeGetBodyParam(request, (prefix + "_pulse").c_str()).toInt();
+    if (modeStr == "P")
     {
       if (pt == 0 || pt > kMaxPulseTimeoutSeconds) pt = kDefaultPulseTimeoutSeconds;
     }
@@ -646,15 +646,15 @@ bool writeTemplateJsonFromRequest(AsyncWebServerRequest *request, const String &
       pt = 0;
     }
 
-    f.print("    {\"on\": ");
+    f.print("    {\"o\": ");
     writeEscapedJsonString(f, onLabel);
-    f.print(", \"off\": ");
+    f.print(", \"f\": ");
     writeEscapedJsonString(f, offLabel);
-    f.print(", \"mode\": ");
+    f.print(", \"m\": ");
     writeEscapedJsonString(f, modeStr);
-    f.print(", \"group\": ");
+    f.print(", \"g\": ");
     f.print(group);
-    f.print(", \"pulseTimeout\": ");
+    f.print(", \"p\": ");
     f.print(pt);
     f.print("}");
     if (i < rc)
@@ -711,7 +711,7 @@ void registerTemplateRoutes()
     response->print('{');
     response->print("\"boardName\":");
     writeEscapedJsonString(*response, boardName);
-    response->print(",\"relayCount\":");
+    response->print(",\"n\":");
     response->print(relayCount);
     response->print(",\"selectedTemplate\":");
     writeEscapedJsonString(*response, selectedRelayTemplateFilename);
@@ -819,7 +819,7 @@ void registerTemplateRoutes()
       String rawContent = routeGetBodyParam(request, "content");
       if (rawContent.length() == 0)
       {
-        uint8_t rc = (uint8_t)routeGetBodyParam(request, "relayCount").toInt();
+        uint8_t rc = (uint8_t)routeGetBodyParam(request, "n").toInt();
         if (rc == 0 || rc > APP_MAX_RELAYS)
         {
           Serial.printf("[RelayConfig][Upload] reject ip=%s reason=content_required heap=%lu\n",
@@ -927,7 +927,7 @@ void registerTemplateRoutes()
         return;
       }
 
-      JsonArray labels = inDoc["labels"].as<JsonArray>();
+      JsonArray labels = inDoc["l"].as<JsonArray>();
       if (labels.isNull() || labels.size() == 0)
       {
         Serial.printf("[RelayConfig][Upload] reject ip=%s reason=labels_missing heap=%lu\n",
@@ -937,7 +937,7 @@ void registerTemplateRoutes()
         return;
       }
 
-      uint8_t rc = (uint8_t)(inDoc["relayCount"] | (uint8_t)labels.size());
+      uint8_t rc = (uint8_t)(inDoc["n"] | (uint8_t)labels.size());
       if (rc == 0 || rc > APP_MAX_RELAYS)
       {
         Serial.printf("[RelayConfig][Upload] reject ip=%s reason=invalid_relay_count heap=%lu rc=%u labels=%u\n",
@@ -965,7 +965,7 @@ void registerTemplateRoutes()
       title.trim();
       if (title.length() == 0)
       {
-        title = String(inDoc["title"] | "");
+        title = String(inDoc["t"] | "");
         title.trim();
       }
       if (title.length() == 0)
@@ -1207,21 +1207,21 @@ void registerTemplateRoutes()
           return;
         }
 
-        JsonArray labels = inDoc["labels"].as<JsonArray>();
+        JsonArray labels = inDoc["l"].as<JsonArray>();
         if (labels.isNull() || labels.size() == 0)
         {
           request->send(400, "application/json", "{\"ok\":false,\"error\":\"labels missing\"}");
           return;
         }
 
-        uint8_t rc = (uint8_t)(inDoc["relayCount"] | (uint8_t)labels.size());
+        uint8_t rc = (uint8_t)(inDoc["n"] | (uint8_t)labels.size());
         if (rc == 0 || rc > APP_MAX_RELAYS)
         {
           request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid relay count\"}");
           return;
         }
 
-        String existingTitle = String(inDoc["title"] | "");
+        String existingTitle = String(inDoc["t"] | "");
         existingTitle.trim();
 
         if (newFilename == normalizedFilename && existingTitle == title)
@@ -1368,14 +1368,14 @@ void registerTemplateRoutes()
       return;
     }
 
-    JsonArray labels = inDoc["labels"].as<JsonArray>();
+    JsonArray labels = inDoc["l"].as<JsonArray>();
     if (labels.isNull() || labels.size() == 0)
     {
       request->send(400, "application/json", "{\"ok\":false,\"error\":\"labels missing\"}");
       return;
     }
 
-    uint8_t rc = (uint8_t)(inDoc["relayCount"] | (uint8_t)labels.size());
+    uint8_t rc = (uint8_t)(inDoc["n"] | (uint8_t)labels.size());
     if (rc == 0 || rc > APP_MAX_RELAYS)
     {
       request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid relay count\"}");
@@ -1392,7 +1392,7 @@ void registerTemplateRoutes()
     title.trim();
     if (title.length() == 0)
     {
-      title = String(inDoc["title"] | "");
+      title = String(inDoc["t"] | "");
       title.trim();
     }
     if (title.length() == 0)

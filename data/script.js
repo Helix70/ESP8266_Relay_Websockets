@@ -110,12 +110,12 @@ function normalizeIncomingButtonState(relayId, buttonState) {
   var normalized = {
     on: !!buttonState.on,
     last: !!buttonState.last,
-    disabled: !!buttonState.disabled,
+    d: !!buttonState.d,
     onLabel: '',
     offLabel: '',
-    mode: 0,
-    group: 0,
-    pulseTimeout: 1
+    m: 0,
+    g: 0,
+    p: 1
   };
 
   if (typeof buttonState.onLabel === 'string' && buttonState.onLabel.length > 0) {
@@ -134,22 +134,22 @@ function normalizeIncomingButtonState(relayId, buttonState) {
     normalized.offLabel = ui.offSpan.textContent || '';
   }
 
-  if (typeof buttonState.mode === 'number') {
-    normalized.mode = buttonState.mode;
-  } else if (typeof prev.mode === 'number') {
-    normalized.mode = prev.mode;
+  if (typeof buttonState.m === 'number') {
+    normalized.m = buttonState.m;
+  } else if (typeof prev.m === 'number') {
+    normalized.m = prev.m;
   }
 
-  if (typeof buttonState.group === 'number') {
-    normalized.group = buttonState.group;
-  } else if (typeof prev.group === 'number') {
-    normalized.group = prev.group;
+  if (typeof buttonState.g === 'number') {
+    normalized.g = buttonState.g;
+  } else if (typeof prev.g === 'number') {
+    normalized.g = prev.g;
   }
 
-  if (typeof buttonState.pulseTimeout === 'number') {
-    normalized.pulseTimeout = buttonState.pulseTimeout;
-  } else if (typeof prev.pulseTimeout === 'number') {
-    normalized.pulseTimeout = prev.pulseTimeout;
+  if (typeof buttonState.p === 'number') {
+    normalized.p = buttonState.p;
+  } else if (typeof prev.p === 'number') {
+    normalized.p = prev.p;
   }
 
   return normalized;
@@ -169,7 +169,7 @@ function setButtonState(relayId, buttonState) {
   if (buttonState.last) button.classList.add('last');
   else button.classList.remove('last');
 
-  button.disabled = !!buttonState.disabled;
+  button.disabled = !!buttonState.d;
 
   if (ui.onSpan && typeof buttonState.onLabel === 'string' && buttonState.onLabel.length > 0) {
     ui.onSpan.textContent = buttonState.onLabel;
@@ -183,7 +183,7 @@ function setButtonState(relayId, buttonState) {
     off: ui.offSpan ? ui.offSpan.textContent : `Relay ${relayId} Off`
   };
 
-  setButtonGroupDecoration('#' + button.id, buttonState.mode, buttonState.group);
+  setButtonGroupDecoration('#' + button.id, buttonState.m, buttonState.g);
 }
 
 function didRelayStateChange(relayId, buttonState) {
@@ -192,12 +192,12 @@ function didRelayStateChange(relayId, buttonState) {
     relayButtonStateCache[relayId] = {
       on: !!buttonState.on,
       last: !!buttonState.last,
-      disabled: !!buttonState.disabled,
+      d: !!buttonState.d,
       onLabel: buttonState.onLabel || '',
       offLabel: buttonState.offLabel || '',
-      mode: buttonState.mode || 0,
-      group: buttonState.group || 0,
-      pulseTimeout: buttonState.pulseTimeout || 1
+      m: buttonState.m || 0,
+      g: buttonState.g || 0,
+      p: buttonState.p || 1
     };
     return true;
   }
@@ -205,22 +205,22 @@ function didRelayStateChange(relayId, buttonState) {
   var changed = (
     prev.on !== !!buttonState.on ||
     prev.last !== !!buttonState.last ||
-    prev.disabled !== !!buttonState.disabled ||
+    prev.d !== !!buttonState.d ||
     prev.onLabel !== (buttonState.onLabel || '') ||
     prev.offLabel !== (buttonState.offLabel || '') ||
-    prev.mode !== (buttonState.mode || 0) ||
-    prev.group !== (buttonState.group || 0)
+    prev.m !== (buttonState.m || 0) ||
+    prev.g !== (buttonState.g || 0)
   );
 
   if (changed) {
     prev.on = !!buttonState.on;
     prev.last = !!buttonState.last;
-    prev.disabled = !!buttonState.disabled;
+    prev.d = !!buttonState.d;
     prev.onLabel = buttonState.onLabel || '';
     prev.offLabel = buttonState.offLabel || '';
-    prev.mode = buttonState.mode || 0;
-    prev.group = buttonState.group || 0;
-    prev.pulseTimeout = buttonState.pulseTimeout || 1;
+    prev.m = buttonState.m || 0;
+    prev.g = buttonState.g || 0;
+    prev.p = buttonState.p || 1;
   }
 
   return changed;
@@ -357,7 +357,7 @@ function onMessage(event) {
     applySetupState(jsonObj.setupComplete);
   }
 
-  var incomingCount = jsonObj.relayCount || (jsonObj.buttons ? jsonObj.buttons.length : 0);
+  var incomingCount = jsonObj.n || (jsonObj.buttons ? jsonObj.buttons.length : 0);
   if (!isPartial && incomingCount > 0 && incomingCount !== renderedRelayCount) {
     maxRelays = incomingCount;
     renderRelayTable(incomingCount);
