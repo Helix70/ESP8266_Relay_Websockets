@@ -288,7 +288,7 @@ function renderTemplateSummaryDoc(doc, filename) {
 
   var modeCounts = { L: 0, I: 0, P: 0 };
   labels.forEach(function (label) {
-    var mode = String(label.mode || 'L');
+    var mode = String(label.m || 'L');
     if (mode !== 'I' && mode !== 'P') {
       mode = 'L';
     }
@@ -309,7 +309,7 @@ function renderTemplateSummaryDoc(doc, filename) {
 
   for (var i = 0; i < labels.length; i++) {
     var label = labels[i] || {};
-    var mode = normalizeSummaryMode(label.mode);
+    var mode = normalizeSummaryMode(label.m);
     var modeText = summarizeMode(mode, parseInt(label.g, 10) || 0, parseInt(label.p, 10) || 0);
 
     var card = document.createElement('div');
@@ -634,7 +634,7 @@ function uploadSelectedTemplateFile() {
     for (var i = 0; i < relayCount; i++) {
       var relayIndex = i + 1;
       var label = labels[i] || {};
-      var mode = String(label.mode || 'L');
+      var mode = String(label.m || 'L');
       if (mode !== 'I' && mode !== 'P') {
         mode = 'L';
       }
