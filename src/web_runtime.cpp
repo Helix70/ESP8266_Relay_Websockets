@@ -26,6 +26,15 @@ struct RuntimeWsMetrics
 
 static RuntimeWsMetrics runtimeWsMetrics;
 
+// Pending notification flags: set from interrupt context (ctx: sys), dispatched from loop().
+// ws.textAll() → makeBuffer() → new uint8_t[] must not be called from interrupt context.
+static volatile bool pendingNotifyAll = false;
+static volatile bool pendingNotifyRelayAll = false;
+static volatile bool pendingNotifyRelaySingle = false;
+static volatile uint8_t pendingNotifyRelaySingleId = 0;
+static volatile bool pendingNotifyRequester = false;
+static volatile uint32_t pendingNotifyRequesterId = 0;
+
 static uint32_t hashPayload(const char *data, size_t len)
 {
   // FNV-1a 32-bit hash for fast duplicate detection without retaining a full copy.
@@ -156,16 +165,16 @@ static bool enforceChildPageGate(AsyncWebServerRequest *request)
   return false;
 }
 
-static int parseRelayNumberFromCommand(const String &command)
+static int parseRelayNumberFromCommand(const char *cmd, size_t cmdLen)
 {
-  if (command.startsWith("button"))
+  if (cmdLen > 6 && strncmp(cmd, "button", 6) == 0)
   {
-    return command.substring(6, command.length()).toInt();
+    return atoi(cmd + 6);
   }
 
-  if (command.startsWith("relay") && command.endsWith("toggle"))
+  if (cmdLen > 11 && strncmp(cmd, "relay", 5) == 0 && strcmp(cmd + cmdLen - 6, "toggle") == 0)
   {
-    return command.substring(5, command.length() - 6).toInt();
+    return atoi(cmd + 5);
   }
 
   return 0;
@@ -374,6 +383,36 @@ void notifyRelayState(uint8_t relayNum)
   ws.textAll(payload);
 }
 
+void dispatchPendingNotifications()
+{
+  if (pendingNotifyAll)
+  {
+    pendingNotifyAll = false;
+    notifyClients();
+  }
+  if (pendingNotifyRelayAll)
+  {
+    pendingNotifyRelayAll = false;
+    notifyRelayStates();
+  }
+  if (pendingNotifyRelaySingle)
+  {
+    uint8_t relayId = pendingNotifyRelaySingleId;
+    pendingNotifyRelaySingle = false;
+    notifyRelayState(relayId);
+  }
+  if (pendingNotifyRequester)
+  {
+    uint32_t clientId = pendingNotifyRequesterId;
+    pendingNotifyRequester = false;
+    AsyncWebSocketClient *c = ws.client(clientId);
+    if (c)
+    {
+      notifyClient(c);
+    }
+  }
+}
+
 static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint8_t *data, size_t len)
 {
   AwsFrameInfo *info = (AwsFrameInfo *)arg;
@@ -382,12 +421,13 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
     return;
   }
 
-  String str;
-  str.reserve(len + 1);
-  for (size_t i = 0; i < len; i++)
-  {
-    str += (char)data[i];
-  }
+  // Static buffer avoids malloc from interrupt context (ctx: sys).
+  // Sized for worst-case setLabels: 16 relays × ~100-char labels ≈ 1700 bytes.
+  // Messages longer than this are truncated and will fail JSON parse safely.
+  static char str_buf[1700];
+  size_t copyLen = (len < sizeof(str_buf) - 1) ? len : (sizeof(str_buf) - 1);
+  memcpy(str_buf, data, copyLen);
+  str_buf[copyLen] = '\0';
 
   bool notifyAll = false;
   bool notifyRelayAll = false;
@@ -395,10 +435,10 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
   bool notifyRequester = false;
   int relayNum = 0;
 
-  if (str.startsWith("{"))
+  if (str_buf[0] == '{')
   {
 #ifdef ESP8266
-    // Guard threshold: 2560 (doc) + 512 (str already allocated) + 512 (library overhead).
+    // Guard threshold: 2560 (doc) + 512 (library overhead).
     if (ESP.getMaxFreeBlockSize() < 3072)
     {
       Serial.printf("[WS] Heap too fragmented for JSON command: free=%lu maxBlock=%lu\n",
@@ -409,7 +449,7 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
 #endif
     // Sized for worst-case setLabels: 16 relays × {relay,on(32),off(32),mode,group,pulse} = ~2200 bytes.
     DynamicJsonDocument command(2560);
-    DeserializationError error = deserializeJson(command, str);
+    DeserializationError error = deserializeJson(command, str_buf, copyLen);
     if (!error)
     {
       String cmd = String(command["cmd"] | "");
@@ -546,11 +586,11 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
       }
     }
   }
-  else if (len == 4 && str == "home")
+  else if (len == 4 && strcmp(str_buf, "home") == 0)
   {
     notifyRequester = true;
   }
-  else if (len == 6 && str == "alloff")
+  else if (len == 6 && strcmp(str_buf, "alloff") == 0)
   {
     for (relayNum = 1; relayNum <= relayCount; relayNum++)
     {
@@ -563,7 +603,7 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
   }
   else
   {
-    relayNum = parseRelayNumberFromCommand(str);
+    relayNum = parseRelayNumberFromCommand(str_buf, copyLen);
     if (relayNum > 0 && relayNum <= relayCount)
     {
       notifyRelaySingle = handlePerRelayModeToggle(relayNum);
@@ -588,24 +628,21 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
     }
   }
 
-  if (notifyAll)
-  {
-    notifyClients();
-  }
-
-  if (notifyRelayAll)
-  {
-    notifyRelayStates();
-  }
-
+  // Set pending flags only — never call ws.textAll() from interrupt context.
+  // ws.textAll() → makeBuffer() → new uint8_t[] corrupts the heap allocator
+  // and causes WDT resets or exceptions (observed: MDNSResponder crash, Exception 9).
+  // dispatchPendingNotifications() in loop() drains these flags safely.
+  if (notifyAll)      pendingNotifyAll = true;
+  if (notifyRelayAll) pendingNotifyRelayAll = true;
   if (notifyRelaySingle)
   {
-    notifyRelayState((uint8_t)relayNum);
+    pendingNotifyRelaySingleId = (uint8_t)relayNum;
+    pendingNotifyRelaySingle = true;
   }
-
   if (notifyRequester)
   {
-    notifyClient(client);
+    pendingNotifyRequesterId = client->id();
+    pendingNotifyRequester = true;
   }
 }
 

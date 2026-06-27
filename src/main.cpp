@@ -175,6 +175,7 @@ void loop()
 
   processStrongestSsidRescan();
 
+  dispatchPendingNotifications();
   ws.cleanupClients();
   processSerialCommands();
   ArduinoOTA.handle();

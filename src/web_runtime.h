@@ -6,5 +6,6 @@ void initWebSocket();
 void notifyClients();
 void notifyRelayStates();
 void notifyRelayState(uint8_t relayNum);
+void dispatchPendingNotifications();
 void registerRuntimeHttpRoutes();
 void startRuntimeServer();
