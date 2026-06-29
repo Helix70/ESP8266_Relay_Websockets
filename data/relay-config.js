@@ -28,8 +28,8 @@ function onLoad() {
   // Show the page immediately, then hydrate async data as it arrives.
   setRelayConfigPageReady();
 
-  document.getElementById('saveLabels').addEventListener('click', applySelectedTemplate);
   document.getElementById('templateSelect').addEventListener('change', onTemplateSelectionChanged);
+  document.getElementById('setActiveTemplateButton').addEventListener('click', setActiveTemplate);
   document.getElementById('openTemplateEditorButton').addEventListener('click', function () {
     window.location.href = '/template-editor.html';
   });
@@ -92,7 +92,6 @@ function loadTemplateDiagnostics() {
 }
 
 function onTemplateSelectionChanged() {
-  updateSaveButtonState();
   updateTemplateSummary();
 }
 
@@ -113,8 +112,7 @@ function applyRelayConfigBootstrap(data) {
     if (!normalized) {
       normalized = 'Relay Board';
     }
-    document.getElementById('labelsPageTitle').textContent = normalized;
-    document.title = normalized + ' - Relay Configuration';
+    document.title = normalized + ' - Template Manager';
   }
 
   if (data && typeof data.n === 'number' && data.n > 0) {
@@ -175,21 +173,6 @@ function refreshTemplateDropdown() {
 
   updateTemplateSelectionStatus();
   onTemplateSelectionChanged();
-}
-
-function updateSaveButtonState() {
-  var saveButton = document.getElementById('saveLabels');
-  var hint = document.getElementById('saveTemplateHint');
-  var filename = getSelectedTemplateFilename();
-  var enabled = !!filename;
-
-  saveButton.disabled = !enabled;
-  saveButton.textContent = enabled ? 'Save' : 'Save (select template)';
-  saveButton.title = enabled ? '' : 'Select a template to enable Save.';
-
-  if (hint) {
-    hint.style.display = enabled ? 'none' : '';
-  }
 }
 
 function updateTemplateSelectionStatus() {
@@ -389,16 +372,16 @@ function updateTemplateSummary() {
     });
 }
 
-function applySelectedTemplate() {
+function setActiveTemplate() {
   var filename = getSelectedTemplateFilename();
   if (!filename) {
-    alert('Choose a template to apply.');
+    alert('Select a template first.');
     return;
   }
 
-  var button = document.getElementById('saveLabels');
-  button.disabled = true;
-  button.textContent = 'Saving...';
+  var btn = document.getElementById('setActiveTemplateButton');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
 
   var form = new URLSearchParams();
   form.set('action', 'setactive');
@@ -412,24 +395,19 @@ function applySelectedTemplate() {
     .then(function (r) {
       return r.json().catch(function () {
         return { ok: false, error: 'invalid response' };
-      }).then(function (json) {
-        return { ok: r.ok, body: json };
-      });
+      }).then(function (json) { return { ok: r.ok, body: json }; });
     })
     .then(function (result) {
       if (!result.ok || !result.body.ok) {
-        throw new Error(buildApiErrorMessage(result.body, 'apply failed'));
+        throw new Error(result.body.error || 'set active failed');
       }
-      selectedTemplateFilename = String(result.body.selectedTemplate || filename);
-      loadTemplateList();
-      window.location.href = '/';
+      selectedTemplateFilename = normalizeTemplateFilenameRef(result.body.selectedTemplate || filename);
+      refreshTemplateDropdown();
     })
-    .catch(function (e) {
-      alert('Save failed: ' + e.message);
-    })
+    .catch(function (e) { alert('Set active template failed: ' + e.message); })
     .finally(function () {
-      button.disabled = false;
-      button.textContent = 'Save';
+      btn.disabled = false;
+      btn.textContent = 'Set Active';
     });
 }
 

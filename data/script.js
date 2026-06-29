@@ -418,6 +418,21 @@ function initMenu() {
       menuButton.setAttribute('aria-expanded', 'false');
     }
   });
+
+  var rebootMenuItem = document.getElementById('rebootMenuItem');
+  if (rebootMenuItem) {
+    rebootMenuItem.addEventListener('click', function () {
+      menuDropdown.classList.remove('open');
+      menuButton.setAttribute('aria-expanded', 'false');
+      fetch('/api/reboot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+        body: ''
+      }).catch(function () {
+        // Device went offline — expected during reboot.
+      });
+    });
+  }
 }
 
 function initButtons() {

@@ -42,7 +42,7 @@ flowchart LR
     REL[relay_runtime\nrelay state/timers]
     STO[storage_utils\nrelay labels/templates]
     CST[config_store\nboard + Wi-Fi + selected template]
-    SER[serial_commands\nreset_wifi/help]
+    SER[serial_commands\nreset_all/reset_hardware/reset_wifi/help]
   end
 
   MAIN --> NET
@@ -300,10 +300,17 @@ Hardware file controls:
 
 ## Serial Command Reference
 
-Implemented in `src/serial_commands.cpp`:
+Implemented in `src/serial_commands.cpp`. Help is printed automatically at startup.
 
-- `help`
-  - Prints available commands.
+- `reset_all`
+  - Asks for a single confirmation.
+  - Runs the hardware setup wizard, then clears Wi-Fi credentials and runs the Wi-Fi wizard.
+  - Schedules restart on completion (even if Wi-Fi wizard is skipped/cancelled — hardware config is preserved).
+
+- `reset_hardware`
+  - Asks for confirmation.
+  - Runs the hardware setup wizard: prompts for relay count (8 or 16), sets the platform-appropriate board file, saves config.
+  - On success, schedules restart.
 
 - `reset_wifi`
   - Asks for confirmation.
@@ -318,9 +325,20 @@ Implemented in `src/serial_commands.cpp`:
 - `wifi_strongest`
   - Alias of `wifi_rescan`.
 
-Serial Wi-Fi wizard behavior (`src/serial_provision.cpp`):
+- `help`
+  - Prints available commands.
+
+Serial wizard behavior (`src/serial_provision.cpp`):
+
+Hardware wizard:
+- Shows platform (ESP8266 / ESP32)
+- Prompts for relay count (8 or 16)
+- Sets `hardwareVariant` and `activeBoardHardwareFilename` to the platform-appropriate default board file
+- Saves to config store
+
+Wi-Fi wizard:
 - Scans SSIDs
-- Lets user choose by index or type SSID
+- Lets user choose by index or type SSID directly
 - Prompts for password
 - Saves credentials to config store
 

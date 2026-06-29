@@ -2,7 +2,7 @@
 <html>
 
 <head>
-  <title>Relay Board - Board Hardware</title>
+  <title>Relay Board - Board Manager</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
@@ -11,40 +11,38 @@
 
 <body>
   <div class="topnav">
-    <h1 id="boardsPageTitle">Relay Board</h1>
+    <h1>Board Manager</h1>
   </div>
 
   <div class="labels-page" data-loading="true">
-    <div class="config-card">
-      <h3>Active Board</h3>
-      <p id="activeBoardInfo" class="config-note">Connecting&hellip;</p>
-    </div>
-
     <div class="template-section">
-      <h3 class="template-section-title">Board Manager</h3>
+      <h3 class="template-section-title">Boards</h3>
       <div class="template-row template-primary-row">
         <select id="boardSelect" class="template-select">
           <option value="">-- Select a board --</option>
         </select>
-      </div>
-      <p class="labels-note">Save applies the selected board to the current hardware configuration and stores it for boot.</p>
-      <p id="saveBoardHint" class="config-note">Select a board to enable Save.</p>
-      <p id="boardStatus" class="config-note">Selected board: none</p>
-      <div class="template-actions-row">
+        <button id="setActiveBoardButton" class="button button-inline" type="button">Set Active</button>
         <button id="editBoardButton" class="button button-inline" type="button">Edit</button>
-        <button id="newBoardButton" class="button button-inline" type="button">New</button>
-        <button id="downloadBoardButton" class="button button-inline" type="button">Download</button>
-        <button id="uploadBoardButton" class="button button-inline" type="button">Upload</button>
-        <button id="renameBoardButton" class="button button-inline" type="button">Rename</button>
-        <button id="deleteBoardButton" class="button button-inline" type="button">Remove</button>
       </div>
-      <input id="boardUploadInput" type="file" accept=".json,application/json" style="display:none">
+
+      <div class="template-file-actions">
+        <p class="template-subtitle">File Actions</p>
+        <div class="template-row template-actions-row">
+          <button id="newBoardButton" class="button button-inline" type="button">New</button>
+          <button id="uploadBoardButton" class="button button-inline" type="button">Upload</button>
+          <button id="downloadBoardButton" class="button button-inline" type="button">Download</button>
+          <button id="renameBoardButton" class="button button-inline" type="button">Rename</button>
+          <button id="deleteBoardButton" class="button button-inline" type="button">Remove</button>
+        </div>
+        <input id="boardUploadInput" type="file" accept=".json,application/json" style="display:none">
+      </div>
+      <p id="boardStatus" class="config-note">Selected board: none</p>
+      <p id="activeBoardInfo" class="config-note">Connecting&hellip;</p>
+
+      <div id="boardEditorHost"></div>
     </div>
 
-    <div id="boardEditorHost"></div>
-
     <div class="config-buttons">
-      <p><button id="setActiveBoardButton" class="button">Save</button></p>
       <p><button id="backButton" class="button">Back</button></p>
     </div>
   </div>

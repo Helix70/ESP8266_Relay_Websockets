@@ -97,6 +97,19 @@ h1 {
   background: #eef2f4;
 }
 
+button.menu-item {
+  border: none;
+  width: 100%;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.menu-divider {
+  border: none;
+  border-top: 1px solid #e0e4ec;
+  margin: 4px 0;
+}
+
 body {
   margin: 0;
 }

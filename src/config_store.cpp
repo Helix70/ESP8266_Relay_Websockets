@@ -507,6 +507,35 @@ bool saveBoardConfig()
 #endif
 }
 
+bool clearBoardConfig()
+{
+#ifdef ESP32
+  Preferences prefs;
+  if (!prefs.begin("board", false))
+  {
+    return false;
+  }
+  prefs.clear();
+  prefs.end();
+  return true;
+#elif defined(ESP8266)
+  EEPROM.begin((int)kEepromTotalSize);
+  for (int i = 0; i < 4; i++)
+  {
+    EEPROM.write(kBoardConfigHeaderOffsetMagic + i, 0);
+  }
+  bool ok = EEPROM.commit();
+  EEPROM.end();
+  return ok;
+#else
+  if (LittleFS.exists(kBoardConfigPath))
+  {
+    return LittleFS.remove(kBoardConfigPath);
+  }
+  return true;
+#endif
+}
+
 void loadBoardConfig()
 {
   boardName = kDefaultBoardName;

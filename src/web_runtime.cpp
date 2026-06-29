@@ -180,24 +180,32 @@ static int parseRelayNumberFromCommand(const char *cmd, size_t cmdLen)
   return 0;
 }
 
-static void buildRuntimeStatePayload(String &payload)
+static void buildRuntimeStatePayload(char *payload, size_t payloadSize)
 {
+  payload[0] = '\0';
   ensureMainGateToken();
 
   // Full state path: only called when a new client connects ("home" command).
-  // Allocated on demand and freed on return so 6 KB is not held permanently.
+  // Static allocation so the 6 KB arena is claimed once and never returned to
+  // the heap pool — eliminates the repeated alloc/free that fragments the heap.
+  // Guard threshold is 3072: the static doc needs no new heap after first call;
+  // only the AsyncWebSocket frame buffer (~2600 bytes) needs contiguous space.
 #ifdef ESP8266
-  if (ESP.getMaxFreeBlockSize() < 8192)
+  if (ESP.getMaxFreeBlockSize() < 3072)
   {
     Serial.printf("[WS] Heap too fragmented for full state: free=%lu maxBlock=%lu\n",
                   (unsigned long)ESP.getFreeHeap(),
                   (unsigned long)ESP.getMaxFreeBlockSize());
-    payload = "";
     return;
   }
 #endif
 
-  DynamicJsonDocument JSONdoc(6144);
+  // Serves the main page only: relay states, labels, and basic board info.
+  // Network/WiFi/MCU/delay fields removed — config page fetches those via /netinfo.
+  // StaticJsonDocument: arena in BSS, not heap.
+  // Capacity: 16 relays × 10 fields × 16 bytes + 16×2×33 label pool + root ≈ 3900 bytes.
+  static StaticJsonDocument<4096> JSONdoc;
+  JSONdoc.clear();
 
   JsonArray array = JSONdoc.createNestedArray("buttons");
   for (int i = 0; i < relayCount; i++)
@@ -221,35 +229,7 @@ static void buildRuntimeStatePayload(String &payload)
   JSONdoc["n"] = relayCount;
   JSONdoc["selectedRelayTemplate"] = selectedRelayTemplateFilename;
 
-  JSONdoc["useStaticIp"] = useStaticIp;
-  JSONdoc["useDhcp"] = !useStaticIp;
-
-  String activeIp = useStaticIp ? boardIp.toString() : WiFi.localIP().toString();
-  String activeDns = useStaticIp ? boardDns.toString() : WiFi.dnsIP().toString();
-  String activeGateway = useStaticIp ? boardGateway.toString() : WiFi.gatewayIP().toString();
-  String activeSubnet = useStaticIp ? boardSubnet.toString() : WiFi.subnetMask().toString();
-
-  wl_status_t wifiStatus = WiFi.status();
-  bool wifiConnected = (wifiStatus == WL_CONNECTED);
-
-  JSONdoc["ipAddress"] = activeIp;
-  JSONdoc["dns"] = activeDns;
-  JSONdoc["gateway"] = activeGateway;
-  JSONdoc["subnet"] = activeSubnet;
-  JSONdoc["wifiConnected"] = wifiConnected;
-  JSONdoc["wifiConfiguredSsid"] = wifiSsid;
-  JSONdoc["wifiConnectedSsid"] = wifiConnected ? WiFi.SSID() : "";
-  JSONdoc["wifiRssi"] = wifiConnected ? WiFi.RSSI() : 0;
-  JSONdoc["wifiRescanInProgress"] = wifiRescanInProgress;
-  JSONdoc["wifiRescanStatus"] = wifiRescanStatus;
-
-  JSONdoc["doDelay"] = doDelay;
-  JSONdoc["startupDelaySeconds"] = startupDelaySeconds;
-  JSONdoc["connectStrongestOnStartup"] = connectStrongestOnStartup;
-  JSONdoc["mcuType"] = BOARD_CPU_TYPE;
-
-  payload = "";
-  serializeJson(JSONdoc, payload);
+  serializeJson(JSONdoc, payload, payloadSize);
 }
 
 void notifyClients()
@@ -257,14 +237,13 @@ void notifyClients()
   // Hot path: called on every config change (setLabel, setBoardName, etc.).
   // Uses char[] to avoid String realloc from interrupt context (ctx: sys).
   // Sized for 16 relays × 4 fields + 6 top-level fields: worst-case ~750 chars.
-  static DynamicJsonDocument JSONdoc(1536);
+  DynamicJsonDocument JSONdoc(1536);
   static char payload[1024];
   static uint32_t lastPayloadHash = 0;
   static size_t lastPayloadLen = 0;
   uint32_t buildStartUs = micros();
 
   ensureMainGateToken();
-  JSONdoc.clear();
   JsonArray array = JSONdoc.createNestedArray("buttons");
   for (int i = 0; i < relayCount; i++)
   {
@@ -317,9 +296,11 @@ static void notifyClient(AsyncWebSocketClient *client)
     return;
   }
 
-  static String payload;
-  buildRuntimeStatePayload(payload);
-  if (payload.length() == 0)
+  // Static char array: sized for 16 relays × ~150 chars + ~500 chars config fields.
+  // Avoids the String realloc chain (1→2→4→...→4096 bytes) on every "home" response.
+  static char payload[3200];
+  buildRuntimeStatePayload(payload, sizeof(payload));
+  if (payload[0] == '\0')
   {
     return;
   }
@@ -327,7 +308,7 @@ static void notifyClient(AsyncWebSocketClient *client)
                 (unsigned)client->id(),
                 client->remoteIP().toString().c_str(),
                 (unsigned long)ESP.getFreeHeap(),
-                (unsigned)payload.length(),
+                (unsigned)strlen(payload),
                 (unsigned)relayCount,
                 selectedRelayTemplateFilename.c_str());
   client->text(payload);
@@ -338,11 +319,9 @@ void notifyRelayStates()
   // Capacity: JSON_OBJECT_SIZE(2) + JSON_ARRAY_SIZE(MAX) + MAX*JSON_OBJECT_SIZE(4)
   // On ESP8266 (sizeof(VariantSlot)=16): 32+256+1024 = 1312 bytes minimum.
   // char[] avoids String realloc from interrupt context (ctx: sys).
-  static DynamicJsonDocument doc(
-      JSON_OBJECT_SIZE(2) + JSON_ARRAY_SIZE(APP_MAX_RELAYS) + APP_MAX_RELAYS * JSON_OBJECT_SIZE(4));
+  DynamicJsonDocument doc(JSON_OBJECT_SIZE(2) + JSON_ARRAY_SIZE(APP_MAX_RELAYS) + APP_MAX_RELAYS * JSON_OBJECT_SIZE(4));
   static char payload[640];
 
-  doc.clear();
   doc["partial"] = true;
   JsonArray array = doc.createNestedArray("buttons");
   for (uint8_t i = 0; i < relayCount; i++)
@@ -367,10 +346,9 @@ void notifyRelayState(uint8_t relayNum)
 
   uint8_t idx = relayNum - 1;
   // char[] avoids String realloc from interrupt context (ctx: sys).
-  static DynamicJsonDocument doc(256);
+  DynamicJsonDocument doc(256);
   static char payload[128];
 
-  doc.clear();
   doc["partial"] = true;
   JsonArray array = doc.createNestedArray("buttons");
   JsonObject button = array.createNestedObject();
@@ -437,17 +415,6 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
 
   if (str_buf[0] == '{')
   {
-#ifdef ESP8266
-    // Guard threshold: 2560 (doc) + 512 (library overhead).
-    if (ESP.getMaxFreeBlockSize() < 3072)
-    {
-      Serial.printf("[WS] Heap too fragmented for JSON command: free=%lu maxBlock=%lu\n",
-                    (unsigned long)ESP.getFreeHeap(),
-                    (unsigned long)ESP.getMaxFreeBlockSize());
-      return;
-    }
-#endif
-    // Sized for worst-case setLabels: 16 relays × {relay,on(32),off(32),mode,group,pulse} = ~2200 bytes.
     DynamicJsonDocument command(2560);
     DeserializationError error = deserializeJson(command, str_buf, copyLen);
     if (!error)
@@ -729,7 +696,9 @@ void registerRuntimeHttpRoutes()
 
   server.on("/netinfo", HTTP_GET, [](AsyncWebServerRequest *request)
             {
-    DynamicJsonDocument doc(512);
+    // 18 fields × ~16 bytes slot overhead + ~600 bytes string data ≈ 900 bytes; 1024 for safety.
+    DynamicJsonDocument doc(1024);
+    static char payload[1024];
 
     String activeIp = useStaticIp ? boardIp.toString() : WiFi.localIP().toString();
     String activeDns = useStaticIp ? boardDns.toString() : WiFi.dnsIP().toString();
@@ -766,8 +735,14 @@ void registerRuntimeHttpRoutes()
     doc["mcuType"] = "Unknown";
   #endif
 
-    String payload;
-    serializeJson(doc, payload);
+    doc["doDelay"] = doDelay;
+    doc["startupDelaySeconds"] = startupDelaySeconds;
+    doc["connectStrongestOnStartup"] = connectStrongestOnStartup;
+    doc["setupComplete"] = (relayCount > 0 && hardwareVariant.length() > 0);
+    ensureMainGateToken();
+    doc["bootSessionId"] = mainGateToken;
+
+    serializeJson(doc, payload, sizeof(payload));
     request->send(200, "application/json", payload); });
 
   server.serveStatic("/", LittleFS, "/");

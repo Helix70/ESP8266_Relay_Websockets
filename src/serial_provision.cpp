@@ -16,6 +16,11 @@ constexpr size_t kMaxPasswordLength = 64;
 extern bool reportSignalStrength;
 extern String wifiSsid;
 extern String wifiPassword;
+extern bool useStaticIp;
+extern IPAddress boardIp;
+extern IPAddress boardDns;
+extern IPAddress boardGateway;
+extern IPAddress boardSubnet;
 
 String readSerialLineBlocking()
 {
@@ -40,9 +45,30 @@ String readSerialLineBlocking()
   }
 }
 
+static bool promptForIpAddress(const char *label, IPAddress &out)
+{
+  for (int attempt = 0; attempt < 3; attempt++)
+  {
+    Serial.printf("%s: ", label);
+    String input = readSerialLineBlocking();
+    input.trim();
+    if (input.length() == 0)
+    {
+      Serial.println("Required. Try again.");
+      continue;
+    }
+    if (out.fromString(input))
+    {
+      return true;
+    }
+    Serial.println("Invalid format. Use dotted-decimal (e.g. 192.168.1.1).");
+  }
+  return false;
+}
+
 bool runSerialWiFiProvisioningWizard()
 {
-  Serial.println("\n=== Wi-Fi provisioning ===");
+  Serial.println("\n=== Wi-Fi Setup ===");
   Serial.println("Scanning for SSIDs...");
   reportSignalStrength = false;
 
@@ -58,7 +84,7 @@ bool runSerialWiFiProvisioningWizard()
   }
   else
   {
-    Serial.println("No SSIDs found by scan. You can still enter one manually.");
+    Serial.println("No SSIDs found. You can still enter one manually.");
   }
 
   Serial.println("Enter SSID number from the list, or type SSID text directly:");
@@ -66,7 +92,7 @@ bool runSerialWiFiProvisioningWizard()
   ssidInput.trim();
   if (ssidInput.length() == 0)
   {
-    Serial.println("No SSID provided. Aborting Wi-Fi provisioning.");
+    Serial.println("No SSID provided. Aborting.");
     WiFi.scanDelete();
     return false;
   }
@@ -112,15 +138,53 @@ bool runSerialWiFiProvisioningWizard()
     enteredPassword = enteredPassword.substring(0, kMaxPasswordLength);
   }
 
+  // Network configuration
+  Serial.println("\n=== Network Setup ===");
+  Serial.println("Use DHCP? [Y/n]:");
+  String dhcpInput = readSerialLineBlocking();
+  dhcpInput.trim();
+  dhcpInput.toLowerCase();
+
+  bool newUseDhcp = !(dhcpInput == "n" || dhcpInput == "no");
+
+  IPAddress newIp, newDns, newGateway, newSubnet;
+  if (!newUseDhcp)
+  {
+    bool ipOk = promptForIpAddress("IP Address", newIp) &&
+                promptForIpAddress("DNS", newDns) &&
+                promptForIpAddress("Gateway", newGateway) &&
+                promptForIpAddress("Subnet Mask", newSubnet);
+    if (!ipOk)
+    {
+      Serial.println("Invalid IP configuration. Defaulting to DHCP.");
+      newUseDhcp = true;
+    }
+  }
+
   wifiSsid = selectedSsid;
   wifiPassword = enteredPassword;
+  useStaticIp = !newUseDhcp;
+  if (!newUseDhcp)
+  {
+    boardIp = newIp;
+    boardDns = newDns;
+    boardGateway = newGateway;
+    boardSubnet = newSubnet;
+  }
 
   if (!saveBoardConfig())
   {
-    Serial.println("Failed to save Wi-Fi credentials to configuration");
+    Serial.println("Failed to save configuration.");
     return false;
   }
 
-  Serial.println("Wi-Fi credentials saved to configuration.");
+  if (newUseDhcp)
+  {
+    Serial.printf("Saved: SSID=%s, DHCP\n", selectedSsid.c_str());
+  }
+  else
+  {
+    Serial.printf("Saved: SSID=%s, IP=%s\n", selectedSsid.c_str(), boardIp.toString().c_str());
+  }
   return true;
 }

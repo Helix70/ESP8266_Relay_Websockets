@@ -473,7 +473,7 @@ bool collectBoardDocumentFromRequest(AsyncWebServerRequest *request, DynamicJson
 void registerBoardRoutes()
 {
   server.on("/api/boards", HTTP_GET, [](AsyncWebServerRequest *request) {
-    DynamicJsonDocument doc(4096);
+    DynamicJsonDocument doc(2048);
     doc["activeBoardFile"] = activeBoardHardwareFilename;
 
     JsonArray arr = doc.createNestedArray("boards");

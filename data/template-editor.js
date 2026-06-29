@@ -796,6 +796,6 @@ function saveAsTemplate() {
     })
     .finally(function () {
       btn.disabled = false;
-      btn.textContent = 'Save Template';
+      btn.textContent = 'Save';
     });
 }

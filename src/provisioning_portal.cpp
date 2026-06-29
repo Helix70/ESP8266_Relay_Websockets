@@ -62,25 +62,83 @@ String getProvisioningApName()
 String getProvisioningHtml()
 {
   String html;
-  html.reserve(4096);
+  html.reserve(6144);
   html += "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>";
-  html += "<title>Wi-Fi Provisioning</title>";
+  html += "<title>Wi-Fi Setup</title>";
   html += "<style>body{font-family:Arial,sans-serif;background:#eef2f7;margin:0;padding:24px;}";
   html += ".card{max-width:640px;margin:0 auto;background:#fff;border-radius:12px;padding:20px;box-shadow:0 8px 24px rgba(0,0,0,.12);}";
-  html += "h1{margin:0 0 6px 0;font-size:24px;}p{color:#444;}label{display:block;margin:14px 0 6px;font-weight:600;}";
+  html += "h1{margin:0 0 6px 0;font-size:24px;}h2{margin:20px 0 8px;font-size:17px;border-top:1px solid #e0e4ec;padding-top:16px;}";
+  html += "p{color:#444;}label{display:block;margin:14px 0 6px;font-weight:600;}";
+  html += ".chk-label{display:flex;align-items:center;gap:8px;font-weight:normal;margin:12px 0 6px;cursor:pointer;}";
   html += "input,select,button{width:100%;padding:10px;border:1px solid #ccd3de;border-radius:8px;font-size:16px;box-sizing:border-box;}";
+  html += "input[type=checkbox]{width:auto;margin:0;}";
   html += "button{background:#0b5ed7;color:#fff;border:none;cursor:pointer;margin-top:14px;}button.secondary{background:#5c636a;margin-top:8px;}";
   html += "small{color:#666;}#status{margin-top:12px;font-weight:600;}</style></head><body>";
-  html += "<div class='card'><h1>Configure Wi-Fi</h1><p>Select an SSID from scan results or enter one manually.</p>";
+  html += "<div class='card'>";
+
+  // Wi-Fi section
+  html += "<h1>Wi-Fi Setup</h1><p>Connect this device to your Wi-Fi network.</p>";
   html += "<label for='ssidSelect'>Scanned SSIDs</label><select id='ssidSelect'><option value=''>Scanning...</option></select>";
   html += "<button class='secondary' type='button' onclick='scan(true)'>Rescan</button>";
-  html += "<label for='ssidInput'>SSID (manual or selected)</label><input id='ssidInput' maxlength='32' placeholder='Wi-Fi SSID'>";
+  html += "<label for='ssidInput'>SSID</label><input id='ssidInput' maxlength='32' placeholder='Wi-Fi SSID'>";
   html += "<label for='pwdInput'>Password</label><input id='pwdInput' maxlength='64' type='password' placeholder='Leave blank for open network'>";
-  html += "<button type='button' onclick='saveCfg()'>Save and Reboot</button><div id='status'></div><small>After save, this device will reboot and join your Wi-Fi network.</small></div>";
-  html += "<script>const s=document.getElementById('ssidSelect');const i=document.getElementById('ssidInput');const p=document.getElementById('pwdInput');const st=document.getElementById('status');";
+
+  // Network section
+  html += "<h2>Network</h2>";
+  html += "<label class='chk-label'><input type='checkbox' id='dhcpCheck' checked onchange='toggleStatic()'>Use DHCP (automatic IP)</label>";
+  html += "<div id='staticFields' style='display:none'>";
+  html += "<label for='ipInput'>IP Address</label><input id='ipInput' maxlength='15' placeholder='e.g. 192.168.1.100'>";
+  html += "<label for='dnsInput'>DNS</label><input id='dnsInput' maxlength='15' placeholder='e.g. 192.168.1.1'>";
+  html += "<label for='gwInput'>Gateway</label><input id='gwInput' maxlength='15' placeholder='e.g. 192.168.1.1'>";
+  html += "<label for='snInput'>Subnet Mask</label><input id='snInput' maxlength='15' placeholder='e.g. 255.255.255.0'>";
+  html += "</div>";
+
+  html += "<button type='button' onclick='saveCfg()'>Save and Reboot</button>";
+  html += "<div id='status'></div>";
+  html += "<small>After saving, this device will reboot and join your Wi-Fi network.</small>";
+  html += "</div>";
+
+  // JavaScript
+  html += "<script>";
+  html += "const s=document.getElementById('ssidSelect');";
+  html += "const i=document.getElementById('ssidInput');";
+  html += "const p=document.getElementById('pwdInput');";
+  html += "const st=document.getElementById('status');";
   html += "s.addEventListener('change',()=>{if(s.value)i.value=s.value;});";
-  html += "function scan(force){try{const u='/scan?t='+Date.now()+(force?'&rescan=1':'');const xhr=new XMLHttpRequest();xhr.open('GET',u,true);xhr.onreadystatechange=function(){if(xhr.readyState!==4)return;s.innerHTML='';if(xhr.status<200||xhr.status>=300){s.innerHTML='<option value=\"\">Scan failed</option>';st.textContent='Scan request failed: HTTP '+xhr.status;return;}let d={};try{d=JSON.parse(xhr.responseText||'{}');}catch(e){s.innerHTML='<option value=\"\">Scan failed</option>';st.textContent='Scan parse/error: '+e;return;}if(d.scanning){s.innerHTML='<option value=\"\">Scanning...</option>';st.textContent='Scanning...';setTimeout(function(){scan(false);},900);return;}const list=Array.isArray(d.ssids)?d.ssids:[];if(!list.length){s.innerHTML='<option value=\"\">No SSIDs found</option>';st.textContent='No SSIDs found. Enter one manually.';return;}s.innerHTML='<option value=\"\">Choose SSID...</option>';let visible=0;let hidden=0;list.forEach(function(x){const name=(x&&typeof x==='object')?String(x.ssid||''):String(x||'');const rssi=(x&&typeof x==='object'&&x.rssi!==undefined)?x.rssi:'?';const display=name.length?name:'(hidden network)';if(name.length)visible++;else hidden++;const o=document.createElement('option');o.value=name;o.textContent=display+' ('+rssi+' dBm)';s.appendChild(o);});st.textContent='Scan complete: '+visible+' visible, '+hidden+' hidden';};xhr.onerror=function(){s.innerHTML='<option value=\"\">Scan failed</option>';st.textContent='Scan request failed.';};xhr.send();}catch(e){s.innerHTML='<option value=\"\">Scan failed</option>';st.textContent='Scan error: '+e;}}";
-  html += "async function saveCfg(){const ssid=i.value.trim();if(!ssid){st.textContent='SSID is required.';return;}st.textContent='Saving...';const body=`ssid=${encodeURIComponent(ssid)}&password=${encodeURIComponent(p.value)}`;const r=await fetch('/save',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});const d=await r.json();if(d.ok){st.textContent='Saved. Rebooting...';}else{st.textContent='Save failed: '+(d.error||'unknown');}}scan(true);</script></body></html>";
+  html += "function toggleStatic(){document.getElementById('staticFields').style.display=document.getElementById('dhcpCheck').checked?'none':'block';}";
+  html += "function scan(force){try{const u='/scan?t='+Date.now()+(force?'&rescan=1':'');";
+  html += "const xhr=new XMLHttpRequest();xhr.open('GET',u,true);";
+  html += "xhr.onreadystatechange=function(){if(xhr.readyState!==4)return;s.innerHTML='';";
+  html += "if(xhr.status<200||xhr.status>=300){s.innerHTML='<option value=\"\">Scan failed</option>';st.textContent='Scan failed: HTTP '+xhr.status;return;}";
+  html += "let d={};try{d=JSON.parse(xhr.responseText||'{}');}catch(e){s.innerHTML='<option value=\"\">Scan failed</option>';st.textContent='Scan parse error: '+e;return;}";
+  html += "if(d.scanning){s.innerHTML='<option value=\"\">Scanning...</option>';st.textContent='Scanning...';setTimeout(function(){scan(false);},900);return;}";
+  html += "const list=Array.isArray(d.ssids)?d.ssids:[];";
+  html += "if(!list.length){s.innerHTML='<option value=\"\">No SSIDs found</option>';st.textContent='No SSIDs found. Enter one manually.';return;}";
+  html += "s.innerHTML='<option value=\"\">Choose SSID...</option>';let visible=0,hidden=0;";
+  html += "list.forEach(function(x){const name=(x&&typeof x==='object')?String(x.ssid||''):String(x||'');";
+  html += "const rssi=(x&&typeof x==='object'&&x.rssi!==undefined)?x.rssi:'?';";
+  html += "const display=name.length?name:'(hidden network)';";
+  html += "if(name.length)visible++;else hidden++;";
+  html += "const o=document.createElement('option');o.value=name;o.textContent=display+' ('+rssi+' dBm)';s.appendChild(o);});";
+  html += "st.textContent='Scan complete: '+visible+' visible, '+hidden+' hidden';};";
+  html += "xhr.onerror=function(){s.innerHTML='<option value=\"\">Scan failed</option>';st.textContent='Scan request failed.';};";
+  html += "xhr.send();}catch(e){s.innerHTML='<option value=\"\">Scan failed</option>';st.textContent='Scan error: '+e;}}";
+  html += "async function saveCfg(){";
+  html += "const ssid=i.value.trim();if(!ssid){st.textContent='SSID is required.';return;}";
+  html += "const useDhcp=document.getElementById('dhcpCheck').checked;";
+  html += "const ip=document.getElementById('ipInput').value.trim();";
+  html += "const dns=document.getElementById('dnsInput').value.trim();";
+  html += "const gw=document.getElementById('gwInput').value.trim();";
+  html += "const sn=document.getElementById('snInput').value.trim();";
+  html += "if(!useDhcp&&(!ip||!dns||!gw||!sn)){st.textContent='All static IP fields are required.';return;}";
+  html += "st.textContent='Saving...';";
+  html += "const body=`ssid=${encodeURIComponent(ssid)}&password=${encodeURIComponent(p.value)}&useDhcp=${useDhcp?'1':'0'}&ip=${encodeURIComponent(ip)}&dns=${encodeURIComponent(dns)}&gateway=${encodeURIComponent(gw)}&subnet=${encodeURIComponent(sn)}`;";
+  html += "const r=await fetch('/save',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});";
+  html += "const d=await r.json();";
+  html += "if(d.ok){st.textContent='Saved. Rebooting...';}else{st.textContent='Save failed: '+(d.error||'unknown');}";
+  html += "}";
+  html += "scan(true);";
+  html += "</script></body></html>";
   return html;
 }
 
@@ -106,6 +164,11 @@ extern String wifiSsid;
 extern String wifiPassword;
 extern bool pendingRestart;
 extern uint32_t pendingRestartAt;
+extern bool useStaticIp;
+extern IPAddress boardIp;
+extern IPAddress boardDns;
+extern IPAddress boardGateway;
+extern IPAddress boardSubnet;
 
 void startProvisioningScan()
 {
@@ -197,12 +260,16 @@ void startProvisioningPortal()
   WiFi.mode(WIFI_AP_STA);
 
   String apName = getProvisioningApName();
+  WiFi.softAPConfig(
+    IPAddress(192, 168, 4, 20),
+    IPAddress(192, 168, 4, 20),
+    IPAddress(255, 255, 255, 0));
   WiFi.softAP(apName.c_str());
 
   Serial.println("Wi-Fi credentials are not configured.");
   Serial.printf("Provisioning AP started: %s\n", apName.c_str());
   Serial.printf("Connect to AP and open: http://%s/\n", WiFi.softAPIP().toString().c_str());
-  Serial.println("To configure over serial, enter: reset_wifi");
+  Serial.println("Type 'wifi' via serial to configure Wi-Fi without the portal.");
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
             {
@@ -254,9 +321,9 @@ void startProvisioningPortal()
   server.on("/save", HTTP_POST, [](AsyncWebServerRequest *request)
             {
     Serial.printf("Provisioning HTTP POST /save from %s\n", request->client()->remoteIP().toString().c_str());
+
     String newSsid = "";
     String newPassword = "";
-
     if (request->hasParam("ssid", true))
       newSsid = request->getParam("ssid", true)->value();
     if (request->hasParam("password", true))
@@ -274,8 +341,39 @@ void startProvisioningPortal()
     if (newPassword.length() > kMaxPasswordLength)
       newPassword = newPassword.substring(0, kMaxPasswordLength);
 
+    bool newUseDhcp = true;
+    IPAddress newIp, newDns, newGateway, newSubnet;
+
+    if (request->hasParam("useDhcp", true))
+    {
+      newUseDhcp = (request->getParam("useDhcp", true)->value() != "0");
+    }
+
+    if (!newUseDhcp)
+    {
+      String ipStr = request->hasParam("ip", true) ? request->getParam("ip", true)->value() : "";
+      String dnsStr = request->hasParam("dns", true) ? request->getParam("dns", true)->value() : "";
+      String gwStr = request->hasParam("gateway", true) ? request->getParam("gateway", true)->value() : "";
+      String snStr = request->hasParam("subnet", true) ? request->getParam("subnet", true)->value() : "";
+
+      if (!newIp.fromString(ipStr) || !newDns.fromString(dnsStr) ||
+          !newGateway.fromString(gwStr) || !newSubnet.fromString(snStr))
+      {
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid IP configuration\"}");
+        return;
+      }
+    }
+
     wifiSsid = newSsid;
     wifiPassword = newPassword;
+    useStaticIp = !newUseDhcp;
+    if (!newUseDhcp)
+    {
+      boardIp = newIp;
+      boardDns = newDns;
+      boardGateway = newGateway;
+      boardSubnet = newSubnet;
+    }
 
     if (!saveBoardConfig())
     {

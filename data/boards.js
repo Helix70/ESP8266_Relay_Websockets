@@ -64,7 +64,7 @@ window.addEventListener('load', function () {
     updateBoardStatus();
   });
 
-  document.getElementById('setActiveBoardButton').addEventListener('click', setActiveSelectedBoard);
+  document.getElementById('setActiveBoardButton').addEventListener('click', setActiveBoard);
   document.getElementById('editBoardButton').addEventListener('click', editSelectedBoard);
   document.getElementById('newBoardButton').addEventListener('click', createNewBoard);
   document.getElementById('downloadBoardButton').addEventListener('click', downloadSelectedBoard);
@@ -97,8 +97,7 @@ function initWebSocket() {
       return;
     }
     if (obj.boardName) {
-      document.getElementById('boardsPageTitle').textContent = obj.boardName;
-      document.title = obj.boardName + ' - Board Hardware';
+      document.title = obj.boardName + ' - Board Manager';
     }
   };
 }
@@ -172,7 +171,6 @@ function updateBoardStatus() {
   var filename = getSelectedBoardFilename();
   if (!filename) {
     status.textContent = 'Selected board: none';
-    updateSaveButtonState();
     return;
   }
 
@@ -180,58 +178,6 @@ function updateBoardStatus() {
   var name = board ? (board.name || filename) : filename;
   var isActive = (activeBoardFile === ('/' + filename)) || (activeBoardFile === filename);
   status.textContent = 'Selected board: ' + name + (isActive ? ' (Active)' : '');
-  updateSaveButtonState();
-}
-
-function updateSaveButtonState() {
-  var saveButton = document.getElementById('setActiveBoardButton');
-  var hint = document.getElementById('saveBoardHint');
-  var filename = getSelectedBoardFilename();
-  var enabled = !!filename;
-
-  saveButton.disabled = !enabled;
-  saveButton.textContent = enabled ? 'Save' : 'Save (select board)';
-  saveButton.title = enabled ? '' : 'Select a board to enable Save.';
-
-  if (hint) {
-    hint.style.display = enabled ? 'none' : '';
-  }
-}
-
-function setActiveSelectedBoard() {
-  var filename = getSelectedBoardFilename();
-  if (!filename) {
-    alert('Select a board first.');
-    return;
-  }
-
-  var payload = new URLSearchParams();
-  payload.set('action', 'setactive');
-  payload.set('filename', filename);
-
-  fetch('/api/boards', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-    body: payload.toString()
-  })
-    .then(function (r) {
-      return r.json().catch(function () {
-        return { ok: false, error: 'invalid response' };
-      }).then(function (json) {
-        return { ok: r.ok, body: json };
-      });
-    })
-    .then(function (result) {
-      if (!result.ok || !result.body.ok) {
-        throw new Error(result.body.error || 'set active failed');
-      }
-      activeBoardFile = String(result.body.activeBoardFile || activeBoardFile || '');
-      updateBoardStatus();
-      loadBoards(filename);
-    })
-    .catch(function (e) {
-      alert('Set active failed: ' + e.message);
-    });
 }
 
 function loadBoards(preferredFilename) {
@@ -390,6 +336,16 @@ function buildEditor(cfg, filename) {
   });
   form.appendChild(saveBtn);
 
+  var cancelBtn = document.createElement('button');
+  cancelBtn.className = 'button';
+  cancelBtn.style.marginTop = '14px';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', function () {
+    currentEditorFilename = '';
+    document.getElementById('boardEditorHost').innerHTML = '';
+  });
+  form.appendChild(cancelBtn);
+
   return form;
 }
 
@@ -414,6 +370,45 @@ function openEditor(filename) {
     })
     .catch(function (e) {
       alert('Failed to load board config: ' + e.message);
+    });
+}
+
+function setActiveBoard() {
+  var filename = getSelectedBoardFilename();
+  if (!filename) {
+    alert('Select a board first.');
+    return;
+  }
+
+  var btn = document.getElementById('setActiveBoardButton');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  var payload = new URLSearchParams();
+  payload.set('action', 'setactive');
+  payload.set('filename', filename);
+
+  fetch('/api/boards', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+    body: payload.toString()
+  })
+    .then(function (r) {
+      return r.json().catch(function () {
+        return { ok: false, error: 'invalid response' };
+      }).then(function (json) { return { ok: r.ok, body: json }; });
+    })
+    .then(function (result) {
+      if (!result.ok || !result.body.ok) {
+        throw new Error(result.body.error || 'set active failed');
+      }
+      activeBoardFile = String(result.body.activeBoardFile || filename);
+      loadBoards(filename);
+    })
+    .catch(function (e) { alert('Set active board failed: ' + e.message); })
+    .finally(function () {
+      btn.disabled = false;
+      btn.textContent = 'Set Active';
     });
 }
 

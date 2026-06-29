@@ -2,9 +2,16 @@
 
 #include "app_state.h"
 #include "config_store.h"
-#include "network_manager.h"
 #include "serial_provision.h"
-#include "web_runtime.h"
+
+void printSerialHelp()
+{
+  Serial.println("Available commands:");
+  Serial.println("  help   - Show this help");
+  Serial.println("  reboot - Reboot the device");
+  Serial.println("  reset  - Erase all stored settings and reboot");
+  Serial.println("  wifi   - Clear Wi-Fi credentials, run Wi-Fi setup, then reboot");
+}
 
 static void handleSerialCommand(const String &rawCommand)
 {
@@ -17,10 +24,51 @@ static void handleSerialCommand(const String &rawCommand)
     return;
   }
 
-  if (command == "reset_wifi")
+  if (command == "help")
   {
-    Serial.println("reset_wifi received.");
-    Serial.println("Confirm clear Wi-Fi credentials and start serial Wi-Fi setup? [y/N]");
+    printSerialHelp();
+    return;
+  }
+
+  if (command == "reboot")
+  {
+    Serial.println("Rebooting...");
+    pendingRestart = true;
+    pendingRestartAt = millis() + 1000;
+    return;
+  }
+
+  if (command == "reset")
+  {
+    Serial.println("This will erase all stored settings. The filesystem is not affected.");
+    Serial.println("Confirm? [y/N]");
+    String confirmation = readSerialLineBlocking();
+    confirmation.trim();
+    confirmation.toLowerCase();
+
+    if (!(confirmation == "y" || confirmation == "yes"))
+    {
+      Serial.println("Cancelled. Settings were not changed.");
+      return;
+    }
+
+    if (clearBoardConfig())
+    {
+      Serial.println("Settings erased. Rebooting...");
+    }
+    else
+    {
+      Serial.println("Failed to erase settings. Rebooting anyway...");
+    }
+    pendingRestart = true;
+    pendingRestartAt = millis() + 1000;
+    return;
+  }
+
+  if (command == "wifi")
+  {
+    Serial.println("This will clear Wi-Fi credentials and run the Wi-Fi setup wizard.");
+    Serial.println("Confirm? [y/N]");
     String confirmation = readSerialLineBlocking();
     confirmation.trim();
     confirmation.toLowerCase();
@@ -31,60 +79,21 @@ static void handleSerialCommand(const String &rawCommand)
       return;
     }
 
-    Serial.println("Clearing Wi-Fi credentials.");
     wifiSsid = "";
     wifiPassword = "";
+    saveBoardConfig();
+    Serial.println("Wi-Fi credentials cleared. Starting setup...");
 
-    if (saveBoardConfig())
-    {
-      Serial.println("Wi-Fi credentials cleared.");
-      Serial.println("Starting serial Wi-Fi setup...");
+    runSerialWiFiProvisioningWizard();
 
-      if (runSerialWiFiProvisioningWizard())
-      {
-        Serial.println("Wi-Fi credentials saved. Restarting...");
-        pendingRestart = true;
-        pendingRestartAt = millis() + 1000;
-      }
-      else
-      {
-        Serial.println("Serial Wi-Fi setup failed or cancelled. Credentials remain blank.");
-      }
-    }
-    else
-    {
-      Serial.println("Failed to clear Wi-Fi credentials.");
-    }
-    return;
-  }
-
-  if (command == "help")
-  {
-    Serial.println("Available commands: reset_wifi, wifi_rescan, wifi_strongest, help");
-    return;
-  }
-
-  if (command == "wifi_rescan" || command == "wifi_strongest")
-  {
-    if (wifiSsid.length() == 0)
-    {
-      Serial.println("Cannot rescan: no configured SSID.");
-      return;
-    }
-
-    if (wifiRescanInProgress || wifiRescanRequested)
-    {
-      Serial.println("Wi-Fi strongest-SSID rescan already in progress.");
-      return;
-    }
-
-    requestStrongestSsidRescan();
-    notifyClients();
-    Serial.println("Queued strongest-SSID Wi-Fi rescan and reconnect.");
+    Serial.println("Rebooting...");
+    pendingRestart = true;
+    pendingRestartAt = millis() + 1000;
     return;
   }
 
   Serial.printf("Unknown command: %s\n", command.c_str());
+  Serial.println("Type 'help' for available commands.");
 }
 
 void processSerialCommands()

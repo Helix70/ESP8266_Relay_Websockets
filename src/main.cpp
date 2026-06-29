@@ -101,6 +101,7 @@ static void setupOta()
 void setup()
 {
   Serial.begin(115200);
+  printSerialHelp();
 
   bool littleFsReady = initializeRuntime();
 
@@ -114,7 +115,6 @@ void setup()
   if (wifiSsid.length() == 0)
   {
     startProvisioningPortal();
-    Serial.println("You can also provision via serial command: reset_wifi");
     return;
   }
 

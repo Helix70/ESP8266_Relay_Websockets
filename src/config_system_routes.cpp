@@ -106,18 +106,15 @@ void registerSystemConfigRoutes()
 
     DynamicJsonDocument response(128);
     response["ok"] = true;
-    response["restart"] = restartNeeded;
+    response["restart"] = true;
     response["useDhcp"] = !useStaticIp;
     response["appliedIp"] = useStaticIp ? boardIp.toString() : WiFi.localIP().toString();
     String payload;
     serializeJson(response, payload);
     request->send(200, "application/json", payload);
 
-    if (restartNeeded)
-    {
-      pendingRestart = true;
-      pendingRestartAt = millis() + 1200;
-    }
+    pendingRestart = true;
+    pendingRestartAt = millis() + 1200;
   });
 
   server.on("/api/clearwifi", HTTP_POST, [](AsyncWebServerRequest *request)
@@ -147,6 +144,13 @@ void registerSystemConfigRoutes()
     }
 
     request->send(200, "application/json", "{\"ok\":true,\"restart\":true}");
+    pendingRestart = true;
+    pendingRestartAt = millis() + 1200;
+  });
+
+  server.on("/api/reboot", HTTP_POST, [](AsyncWebServerRequest *request)
+            {
+    request->send(200, "application/json", "{\"ok\":true}");
     pendingRestart = true;
     pendingRestartAt = millis() + 1200;
   });

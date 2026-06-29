@@ -1,5 +1,3 @@
-var gateway = `ws://${window.location.hostname}/ws`;
-var websocket;
 var currentBoardName = '';
 var currentUseStaticIp = false;
 var currentIpConfig = {
@@ -18,12 +16,10 @@ var currentRelayModes = {
   doDelay: false
 };
 var connectStrongestOnStartup = false;
-var currentHardwareVariant = '8relay';
 var DEBUG_LOGS = false;
 var wifiRefreshTimer = null;
 var restartRedirectDelayTimer = null;
 var restartRedirectPollTimer = null;
-var websocketEverConnected = false;
 var suspendConfigFormHydration = false;
 var bootSessionStorageKey = 'relayBootSessionId:' + window.location.hostname;
 
@@ -57,45 +53,13 @@ function applyWifiStatusFields(state) {
   }
 
   if (wifiRescanStatusDisplay) {
-    var rescanStatusText = String((state && state.wifiRescanStatus) || 'Idle');
-    wifiRescanStatusDisplay.value = rescanStatusText;
+    wifiRescanStatusDisplay.value = String((state && state.wifiRescanStatus) || 'Idle');
   }
 
   if (rescanWifiButton) {
     var scanning = !!(state && state.wifiRescanInProgress);
     rescanWifiButton.disabled = scanning;
     rescanWifiButton.textContent = scanning ? 'Rescanning...' : 'Rescan & Refresh Strongest AP';
-  }
-}
-
-function applyHardwareSummaryFields(state) {
-  var mcuDisplay = document.getElementById('mcuTypeDisplay');
-  if (mcuDisplay) {
-    var mcuType = String((state && state.mcuType) || '').trim();
-    mcuDisplay.value = mcuType.length > 0 ? mcuType : 'Unknown';
-  }
-
-  var variantDisplay = document.getElementById('hardwareVariantDisplay');
-  if (variantDisplay) {
-    var relayCountValue = parseInt((state && state.n), 10);
-    var relayCountLabel = '';
-    if (!isNaN(relayCountValue) && relayCountValue > 0) {
-      relayCountLabel = String(relayCountValue) + ' Relays';
-      currentHardwareVariant = (relayCountValue === 16) ? '16relay' : '8relay';
-    } else {
-      var variant = String((state && state.hardwareVariant) || '').toLowerCase();
-      if (variant === '16relay' || variant === '8relay') {
-        currentHardwareVariant = variant;
-        relayCountLabel = (variant === '16relay') ? '16 Relays' : '8 Relays';
-      }
-    }
-
-    if (!relayCountLabel) {
-      relayCountLabel = 'Unknown';
-    }
-
-    var boardHardwareName = String((state && state.boardHardwareName) || '').trim();
-    variantDisplay.value = boardHardwareName.length > 0 ? (boardHardwareName + ' (' + relayCountLabel + ')') : relayCountLabel;
   }
 }
 
@@ -106,41 +70,23 @@ function debugLog() {
 }
 
 function forceRootRefreshAfterBootChange() {
-  var cacheBuster = Date.now();
-  window.location.replace('/?refresh=' + cacheBuster);
+  window.location.replace('/?refresh=' + Date.now());
 }
 
 function clearRefreshQueryParam() {
-  if (!window.history || typeof window.history.replaceState !== 'function') {
-    return;
-  }
-
-  if (window.location.search.indexOf('refresh=') === -1) {
-    return;
-  }
-
+  if (!window.history || typeof window.history.replaceState !== 'function') { return; }
+  if (window.location.search.indexOf('refresh=') === -1) { return; }
   window.history.replaceState(null, '', window.location.pathname + window.location.hash);
 }
 
 function trackBootSessionAndRedirectIfChanged(payload) {
-  if (!payload || !payload.bootSessionId) {
-    return false;
-  }
+  if (!payload || !payload.bootSessionId) { return false; }
 
   var incomingBootSessionId = String(payload.bootSessionId);
   var previousBootSessionId = '';
 
-  try {
-    previousBootSessionId = window.localStorage.getItem(bootSessionStorageKey) || '';
-  } catch (e) {
-    previousBootSessionId = '';
-  }
-
-  try {
-    window.localStorage.setItem(bootSessionStorageKey, incomingBootSessionId);
-  } catch (e) {
-    // Ignore storage failures; restart watchers still handle reconnect.
-  }
+  try { previousBootSessionId = window.localStorage.getItem(bootSessionStorageKey) || ''; } catch (e) {}
+  try { window.localStorage.setItem(bootSessionStorageKey, incomingBootSessionId); } catch (e) {}
 
   if (previousBootSessionId && previousBootSessionId !== incomingBootSessionId) {
     forceRootRefreshAfterBootChange();
@@ -149,8 +95,6 @@ function trackBootSessionAndRedirectIfChanged(payload) {
 
   return false;
 }
-
-window.addEventListener('load', onLoad);
 
 function setIpPlaceholders(ip, dns, gateway, subnet) {
   document.getElementById('ipInput').placeholder = ip || '';
@@ -161,13 +105,178 @@ function setIpPlaceholders(ip, dns, gateway, subnet) {
 
 function setConfigPageReady() {
   var configPage = document.querySelector('.config-page');
-  if (configPage) {
-    configPage.removeAttribute('data-loading');
-  }
+  if (configPage) { configPage.removeAttribute('data-loading'); }
 }
+
+function stopRestartRedirectWatcher() {
+  if (restartRedirectDelayTimer) { clearTimeout(restartRedirectDelayTimer); restartRedirectDelayTimer = null; }
+  if (restartRedirectPollTimer) { clearInterval(restartRedirectPollTimer); restartRedirectPollTimer = null; }
+}
+
+function startRestartRedirectWatcher() {
+  if (window.location.pathname === '/') { return; }
+  if (restartRedirectDelayTimer || restartRedirectPollTimer) { return; }
+
+  restartRedirectDelayTimer = setTimeout(function () {
+    restartRedirectDelayTimer = null;
+    if (restartRedirectPollTimer) { return; }
+
+    restartRedirectPollTimer = setInterval(function () {
+      fetch('/', { cache: 'no-store' })
+        .then(function (response) {
+          if (response.ok) {
+            stopRestartRedirectWatcher();
+            window.location.href = '/';
+          }
+        })
+        .catch(function () {});
+    }, 1200);
+  }, 1500);
+}
+
+function shouldPreserveBoardNameInput(incomingName) {
+  var input = document.getElementById('boardNameInput');
+  if (!input) { return false; }
+  if (document.activeElement === input) { return true; }
+  var localValue = String(input.value || '').trim();
+  if (!localValue) { return false; }
+  return localValue !== currentBoardName && localValue !== incomingName;
+}
+
+function applyBoardName(name) {
+  var normalized = (name || '').trim();
+  if (!normalized) { normalized = 'Relay Board'; }
+  currentBoardName = normalized;
+  if (!shouldPreserveBoardNameInput(normalized)) {
+    document.getElementById('boardNameInput').value = normalized;
+  }
+  document.title = normalized + ' - Configuration';
+}
+
+function applyNetworkState(useDhcp, ip, dns, gateway, subnet) {
+  if (typeof useDhcp === 'boolean') {
+    currentUseStaticIp = !useDhcp;
+    document.getElementById('useDhcpCheckbox').checked = useDhcp;
+  }
+
+  if (typeof ip === 'string' && ip.length > 0) { lastReportedNetwork.ip = ip; }
+  if (typeof dns === 'string' && dns.length > 0) { lastReportedNetwork.dns = dns; }
+  if (typeof gateway === 'string' && gateway.length > 0) { lastReportedNetwork.gateway = gateway; }
+  if (typeof subnet === 'string' && subnet.length > 0) { lastReportedNetwork.subnet = subnet; }
+
+  setIpPlaceholders(
+    lastReportedNetwork.ip,
+    lastReportedNetwork.dns,
+    lastReportedNetwork.gateway,
+    lastReportedNetwork.subnet
+  );
+
+  setIpInputValues(
+    getFallbackValue('ipInput', lastReportedNetwork.ip),
+    getFallbackValue('dnsInput', lastReportedNetwork.dns),
+    getFallbackValue('gatewayInput', lastReportedNetwork.gateway),
+    getFallbackValue('subnetInput', lastReportedNetwork.subnet)
+  );
+
+  updateIpFieldMode();
+}
+
+function fetchNetInfo() {
+  fetch('/netinfo', { cache: 'no-store' })
+    .then(function (response) {
+      if (!response.ok) { throw new Error('netinfo fetch failed'); }
+      return response.json();
+    })
+    .then(function (net) {
+      if (trackBootSessionAndRedirectIfChanged(net)) { return; }
+
+      var useDhcp = (typeof net.useDhcp === 'boolean') ? net.useDhcp : undefined;
+      applyNetworkState(useDhcp, net.ipAddress || '', net.dns || '', net.gateway || '', net.subnet || '');
+
+      if (net.boardName && !suspendConfigFormHydration) {
+        applyBoardName(net.boardName);
+      }
+
+      applyWifiStatusFields(net);
+
+      if (!suspendConfigFormHydration) {
+        if (net.hasOwnProperty('doDelay')) {
+          currentRelayModes.doDelay = !!net.doDelay;
+          document.getElementById('doDelayCheckbox').checked = currentRelayModes.doDelay;
+        }
+        if (net.hasOwnProperty('startupDelaySeconds')) {
+          document.getElementById('delaySecondsInput').value = net.startupDelaySeconds;
+          currentRelayModes.delaySeconds = net.startupDelaySeconds;
+        }
+        if (net.hasOwnProperty('connectStrongestOnStartup')) {
+          connectStrongestOnStartup = !!net.connectStrongestOnStartup;
+          document.getElementById('connectStrongestCheckbox').checked = connectStrongestOnStartup;
+        }
+        updateDelayFieldMode();
+        updateIpFieldMode();
+      }
+    })
+    .catch(function () {});
+}
+
+function getInput(id) {
+  return document.getElementById(id);
+}
+
+function setIpInputValues(ip, dns, gateway, subnet) {
+  getInput('ipInput').value = ip || '';
+  getInput('dnsInput').value = dns || '';
+  getInput('gatewayInput').value = gateway || '';
+  getInput('subnetInput').value = subnet || '';
+}
+
+function getFallbackValue(inputId, liveValue) {
+  var input = getInput(inputId);
+  if (liveValue && liveValue.length > 0) { return liveValue; }
+  if (input.value && input.value.trim().length > 0) { return input.value.trim(); }
+  if (input.placeholder && input.placeholder.length > 0) { return input.placeholder; }
+  return '';
+}
+
+function updateDelayFieldMode() {
+  var enabled = document.getElementById('doDelayCheckbox').checked;
+  document.getElementById('delaySecondsInput').disabled = !enabled;
+}
+
+function updateIpFieldMode() {
+  var useDhcp = document.getElementById('useDhcpCheckbox').checked;
+  document.getElementById('staticIpFields').style.display = 'block';
+  document.getElementById('ipInput').readOnly = useDhcp;
+  document.getElementById('dnsInput').readOnly = useDhcp;
+  document.getElementById('gatewayInput').readOnly = useDhcp;
+  document.getElementById('subnetInput').readOnly = useDhcp;
+}
+
+function onDhcpToggle() {
+  var useDhcp = document.getElementById('useDhcpCheckbox').checked;
+
+  if (useDhcp) {
+    setIpInputValues(
+      getFallbackValue('ipInput', lastReportedNetwork.ip),
+      getFallbackValue('dnsInput', lastReportedNetwork.dns),
+      getFallbackValue('gatewayInput', lastReportedNetwork.gateway),
+      getFallbackValue('subnetInput', lastReportedNetwork.subnet)
+    );
+  } else {
+    if (!getInput('ipInput').value.trim()) { getInput('ipInput').value = getFallbackValue('ipInput', lastReportedNetwork.ip); }
+    if (!getInput('dnsInput').value.trim()) { getInput('dnsInput').value = getFallbackValue('dnsInput', lastReportedNetwork.dns); }
+    if (!getInput('gatewayInput').value.trim()) { getInput('gatewayInput').value = getFallbackValue('gatewayInput', lastReportedNetwork.gateway); }
+    if (!getInput('subnetInput').value.trim()) { getInput('subnetInput').value = getFallbackValue('subnetInput', lastReportedNetwork.subnet); }
+  }
+
+  updateIpFieldMode();
+}
+
+window.addEventListener('load', onLoad);
 
 function onLoad() {
   clearRefreshQueryParam();
+
   wifiSsidDisplay = document.getElementById('wifiSsidDisplay');
   wifiConnectedSsidDisplay = document.getElementById('wifiConnectedSsidDisplay');
   wifiStatusDisplay = document.getElementById('wifiStatusDisplay');
@@ -197,39 +306,22 @@ function onLoad() {
     'doDelayCheckbox', 'connectStrongestCheckbox', 'delaySecondsInput']
     .forEach(function (id) {
       var el = document.getElementById(id);
-      if (!el) {
-        return;
-      }
-      el.addEventListener('input', function () {
-        suspendConfigFormHydration = true;
-      });
-      el.addEventListener('change', function () {
-        suspendConfigFormHydration = true;
-      });
+      if (!el) { return; }
+      el.addEventListener('input', function () { suspendConfigFormHydration = true; });
+      el.addEventListener('change', function () { suspendConfigFormHydration = true; });
     });
 
   fetchNetInfo();
-  initWebSocket();
   if (!wifiRefreshTimer) {
-    wifiRefreshTimer = setInterval(requestRuntimeRefresh, 3000);
+    wifiRefreshTimer = setInterval(fetchNetInfo, 3000);
   }
   updateDelayFieldMode();
   setConfigPageReady();
 }
 
-function requestRuntimeRefresh() {
-  if (websocket && websocket.readyState === WebSocket.OPEN) {
-    websocket.send('home');
-  } else {
-    fetchNetInfo();
-  }
-}
-
 function clearWifiCredentials() {
   var confirmed = window.confirm('Clear stored Wi-Fi credentials and restart now?\n\nDefault: No');
-  if (!confirmed) {
-    return;
-  }
+  if (!confirmed) { return; }
 
   var clearButton = document.getElementById('clearWifiButton');
   var originalText = clearButton.textContent;
@@ -238,9 +330,7 @@ function clearWifiCredentials() {
 
   fetch('/api/clearwifi', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
-    },
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
     body: 'confirm=1'
   })
     .then(function (response) {
@@ -251,18 +341,11 @@ function clearWifiCredentials() {
       });
     })
     .then(function (result) {
-      if (!result.ok || !result.body.ok) {
-        throw new Error(result.body.error || 'clear failed');
-      }
-
+      if (!result.ok || !result.body.ok) { throw new Error(result.body.error || 'clear failed'); }
       alert('Wi-Fi credentials cleared. Device is restarting into provisioning mode.');
-      setTimeout(function () {
-        window.location.href = '/';
-      }, 800);
+      setTimeout(function () { window.location.href = '/'; }, 800);
     })
-    .catch(function (error) {
-      alert('Clear Wi-Fi failed: ' + error.message);
-    })
+    .catch(function (error) { alert('Clear Wi-Fi failed: ' + error.message); })
     .finally(function () {
       clearButton.disabled = false;
       clearButton.textContent = originalText;
@@ -270,9 +353,7 @@ function clearWifiCredentials() {
 }
 
 function triggerWifiRescan() {
-  if (!rescanWifiButton || rescanWifiButton.disabled) {
-    return;
-  }
+  if (!rescanWifiButton || rescanWifiButton.disabled) { return; }
 
   var originalText = rescanWifiButton.textContent;
   rescanWifiButton.disabled = true;
@@ -280,9 +361,7 @@ function triggerWifiRescan() {
 
   fetch('/api/wifi/rescan', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
-    },
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
     body: 'confirm=1'
   })
     .then(function (response) {
@@ -293,9 +372,7 @@ function triggerWifiRescan() {
       });
     })
     .then(function (result) {
-      if (!result.ok || !result.body.ok) {
-        throw new Error(result.body.error || 'rescan failed');
-      }
+      if (!result.ok || !result.body.ok) { throw new Error(result.body.error || 'rescan failed'); }
     })
     .catch(function (error) {
       alert('Wi-Fi rescan failed: ' + error.message);
@@ -304,298 +381,9 @@ function triggerWifiRescan() {
     });
 }
 
-function shouldPreserveBoardNameInput(incomingName) {
-  var input = document.getElementById('boardNameInput');
-  if (!input) {
-    return false;
-  }
-
-  if (document.activeElement === input) {
-    return true;
-  }
-
-  var localValue = String(input.value || '').trim();
-  if (!localValue) {
-    return false;
-  }
-
-  // Keep unsaved local edits if they differ from both current and incoming values.
-  return localValue !== currentBoardName && localValue !== incomingName;
-}
-
-function applyBoardName(name) {
-  var normalized = (name || '').trim();
-  if (!normalized) {
-    normalized = 'Relay Board';
-  }
-
-  currentBoardName = normalized;
-  if (!shouldPreserveBoardNameInput(normalized)) {
-    document.getElementById('boardNameInput').value = normalized;
-  }
-
-  var header = document.getElementById('configPageTitle');
-  if (header) {
-    header.textContent = normalized;
-  }
-  document.title = normalized + ' - Configuration';
-}
-
-function applyNetworkState(useDhcp, ip, dns, gateway, subnet) {
-  if (typeof useDhcp === 'boolean') {
-    currentUseStaticIp = !useDhcp;
-    document.getElementById('useDhcpCheckbox').checked = useDhcp;
-  }
-
-  if (typeof ip === 'string' && ip.length > 0) lastReportedNetwork.ip = ip;
-  if (typeof dns === 'string' && dns.length > 0) lastReportedNetwork.dns = dns;
-  if (typeof gateway === 'string' && gateway.length > 0) lastReportedNetwork.gateway = gateway;
-  if (typeof subnet === 'string' && subnet.length > 0) lastReportedNetwork.subnet = subnet;
-
-  setIpPlaceholders(
-    lastReportedNetwork.ip,
-    lastReportedNetwork.dns,
-    lastReportedNetwork.gateway,
-    lastReportedNetwork.subnet
-  );
-
-  setIpInputValues(
-    getFallbackValue('ipInput', lastReportedNetwork.ip),
-    getFallbackValue('dnsInput', lastReportedNetwork.dns),
-    getFallbackValue('gatewayInput', lastReportedNetwork.gateway),
-    getFallbackValue('subnetInput', lastReportedNetwork.subnet)
-  );
-
-  updateIpFieldMode();
-}
-
-function fetchNetInfo() {
-  fetch('/netinfo', { cache: 'no-store' })
-    .then(function (response) {
-      if (!response.ok) {
-        throw new Error('netinfo fetch failed');
-      }
-      return response.json();
-    })
-    .then(function (net) {
-      var useDhcp = (typeof net.useDhcp === 'boolean') ? net.useDhcp : undefined;
-      applyNetworkState(useDhcp, net.ipAddress || '', net.dns || '', net.gateway || '', net.subnet || '');
-      if (net.boardName && !suspendConfigFormHydration) {
-        applyBoardName(net.boardName);
-      }
-      applyWifiStatusFields(net);
-      applyHardwareSummaryFields(net);
-    })
-    .catch(function () {
-      // WebSocket updates remain the primary source; this is a fallback path.
-    });
-}
-
-function getInput(id) {
-  return document.getElementById(id);
-}
-
-function setIpInputValues(ip, dns, gateway, subnet) {
-  getInput('ipInput').value = ip || '';
-  getInput('dnsInput').value = dns || '';
-  getInput('gatewayInput').value = gateway || '';
-  getInput('subnetInput').value = subnet || '';
-}
-
-function getFallbackValue(inputId, liveValue) {
-  var input = getInput(inputId);
-  if (liveValue && liveValue.length > 0) {
-    return liveValue;
-  }
-  if (input.value && input.value.trim().length > 0) {
-    return input.value.trim();
-  }
-  if (input.placeholder && input.placeholder.length > 0) {
-    return input.placeholder;
-  }
-  return '';
-}
-
-function updateDelayFieldMode() {
-  var enabled = document.getElementById('doDelayCheckbox').checked;
-  var delayInput = document.getElementById('delaySecondsInput');
-  delayInput.disabled = !enabled;
-}
-
-function initWebSocket() {
-  websocket = new WebSocket(gateway);
-  websocket.onopen = onOpen;
-  websocket.onclose = onClose;
-  websocket.onmessage = onMessage;
-}
-
-function stopRestartRedirectWatcher() {
-  if (restartRedirectDelayTimer) {
-    clearTimeout(restartRedirectDelayTimer);
-    restartRedirectDelayTimer = null;
-  }
-  if (restartRedirectPollTimer) {
-    clearInterval(restartRedirectPollTimer);
-    restartRedirectPollTimer = null;
-  }
-}
-
-function startRestartRedirectWatcher() {
-  if (window.location.pathname === '/') {
-    return;
-  }
-  if (restartRedirectDelayTimer || restartRedirectPollTimer) {
-    return;
-  }
-
-  restartRedirectDelayTimer = setTimeout(function () {
-    restartRedirectDelayTimer = null;
-
-    if (restartRedirectPollTimer) {
-      return;
-    }
-
-    restartRedirectPollTimer = setInterval(function () {
-      fetch('/', { cache: 'no-store' })
-        .then(function (response) {
-          if (response.ok) {
-            stopRestartRedirectWatcher();
-            window.location.href = '/';
-          }
-        })
-        .catch(function () {
-          // Keep polling until the device is reachable again.
-        });
-    }, 1200);
-  }, 1500);
-}
-
-function onOpen() {
-  websocketEverConnected = true;
-  stopRestartRedirectWatcher();
-  debugLog('Config websocket connected');
-  // Force a fresh full state payload for this page.
-  websocket.send('home');
-  fetchNetInfo();
-}
-
-function onClose() {
-  if (websocketEverConnected) {
-    startRestartRedirectWatcher();
-  }
-  setTimeout(initWebSocket, 2000);
-}
-
-function onMessage(event) {
-  var jsonObj;
-  try {
-    jsonObj = JSON.parse(event.data);
-  } catch (e) {
-    return;
-  }
-
-  if (trackBootSessionAndRedirectIfChanged(jsonObj)) {
-    return;
-  }
-
-  if (jsonObj.boardName) {
-    if (!suspendConfigFormHydration) {
-      applyBoardName(jsonObj.boardName);
-    }
-  }
-
-  applyWifiStatusFields(jsonObj);
-  applyHardwareSummaryFields(jsonObj);
-
-  if (!suspendConfigFormHydration) {
-    var hasAllIpFields = !!(jsonObj.ipAddress && jsonObj.dns && jsonObj.gateway && jsonObj.subnet);
-    var useDhcp = jsonObj.hasOwnProperty('useDhcp')
-      ? !!jsonObj.useDhcp
-      : (jsonObj.hasOwnProperty('useStaticIp') ? !jsonObj.useStaticIp : !hasAllIpFields);
-    currentUseStaticIp = !useDhcp;
-    document.getElementById('useDhcpCheckbox').checked = useDhcp;
-
-    applyNetworkState(
-      useDhcp,
-      jsonObj.ipAddress || '',
-      jsonObj.dns || '',
-      jsonObj.gateway || '',
-      jsonObj.subnet || ''
-    );
-
-    if (currentUseStaticIp) {
-      currentIpConfig = {
-        ip: jsonObj.ipAddress || lastReportedNetwork.ip,
-        dns: jsonObj.dns || lastReportedNetwork.dns,
-        gateway: jsonObj.gateway || lastReportedNetwork.gateway,
-        subnet: jsonObj.subnet || lastReportedNetwork.subnet
-      };
-    } else {
-      currentIpConfig = {
-        ip: getFallbackValue('ipInput', lastReportedNetwork.ip),
-        dns: getFallbackValue('dnsInput', lastReportedNetwork.dns),
-        gateway: getFallbackValue('gatewayInput', lastReportedNetwork.gateway),
-        subnet: getFallbackValue('subnetInput', lastReportedNetwork.subnet)
-      };
-    }
-
-    setIpInputValues(
-      currentIpConfig.ip,
-      currentIpConfig.dns,
-      currentIpConfig.gateway,
-      currentIpConfig.subnet
-    );
-
-    if (jsonObj.hasOwnProperty('doDelay')) {
-      currentRelayModes.doDelay = !!jsonObj.doDelay;
-      document.getElementById('doDelayCheckbox').checked = currentRelayModes.doDelay;
-    }
-    if (jsonObj.hasOwnProperty('startupDelaySeconds')) {
-      document.getElementById('delaySecondsInput').value = jsonObj.startupDelaySeconds;
-      currentRelayModes.delaySeconds = jsonObj.startupDelaySeconds;
-    }
-    if (jsonObj.hasOwnProperty('connectStrongestOnStartup')) {
-      connectStrongestOnStartup = !!jsonObj.connectStrongestOnStartup;
-      document.getElementById('connectStrongestCheckbox').checked = connectStrongestOnStartup;
-    }
-
-    updateIpFieldMode();
-    updateDelayFieldMode();
-  }
-}
-
-function updateIpFieldMode() {
-  var useDhcp = document.getElementById('useDhcpCheckbox').checked;
-  document.getElementById('staticIpFields').style.display = 'block';
-  document.getElementById('ipInput').readOnly = useDhcp;
-  document.getElementById('dnsInput').readOnly = useDhcp;
-  document.getElementById('gatewayInput').readOnly = useDhcp;
-  document.getElementById('subnetInput').readOnly = useDhcp;
-}
-
-function onDhcpToggle() {
-  var useDhcp = document.getElementById('useDhcpCheckbox').checked;
-
-  if (useDhcp) {
-    setIpInputValues(
-      getFallbackValue('ipInput', lastReportedNetwork.ip),
-      getFallbackValue('dnsInput', lastReportedNetwork.dns),
-      getFallbackValue('gatewayInput', lastReportedNetwork.gateway),
-      getFallbackValue('subnetInput', lastReportedNetwork.subnet)
-    );
-  } else {
-    if (!getInput('ipInput').value.trim()) getInput('ipInput').value = getFallbackValue('ipInput', lastReportedNetwork.ip);
-    if (!getInput('dnsInput').value.trim()) getInput('dnsInput').value = getFallbackValue('dnsInput', lastReportedNetwork.dns);
-    if (!getInput('gatewayInput').value.trim()) getInput('gatewayInput').value = getFallbackValue('gatewayInput', lastReportedNetwork.gateway);
-    if (!getInput('subnetInput').value.trim()) getInput('subnetInput').value = getFallbackValue('subnetInput', lastReportedNetwork.subnet);
-  }
-
-  updateIpFieldMode();
-}
-
 function saveConfig() {
   debugLog('saveConfig() called');
-  
+
   var boardNameInput = document.getElementById('boardNameInput');
   var newName = boardNameInput.value.trim();
 
@@ -633,44 +421,24 @@ function saveConfig() {
   suspendConfigFormHydration = false;
   applyBoardName(newName);
 
-  debugLog('saveConfig: name=' + newName + ', dhcp=' + useDhcpChecked + ', ip=' + ipValue + ', dns=' + dnsValue);
-
   var hasAnyStaticField = ipValue.length > 0 || dnsValue.length > 0 || gatewayValue.length > 0 || subnetValue.length > 0;
   var hasAllStaticFields = ipValue.length > 0 && dnsValue.length > 0 && gatewayValue.length > 0 && subnetValue.length > 0;
 
   var ipPayload;
   if (useDhcpChecked || !hasAnyStaticField) {
-    ipPayload = {
-      cmd: 'setBoardIP',
-      useDhcp: true
-    };
+    ipPayload = { useDhcp: true };
   } else {
     if (!hasAllStaticFields) {
       alert('Provide all static IP fields, or clear them all to use DHCP.');
       return;
     }
-
-    ipPayload = {
-      cmd: 'setBoardIP',
-      useDhcp: false,
-      ip: ipValue,
-      dns: dnsValue,
-      gateway: gatewayValue,
-      subnet: subnetValue
-    };
+    ipPayload = { useDhcp: false, ip: ipValue, dns: dnsValue, gateway: gatewayValue, subnet: subnetValue };
   }
 
-  var relayPayload = {
-    doDelay: doDelayChecked,
-    connectStrongestOnStartup: strongestChecked
-  };
-
-  debugLog('saveConfig: relayModes=' + JSON.stringify(relayPayload));
-
   var saveButton = document.getElementById('saveConfig');
-  var originalButtonText = saveButton.textContent;
   saveButton.disabled = true;
   saveButton.textContent = 'Saving...';
+  var isRebooting = false;
 
   var form = new URLSearchParams();
   form.set('name', newName);
@@ -679,55 +447,46 @@ function saveConfig() {
   form.set('dns', ipPayload.dns || '');
   form.set('gateway', ipPayload.gateway || '');
   form.set('subnet', ipPayload.subnet || '');
-  form.set('doDelay', relayPayload.doDelay ? '1' : '0');
-  form.set('connectStrongestOnStartup', relayPayload.connectStrongestOnStartup ? '1' : '0');
-  form.set('connectStrongest', relayPayload.connectStrongestOnStartup ? '1' : '0');
+  form.set('doDelay', doDelayChecked ? '1' : '0');
+  form.set('connectStrongestOnStartup', strongestChecked ? '1' : '0');
+  form.set('connectStrongest', strongestChecked ? '1' : '0');
   form.set('delaySeconds', delaySecondsValue);
-
-  debugLog('saveConfig: form data:', form.toString());
 
   fetch('/api/config', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
-    },
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
     body: form.toString()
   })
     .then(function (response) {
-      debugLog('saveConfig: fetch response status=' + response.status);
       return response.json().catch(function () {
         return { ok: false, error: 'invalid response' };
       }).then(function (json) {
-        debugLog('saveConfig: fetch response body=' + JSON.stringify(json));
         return { status: response.status, ok: response.ok, body: json };
       });
     })
     .then(function (result) {
-      if (!result.ok || !result.body.ok) {
-        throw new Error(result.body.error || 'save failed');
-      }
+      if (!result.ok || !result.body.ok) { throw new Error(result.body.error || 'save failed'); }
 
-      debugLog('saveConfig: success, restart=' + result.body.restart + ', appliedIp=' + result.body.appliedIp);
+      isRebooting = true;
+      saveButton.textContent = 'Rebooting...';
 
-      var currentHost = window.location.hostname;
-      var currentOrigin = window.location.origin;
       var appliedIp = (result.body.appliedIp || '').trim();
       var useDhcp = !!result.body.useDhcp;
-      var shouldRedirectToNewStaticIp = result.body.restart && !useDhcp && appliedIp.length > 0 && appliedIp !== currentHost;
+      var ipChanged = !useDhcp && appliedIp.length > 0 && appliedIp !== window.location.hostname;
 
-      // When switching to DHCP, assume lease remains reachable at current address.
-      var redirectTarget = shouldRedirectToNewStaticIp ? ('http://' + appliedIp + '/') : (result.body.restart && useDhcp ? (currentOrigin + '/') : '/');
-      var redirectDelay = result.body.restart ? 2200 : 600;
-      setTimeout(function () {
-        window.location.href = redirectTarget;
-      }, redirectDelay);
+      if (ipChanged) {
+        setTimeout(function () { window.location.href = 'http://' + appliedIp + '/'; }, 6000);
+      } else {
+        startRestartRedirectWatcher();
+      }
     })
     .catch(function (error) {
-      console.error('saveConfig: error - ' + error.message);
       alert('Save failed: ' + error.message);
     })
     .finally(function () {
-      saveButton.disabled = false;
-      saveButton.textContent = originalButtonText;
+      if (!isRebooting) {
+        saveButton.disabled = false;
+        saveButton.textContent = 'Save';
+      }
     });
 }

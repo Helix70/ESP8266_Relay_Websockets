@@ -11,7 +11,7 @@
 
 <body>
   <div class="topnav">
-    <h1 id="configPageTitle">Relay Board</h1>
+    <h1>Configuration</h1>
   </div>
 
   <div class="config-page" data-loading="true">
@@ -91,18 +91,7 @@
         <input type="text" id="subnetInput" class="config-input" placeholder="" maxlength="15">
       </div>
 
-      <p class="config-note">If no static IP is specified, DHCP is used automatically. Static IP changes require reboot.</p>
-    </div>
-
-    <div class="config-card">
-      <h3>Board Hardware</h3>
-
-      <label class="config-input-label">MCU Type:</label>
-      <input type="text" id="mcuTypeDisplay" class="config-input" readonly value="—">
-
-      <label class="config-input-label">Board Relay Configuration:</label>
-      <input type="text" id="hardwareVariantDisplay" class="config-input" readonly value="—">
-      <p class="config-note">MCU type and relay count are derived from the active board selection on the Board Hardware page.</p>
+      <p class="config-note">If no static IP is specified, DHCP is used automatically. Network Configuration changes require reboot.</p>
     </div>
 
     <div class="config-buttons">
@@ -111,7 +100,7 @@
     </div>
   </div>
 
-  <script src="config.js?v=20260626a"></script>
+  <script src="config.js?v=20260629a"></script>
 </body>
 
 </html>
