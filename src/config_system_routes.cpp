@@ -104,17 +104,20 @@ void registerSystemConfigRoutes()
 
     notifyClients();
 
-    DynamicJsonDocument response(128);
+    JsonDocument response;
     response["ok"] = true;
-    response["restart"] = true;
+    response["restart"] = restartNeeded;
     response["useDhcp"] = !useStaticIp;
     response["appliedIp"] = useStaticIp ? boardIp.toString() : WiFi.localIP().toString();
-    String payload;
-    serializeJson(response, payload);
+    char payload[128];
+    serializeJson(response, payload, sizeof(payload));
     request->send(200, "application/json", payload);
 
-    pendingRestart = true;
-    pendingRestartAt = millis() + 1200;
+    if (restartNeeded)
+    {
+      pendingRestart = true;
+      pendingRestartAt = millis() + 1200;
+    }
   });
 
   server.on("/api/clearwifi", HTTP_POST, [](AsyncWebServerRequest *request)
@@ -172,6 +175,51 @@ void registerSystemConfigRoutes()
     requestStrongestSsidRescan();
     notifyClients();
     request->send(200, "application/json", "{\"ok\":true,\"queued\":true}");
+  });
+
+  server.on("/api/theme", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
+    char buf[100];
+    snprintf(buf, sizeof(buf), "{\"h\":\"%s\"}", themeHex);
+    request->send(200, "application/json", buf);
+  });
+
+  server.on("/api/theme", HTTP_POST, [](AsyncWebServerRequest *request)
+            {
+    String h = routeGetBodyParam(request, "h");
+    h.trim();
+
+    if (h.length() == 0 || h.length() >= sizeof(themeHex))
+    {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid\"}");
+      return;
+    }
+
+    bool valid = true;
+    int commas = 0;
+    for (size_t i = 0; i < h.length() && valid; i++)
+    {
+      char c = h[i];
+      if (c == ',') { commas++; continue; }
+      if (c == '#') continue;
+      if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) continue;
+      valid = false;
+    }
+    if (!valid || (commas != 6 && commas != 8))
+    {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid hex\"}");
+      return;
+    }
+
+    strlcpy(themeHex, h.c_str(), sizeof(themeHex));
+
+    if (!saveBoardConfig())
+    {
+      request->send(500, "application/json", "{\"ok\":false,\"error\":\"save failed\"}");
+      return;
+    }
+
+    request->send(200, "application/json", "{\"ok\":true}");
   });
 
   server.on("/api/labels", HTTP_POST, [](AsyncWebServerRequest *request)

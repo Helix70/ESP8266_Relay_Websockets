@@ -58,9 +58,13 @@ void addFsUsageToResponse(JsonDocument &response)
   response["fsFreeBytes"] = usage.free;
 }
 
-String buildTemplateWriteFailurePayload(const String &reason, size_t requiredBytes = 0)
+void sendTemplateWriteFailure(AsyncWebServerRequest *request, const String &reason, size_t requiredBytes = 0)
 {
-  DynamicJsonDocument response(512);
+  gLastTemplateWriteErrorReason = reason;
+  gLastTemplateWriteErrorAtMs = millis();
+  int status = (reason == "insufficient_space") ? 507 : 500;
+
+  JsonDocument response;
   response["ok"] = false;
   response["error"] = (reason == "insufficient_space") ? "insufficient storage" : "save failed";
   response["reason"] = reason;
@@ -70,17 +74,9 @@ String buildTemplateWriteFailurePayload(const String &reason, size_t requiredByt
   }
   addFsUsageToResponse(response);
 
-  String payload;
-  serializeJson(response, payload);
-  return payload;
-}
-
-void sendTemplateWriteFailure(AsyncWebServerRequest *request, const String &reason, size_t requiredBytes = 0)
-{
-  gLastTemplateWriteErrorReason = reason;
-  gLastTemplateWriteErrorAtMs = millis();
-  int status = (reason == "insufficient_space") ? 507 : 500;
-  request->send(status, "application/json", buildTemplateWriteFailurePayload(reason, requiredBytes));
+  char payload[256];
+  serializeJson(response, payload, sizeof(payload));
+  request->send(status, "application/json", payload);
 }
 
 bool ensureTemplateWriteHeadroom(size_t requiredBytes, String &failureReason)
@@ -198,9 +194,10 @@ bool templateFileExists(const String &path)
   return true;
 }
 
-String buildTemplateNotFoundPayload(const String &action, const String &rawFilename, const String &normalizedFilename, const String &path)
+void sendTemplateNotFoundResponse(AsyncWebServerRequest *request, const String &action,
+                                  const String &rawFilename, const String &normalizedFilename, const String &path)
 {
-  DynamicJsonDocument response(640);
+  JsonDocument response;
   response["ok"] = false;
   response["error"] = "template not found";
   response["reason"] = "missing_template_file";
@@ -220,9 +217,9 @@ String buildTemplateNotFoundPayload(const String &action, const String &rawFilen
 
   addFsUsageToResponse(response);
 
-  String payload;
-  serializeJson(response, payload);
-  return payload;
+  char payload[640];
+  serializeJson(response, payload, sizeof(payload));
+  request->send(404, "application/json", payload);
 }
 
 String sanitizeTemplateSlug(const String &title)
@@ -504,7 +501,7 @@ void writeTemplateListEntriesJson(Print &out, uint8_t requiredRelayCount,
 bool writeTemplateJson(const String &filename, const String &title, uint8_t rc, const JsonArray &labels, String *failureReason = nullptr)
 {
   String finalPath = buildTemplatePath(filename);
-  String tempPath = finalPath + ".tmp";
+  String tempPath = finalPath.substring(0, finalPath.length() - 5) + ".jt";
 
   File f;
   if (!openTemplateTempForWrite(tempPath, f))
@@ -604,7 +601,7 @@ bool writeTemplateJson(const String &filename, const String &title, uint8_t rc, 
 bool writeTemplateJsonFromRequest(AsyncWebServerRequest *request, const String &filename, const String &title, uint8_t rc, String *failureReason = nullptr)
 {
   String finalPath = buildTemplatePath(filename);
-  String tempPath = finalPath + ".tmp";
+  String tempPath = finalPath.substring(0, finalPath.length() - 5) + ".jt";
 
   File f;
   if (!openTemplateTempForWrite(tempPath, f))
@@ -738,7 +735,7 @@ void registerTemplateRoutes()
                   (unsigned long)ESP.getFreeHeap(),
                   selectedRelayTemplateFilename.c_str());
 
-    DynamicJsonDocument doc(768);
+    JsonDocument doc;
     doc["selectedTemplate"] = selectedRelayTemplateFilename;
 
     size_t templateCount = 0;
@@ -751,14 +748,14 @@ void registerTemplateRoutes()
     doc["lastWriteErrorReason"] = gLastTemplateWriteErrorReason;
     doc["lastWriteErrorAtMs"] = gLastTemplateWriteErrorAtMs;
 
-    String payload;
-    serializeJson(doc, payload);
+    char payload[448];
+    serializeJson(doc, payload, sizeof(payload));
     Serial.printf("[RelayConfig][Diagnostics] done ip=%s heap=%lu templates=%u largest=%u payload=%u\n",
                   request->client()->remoteIP().toString().c_str(),
                   (unsigned long)ESP.getFreeHeap(),
                   (unsigned)templateCount,
                   (unsigned)largestTemplateBytes,
-                  (unsigned)payload.length());
+                  (unsigned)strlen(payload));
     request->send(200, "application/json", payload);
   });
 
@@ -906,16 +903,16 @@ void registerTemplateRoutes()
                       normalizedFilename.c_str(),
                       (unsigned)relayCount);
 
-        DynamicJsonDocument response(256);
+        JsonDocument response;
         response["ok"] = true;
         response["filename"] = normalizedFilename;
-        String payload;
-        serializeJson(response, payload);
+        char payload[128];
+        serializeJson(response, payload, sizeof(payload));
         request->send(200, "application/json", payload);
         return;
       }
 
-      DynamicJsonDocument inDoc(8192);
+      JsonDocument inDoc;
       DeserializationError uploadParseError = deserializeJson(inDoc, rawContent);
       if (uploadParseError != DeserializationError::Ok)
       {
@@ -1033,11 +1030,11 @@ void registerTemplateRoutes()
                     (unsigned)relayCount,
                     (unsigned)rawContent.length());
 
-      DynamicJsonDocument response(256);
+      JsonDocument response;
       response["ok"] = true;
       response["filename"] = normalizedFilename;
-      String payload;
-      serializeJson(response, payload);
+      char payload[128];
+      serializeJson(response, payload, sizeof(payload));
       request->send(200, "application/json", payload);
       return;
     }
@@ -1070,22 +1067,22 @@ void registerTemplateRoutes()
       String path = buildTemplatePath(normalizedFilename);
       if (!templateFileExists(path))
       {
-        request->send(404, "application/json", buildTemplateNotFoundPayload("setactive", filename, normalizedFilename, path));
+        sendTemplateNotFoundResponse(request, "setactive", filename, normalizedFilename, path);
         return;
       }
 
       String applyFailureReason;
       if (!loadLabelsFromTemplateFile(normalizedFilename, relayCount, &applyFailureReason))
       {
-        DynamicJsonDocument response(256);
+        JsonDocument response;
         response["ok"] = false;
         response["error"] = "template incompatible or invalid";
         if (applyFailureReason.length() > 0)
         {
           response["reason"] = applyFailureReason;
         }
-        String payload;
-        serializeJson(response, payload);
+        char payload[128];
+        serializeJson(response, payload, sizeof(payload));
         request->send(400, "application/json", payload);
         return;
       }
@@ -1105,11 +1102,11 @@ void registerTemplateRoutes()
 
       notifyClients();
 
-      DynamicJsonDocument response(256);
+      JsonDocument response;
       response["ok"] = true;
       response["selectedTemplate"] = selectedRelayTemplateFilename;
-      String payload;
-      serializeJson(response, payload);
+      char payload[128];
+      serializeJson(response, payload, sizeof(payload));
       request->send(200, "application/json", payload);
       return;
     }
@@ -1127,7 +1124,7 @@ void registerTemplateRoutes()
       String path = buildTemplatePath(normalizedFilename);
       if (!templateFileExists(path))
       {
-        request->send(404, "application/json", buildTemplateNotFoundPayload("delete", filename, normalizedFilename, path));
+        sendTemplateNotFoundResponse(request, "delete", filename, normalizedFilename, path);
         return;
       }
 
@@ -1177,7 +1174,7 @@ void registerTemplateRoutes()
       String oldPath = buildTemplatePath(normalizedFilename);
       if (!templateFileExists(oldPath))
       {
-        request->send(404, "application/json", buildTemplateNotFoundPayload("rename", filename, normalizedFilename, oldPath));
+        sendTemplateNotFoundResponse(request, "rename", filename, normalizedFilename, oldPath);
         return;
       }
 
@@ -1198,7 +1195,7 @@ void registerTemplateRoutes()
           return;
         }
 
-        DynamicJsonDocument inDoc(4096);
+        JsonDocument inDoc;
         DeserializationError inErr = deserializeJson(inDoc, inFile);
         inFile.close();
         if (inErr != DeserializationError::Ok)
@@ -1226,11 +1223,11 @@ void registerTemplateRoutes()
 
         if (newFilename == normalizedFilename && existingTitle == title)
         {
-          DynamicJsonDocument response(256);
+          JsonDocument response;
           response["ok"] = true;
           response["filename"] = newFilename;
-          String payload;
-          serializeJson(response, payload);
+          char payload[128];
+          serializeJson(response, payload, sizeof(payload));
           request->send(200, "application/json", payload);
           return;
         }
@@ -1254,11 +1251,11 @@ void registerTemplateRoutes()
             notifyClients();
           }
 
-          DynamicJsonDocument response(256);
+          JsonDocument response;
           response["ok"] = true;
           response["filename"] = newFilename;
-          String payload;
-          serializeJson(response, payload);
+          char payload[128];
+          serializeJson(response, payload, sizeof(payload));
           request->send(200, "application/json", payload);
           return;
         }
@@ -1300,11 +1297,11 @@ void registerTemplateRoutes()
         notifyClients();
       }
 
-      DynamicJsonDocument response(256);
+      JsonDocument response;
       response["ok"] = true;
       response["filename"] = newFilename;
-      String payload;
-      serializeJson(response, payload);
+      char payload[128];
+      serializeJson(response, payload, sizeof(payload));
       request->send(200, "application/json", payload);
       return;
     }
@@ -1338,11 +1335,11 @@ void registerTemplateRoutes()
       return;
     }
 
-    DynamicJsonDocument response(256);
+    JsonDocument response;
     response["ok"] = true;
     response["filename"] = filename;
-    String payload;
-    serializeJson(response, payload);
+    char payload[128];
+    serializeJson(response, payload, sizeof(payload));
     request->send(200, "application/json", payload);
   });
 
@@ -1361,7 +1358,7 @@ void registerTemplateRoutes()
       return;
     }
 
-    DynamicJsonDocument inDoc(8192);
+    JsonDocument inDoc;
     if (deserializeJson(inDoc, rawContent) != DeserializationError::Ok)
     {
       request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid template json\"}");
@@ -1438,11 +1435,11 @@ void registerTemplateRoutes()
       return;
     }
 
-    DynamicJsonDocument response(256);
+    JsonDocument response;
     response["ok"] = true;
     response["filename"] = normalizedFilename;
-    String payload;
-    serializeJson(response, payload);
+    char payload[128];
+    serializeJson(response, payload, sizeof(payload));
     request->send(200, "application/json", payload);
   });
 
@@ -1504,11 +1501,11 @@ void registerTemplateRoutes()
 
     notifyClients();
 
-    DynamicJsonDocument response(256);
+    JsonDocument response;
     response["ok"] = true;
     response["selectedTemplate"] = selectedRelayTemplateFilename;
-    String payload;
-    serializeJson(response, payload);
+    char payload[128];
+    serializeJson(response, payload, sizeof(payload));
     request->send(200, "application/json", payload);
   });
 

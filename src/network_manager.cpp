@@ -230,6 +230,12 @@ bool initWiFi()
     Serial.print("IP Address: http://");
     Serial.println(WiFi.localIP().toString().c_str());
     WiFi.softAPdisconnect(true);
+#if defined(ESP32)
+    // IDF 5.x resets power-save to WIFI_PS_MIN_MODEM when the STA associates.
+    // Re-apply WIFI_PS_NONE after the connection is fully established to ensure
+    // the DTIM beacon wakeup latency (100-300ms) is eliminated.
+    esp_wifi_set_ps(WIFI_PS_NONE);
+#endif
     return true;
   }
 

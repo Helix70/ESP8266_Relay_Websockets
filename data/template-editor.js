@@ -752,6 +752,9 @@ function saveAsTemplate() {
     alert('Please enter a template name.');
     return;
   }
+  if (title.length > 40) {
+    title = title.substring(0, 40).trim();
+  }
 
   var configs = collectRelayConfig(true);
   var form = new URLSearchParams();

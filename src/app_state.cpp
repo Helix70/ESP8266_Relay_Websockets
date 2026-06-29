@@ -22,6 +22,7 @@ const uint32_t DELAY_INTERVAL_MS = 50;
 const uint32_t DELAY_COUNTER = (1000 / DELAY_INTERVAL_MS);
 
 String boardName = "Relay Board";
+char themeHex[80] = "#F8F7F9,#143642,#0f8b8d,#cf2700,#143642,#0f8b8d,#ffffff,#ffffff,#ffffff";
 String wifiSsid;
 String wifiPassword;
 String selectedRelayTemplateFilename;

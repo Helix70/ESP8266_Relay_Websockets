@@ -68,6 +68,7 @@ extern uint32_t timer;
 extern uint32_t latched_timer;
 
 extern String boardName;
+extern char themeHex[80];
 extern String wifiSsid;
 extern String wifiPassword;
 extern String selectedRelayTemplateFilename;

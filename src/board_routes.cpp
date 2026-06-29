@@ -14,7 +14,9 @@
 
 namespace
 {
-constexpr size_t kMaxBoardFilenameLength = 64;
+// LFS_NAME_MAX = 32 on ESP8266; temp is slug+".jt" (3), final is slug+".json" (5).
+// Final file is binding: slug <= 26 keeps component at 31 < 32.
+constexpr size_t kMaxBoardFilenameLength = 26;
 constexpr size_t kBoardDocMinCapacity = 2048;
 constexpr size_t kBoardDocMaxCapacity = 4096;
 constexpr size_t kBoardListDocCapacity = 512;
@@ -93,7 +95,7 @@ size_t boardDocCapacityForFile(File &f)
   return cap;
 }
 
-bool parseBoardFile(const String &path, DynamicJsonDocument &doc)
+bool parseBoardFile(const String &path, JsonDocument &doc)
 {
   File f = LittleFS.open(path, "r");
   if (!f)
@@ -103,9 +105,8 @@ bool parseBoardFile(const String &path, DynamicJsonDocument &doc)
 
   size_t cap = boardDocCapacityForFile(f);
   doc.clear();
-  doc.garbageCollect();
 
-  DynamicJsonDocument localDoc(cap);
+  JsonDocument localDoc;
   DeserializationError err = deserializeJson(localDoc, f);
   f.close();
 
@@ -123,7 +124,7 @@ bool parseBoardFile(const String &path, DynamicJsonDocument &doc)
       return false;
     }
 
-    DynamicJsonDocument retryDoc(kBoardDocMaxCapacity);
+    JsonDocument retryDoc;
     err = deserializeJson(retryDoc, fRetry);
     fRetry.close();
     if (!err)
@@ -136,7 +137,7 @@ bool parseBoardFile(const String &path, DynamicJsonDocument &doc)
   return false;
 }
 
-bool parseBoardMetadataFile(const String &path, DynamicJsonDocument &doc)
+bool parseBoardMetadataFile(const String &path, JsonDocument &doc)
 {
   File f = LittleFS.open(path, "r");
   if (!f)
@@ -146,7 +147,7 @@ bool parseBoardMetadataFile(const String &path, DynamicJsonDocument &doc)
 
   doc.clear();
 
-  StaticJsonDocument<160> filter;
+  JsonDocument filter;
   filter["name"] = true;
   filter["cpu"] = true;
   filter["relayCount"] = true;
@@ -165,7 +166,7 @@ bool parseBoardMetadataFile(const String &path, DynamicJsonDocument &doc)
 bool writeBoardJson(const String &filename, const JsonDocument &doc)
 {
   String finalPath = boardPathFromFilename(filename);
-  String tempPath = finalPath + ".tmp";
+  String tempPath = finalPath.substring(0, finalPath.length() - 5) + ".jt";
 
   File f = LittleFS.open(tempPath, "w");
   if (!f)
@@ -221,7 +222,7 @@ uint8_t normalizeRelayCount(uint8_t rc)
   return (rc == kVariantRelayCount16) ? kVariantRelayCount16 : kVariantRelayCount8;
 }
 
-void fillBoardDefaults(DynamicJsonDocument &doc, const String &filename)
+void fillBoardDefaults(JsonDocument &doc, const String &filename)
 {
   String cpu = String(doc["cpu"] | "");
   cpu.trim();
@@ -259,7 +260,7 @@ void fillBoardDefaults(DynamicJsonDocument &doc, const String &filename)
     JsonArray relays = doc["relays"].as<JsonArray>();
     if (relays.isNull())
     {
-      relays = doc.createNestedArray("relays");
+      relays = doc["relays"].template to<JsonArray>();
     }
 
     while (relays.size() > relayCount)
@@ -271,7 +272,7 @@ void fillBoardDefaults(DynamicJsonDocument &doc, const String &filename)
     {
       if (i >= relays.size())
       {
-        JsonObject r = relays.createNestedObject();
+        JsonObject r = relays.add<JsonObject>();
         r["relay"] = i + 1;
         r["pin"] = (uint8_t)255;
       }
@@ -283,7 +284,7 @@ void fillBoardDefaults(DynamicJsonDocument &doc, const String &filename)
       }
     }
 
-    if (doc.containsKey("shiftRegister"))
+    if (doc["shiftRegister"].is<JsonVariantConst>())
     {
       doc.remove("shiftRegister");
     }
@@ -291,9 +292,8 @@ void fillBoardDefaults(DynamicJsonDocument &doc, const String &filename)
   else
   {
     JsonObject sr = doc["shiftRegister"].as<JsonObject>();
-    if (sr.isNull())
-    {
-      sr = doc.createNestedObject("shiftRegister");
+    if (sr.isNull()) {
+      sr  = doc["shiftRegister"].to<JsonObject>();    
     }
 
     sr["latchPin"] = (uint8_t)(sr["latchPin"] | kDefaultShiftRegisterLatchPin);
@@ -301,7 +301,7 @@ void fillBoardDefaults(DynamicJsonDocument &doc, const String &filename)
     sr["dataPin"] = (uint8_t)(sr["dataPin"] | kDefaultShiftRegisterDataPin);
     sr["oePin"] = (uint8_t)(sr["oePin"] | kDefaultShiftRegisterOePin);
 
-    if (doc.containsKey("relays"))
+    if (doc["relays"].is<JsonVariantConst>())
     {
       doc.remove("relays");
     }
@@ -312,7 +312,7 @@ void addBoardListEntry(JsonArray &arr, const String &filename)
 {
   String path = boardPathFromFilename(filename);
 
-  DynamicJsonDocument entry(kBoardListDocCapacity);
+  JsonDocument entry;
   parseBoardMetadataFile(path, entry);
 
   fillBoardDefaults(entry, filename);
@@ -323,7 +323,7 @@ void addBoardListEntry(JsonArray &arr, const String &filename)
     return;
   }
 
-  JsonObject board = arr.createNestedObject();
+  JsonObject board = arr.add<JsonObject>();
   board["filename"] = String("boards/") + filename;
   board["name"] = String(entry["name"] | filename);
   board["cpu"] = entryCpu;
@@ -331,7 +331,7 @@ void addBoardListEntry(JsonArray &arr, const String &filename)
   board["outputType"] = String(entry["outputType"] | "gpio");
 }
 
-bool collectBoardDocumentFromRequest(AsyncWebServerRequest *request, DynamicJsonDocument &doc, String &outFilename)
+bool collectBoardDocumentFromRequest(AsyncWebServerRequest *request, JsonDocument &doc, String &outFilename)
 {
   String filename = routeGetBodyParam(request, "filename");
   String title = routeGetBodyParam(request, "title");
@@ -359,7 +359,7 @@ bool collectBoardDocumentFromRequest(AsyncWebServerRequest *request, DynamicJson
     normalizedFilename = sanitizeBoardSlug(title) + ".json";
   }
 
-  DynamicJsonDocument loaded(kBoardDocMinCapacity);
+  JsonDocument loaded;
   bool hasExisting = LittleFS.exists(boardPathFromFilename(normalizedFilename));
   if (hasExisting && !parseBoardFile(boardPathFromFilename(normalizedFilename), loaded))
   {
@@ -410,9 +410,9 @@ bool collectBoardDocumentFromRequest(AsyncWebServerRequest *request, DynamicJson
 
   if (outputType == "gpio")
   {
-    if (doc.containsKey("shiftRegister")) doc.remove("shiftRegister");
+    if (doc["shiftRegister"].is<JsonVariantConst>()) doc.remove("shiftRegister");
     JsonArray relays = doc["relays"].as<JsonArray>();
-    if (relays.isNull()) relays = doc.createNestedArray("relays");
+    if (relays.isNull()) relays = doc["relays"].template to<JsonArray>();
 
     while (relays.size() > relayCount) relays.remove(relays.size() - 1);
 
@@ -432,7 +432,7 @@ bool collectBoardDocumentFromRequest(AsyncWebServerRequest *request, DynamicJson
 
       if (i > relays.size())
       {
-        JsonObject relay = relays.createNestedObject();
+        JsonObject relay = relays.add<JsonObject>();
         relay["relay"] = i;
         relay["pin"] = pin;
       }
@@ -446,10 +446,9 @@ bool collectBoardDocumentFromRequest(AsyncWebServerRequest *request, DynamicJson
   }
   else
   {
-    if (doc.containsKey("relays")) doc.remove("relays");
+    if (doc["relays"].is<JsonVariantConst>()) doc.remove("relays");
     JsonObject sr = doc["shiftRegister"].as<JsonObject>();
-    if (sr.isNull()) sr = doc.createNestedObject("shiftRegister");
-
+    if (sr.isNull()) sr  = doc["shiftRegister"].to<JsonObject>();
     sr["latchPin"] = (uint8_t)(routeGetBodyParam(request, "sr_latchPin").length()
       ? routeGetBodyParam(request, "sr_latchPin").toInt()
       : (uint8_t)(sr["latchPin"] | kDefaultShiftRegisterLatchPin));
@@ -473,10 +472,10 @@ bool collectBoardDocumentFromRequest(AsyncWebServerRequest *request, DynamicJson
 void registerBoardRoutes()
 {
   server.on("/api/boards", HTTP_GET, [](AsyncWebServerRequest *request) {
-    DynamicJsonDocument doc(2048);
+    JsonDocument doc;
     doc["activeBoardFile"] = activeBoardHardwareFilename;
 
-    JsonArray arr = doc.createNestedArray("boards");
+    JsonArray arr = doc["boards"].template to<JsonArray>();
 
     if (LittleFS.exists("/boards"))
     {
@@ -512,9 +511,9 @@ void registerBoardRoutes()
 #endif
     }
 
-    String payload;
-    serializeJson(doc, payload);
-    request->send(200, "application/json", payload);
+    AsyncResponseStream *stream = request->beginResponseStream("application/json");
+    serializeJson(doc, *stream);
+    request->send(stream);
   });
 
   server.on("/api/boards", HTTP_POST, [](AsyncWebServerRequest *request) {
@@ -560,7 +559,7 @@ void registerBoardRoutes()
       }
       else
       {
-        DynamicJsonDocument probe(1024);
+        JsonDocument probe;
         if (deserializeJson(probe, rawContent) != DeserializationError::Ok)
         {
           request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid board json\"}");
@@ -572,7 +571,7 @@ void registerBoardRoutes()
         normalizedFilename = sanitizeBoardSlug(title) + ".json";
       }
 
-      DynamicJsonDocument inDoc(kBoardDocMaxCapacity);
+      JsonDocument inDoc;
       if (deserializeJson(inDoc, rawContent) != DeserializationError::Ok)
       {
         request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid board json\"}");
@@ -594,11 +593,11 @@ void registerBoardRoutes()
         return;
       }
 
-      DynamicJsonDocument response(256);
+      JsonDocument response;
       response["ok"] = true;
       response["filename"] = String("boards/") + normalizedFilename;
-      String payload;
-      serializeJson(response, payload);
+      char payload[128];
+      serializeJson(response, payload, sizeof(payload));
       request->send(200, "application/json", payload);
       return;
     }
@@ -624,11 +623,11 @@ void registerBoardRoutes()
       String newFilename = sanitizeBoardSlug(title) + ".json";
       if (newFilename == normalizedFilename)
       {
-        DynamicJsonDocument response(256);
+        JsonDocument response;
         response["ok"] = true;
         response["filename"] = String("boards/") + newFilename;
-        String payload;
-        serializeJson(response, payload);
+        char payload[128];
+        serializeJson(response, payload, sizeof(payload));
         request->send(200, "application/json", payload);
         return;
       }
@@ -648,7 +647,7 @@ void registerBoardRoutes()
         return;
       }
 
-      DynamicJsonDocument doc(kBoardDocMaxCapacity);
+      JsonDocument doc;
       if (!parseBoardFile(oldPath, doc))
       {
         request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid board json\"}");
@@ -666,11 +665,11 @@ void registerBoardRoutes()
 
       LittleFS.remove(oldPath);
 
-      DynamicJsonDocument response(256);
+      JsonDocument response;
       response["ok"] = true;
       response["filename"] = String("boards/") + newFilename;
-      String payload;
-      serializeJson(response, payload);
+      char payload[128];
+      serializeJson(response, payload, sizeof(payload));
       request->send(200, "application/json", payload);
       return;
     }
@@ -719,7 +718,7 @@ void registerBoardRoutes()
         return;
       }
 
-      DynamicJsonDocument boardDoc(kBoardDocMaxCapacity);
+      JsonDocument boardDoc;
       if (!parseBoardFile(path, boardDoc))
       {
         request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid board json\"}");
@@ -750,16 +749,16 @@ void registerBoardRoutes()
 
       notifyClients();
 
-      DynamicJsonDocument response(256);
+      JsonDocument response;
       response["ok"] = true;
       response["activeBoardFile"] = activeBoardHardwareFilename;
-      String payload;
-      serializeJson(response, payload);
+      char payload[128];
+      serializeJson(response, payload, sizeof(payload));
       request->send(200, "application/json", payload);
       return;
     }
 
-    DynamicJsonDocument doc(kBoardDocMaxCapacity);
+    JsonDocument doc;
     String normalizedFilename;
     if (!collectBoardDocumentFromRequest(request, doc, normalizedFilename))
     {
@@ -783,11 +782,11 @@ void registerBoardRoutes()
       loadBoardHardware(hardwareVariant);
     }
 
-    DynamicJsonDocument response(256);
+    JsonDocument response;
     response["ok"] = true;
     response["filename"] = String("boards/") + normalizedFilename;
-    String payload;
-    serializeJson(response, payload);
+    char payload[128];
+    serializeJson(response, payload, sizeof(payload));
     request->send(200, "application/json", payload);
   });
 }

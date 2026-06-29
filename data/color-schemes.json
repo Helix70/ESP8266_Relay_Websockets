@@ -1,0 +1,46 @@
+{
+  "Default": [
+    {"t": "Default",       "h": ["#F8F7F9","#143642","#0f8b8d","#cf2700","#143642", "#0F8B8D", "#FFFFFF", "#ffffff","#ffffff"]},
+    {"t": "Default · Dark","h": ["#0A1B21", "#143642", "#1CD2D6", "#FF451A", "#ffffff", "#1CD2D6", "#E2E8F0", "#0A1B21","#ffffff"]}
+  ],
+  "Calm & Minimal": [
+    {"t": "Neutral Iced Matcha",          "h": ["#F7F4EF","#AEB8A0","#6C7A58","#E6A886","#2C2A29","#6C7A58","#F7F4EF","#ffffff","#2C2A29"]},
+    {"t": "Neutral Iced Matcha · Dark",   "h": ["#1E251A","#2E3A28","#6C7A58","#E6A886","#AEB8A0","#AEB8A0","#1E251A","#1E251A","#1E251A"]},
+    {"t": "Serene Slate & White",         "h": ["#FAFAFA","#4A6FA5","#82B2D6","#E0A96D","#333333","#4A6FA5","#FAFAFA","#ffffff","#333333"]},
+    {"t": "Serene Slate & White · Dark",  "h": ["#0F1B29","#1f354f","#82B2D6","#E0A96D","#FFFFFF","#82B2D6","#0F1B29","#0F1B29","#0F1B29"]},
+    {"t": "Calm Nest",                    "h": ["#FDFBF7","#9CB2A2","#E6A886","#7B9EA8","#3E4440","#3E4440","#FDFBF7","#ffffff","#ffffff"]},
+    {"t": "Calm Nest · Dark",             "h": ["#2C352F","#414e45","#E6A886","#7B9EA8","#FDFBF7","#E6A886","#2C352F","#2C352F","#ffffff"]},
+    {"t": "B2B Trust & Purity",           "h": ["#E0FBFC","#98C1D9","#3D5A80","#EE6C4D","#293241","#293241","#E0FBFC","#ffffff","#ffffff"]},
+    {"t": "B2B Trust & Purity · Dark",    "h": ["#293241","#3D5A80","#98C1D9","#EE6C4D","#E0FBFC","#EE6C4D","#293241","#293241","#ffffff"]},
+    {"t": "Warm Naturals",                "h": ["#F5F0EB","#6B8262","#D9AB55","#7E9A9F","#45362B","#45362B","#F5F0EB","#ffffff","#ffffff"]},
+    {"t": "Warm Naturals · Dark",         "h": ["#362A22","#544235","#D9AB55","#7E9A9F","#F5F0EB","#D9AB55","#362A22","#362A22","#362A22"]},
+    {"t": "Cashmere & Teal",              "h": ["#F4EFEB","#2F4F4F","#D4A373","#A3C1AD","#2E2521","#2F4F4F","#F4EFEB","#ffffff","#2E2521"]},
+    {"t": "Cashmere & Teal · Dark",       "h": ["#1A3030","#2F4F4F","#F4EFEB","#A3C1AD","#D4A373","#D4A373","#1A3030","#1A3030","#1A3030"]},
+    {"t": "Cloud Gray & Mint",            "h": ["#F5F7F8","#A3D9C9","#4CA68F","#EFA7A7","#3A3A3A","#3A3A3A","#A3D9C9","#ffffff","#3A3A3A"]},
+    {"t": "Cloud Gray & Mint · Dark",     "h": ["#222222","#333333","#4CA68F","#EFA7A7","#A3D9C9","#4CA68F","#222222","#222222","#222222"]},
+    {"t": "Sand Beige & Mist",            "h": ["#E8DCC4","#8FB9AA","#2B3A41","#D98880","#2B3A41","#2B3A41","#E8DCC4","#E8DCC4","#2B3A41"]},
+    {"t": "Sand Beige & Mist · Dark",     "h": ["#2B3A41","#394d57","#8FB9AA","#D98880","#E8DCC4","#8FB9AA","#2B3A41","#2B3A41","#2B3A41"]},
+    {"t": "Warm Taupe & Lavender",        "h": ["#EBE5DF","#FFFFFF","#CBB3BA","#8AA399","#6D6270","#6D6270","#EBE5DF","#ffffff","#ffffff"]},
+    {"t": "Warm Taupe & Lavender · Dark", "h": ["#342B38","#4a3e50","#CBB3BA","#8AA399","#EBE5DF","#CBB3BA","#342B38","#342B38","#ffffff"]}
+  ],
+  "Premium & Modern": [
+    {"t": "Sunset Persimmon",             "h": ["#FAFAFA","#B23A2A","#FF4B3A","#2EC4B6","#2B2B2B","#FF4B3A","#FAFAFA","#ffffff","#ffffff"]},
+    {"t": "Sunset Persimmon · Dark",      "h": ["#3A1C1C","#592b2b","#FF4B3A","#2EC4B6","#FFFFFF","#FFFFFF","#3A1C1C","#ffffff","#3A1C1C"]},
+    {"t": "Midnight Neon Blue",           "h": ["#F0F4F8","#1E2A38","#FF2E93","#00F5D4","#1E2A38","#1E2A38","#00F5D4","#ffffff","#1E2A38"]},
+    {"t": "Midnight Neon Blue · Dark",    "h": ["#0A0E17","#162033","#FF2E93","#00F5D4","#ffffff","#FF2E93","#ffffff","#ffffff","#0A0E17"]},
+    {"t": "Plum Noir & Velvet",           "h": ["#F5E6E8","#523A40","#CBA135","#4A7C59","#351E28","#351E28","#F5E6E8","#ffffff","#ffffff"]},
+    {"t": "Plum Noir & Velvet · Dark",    "h": ["#351E28","#4f2d3c","#CBA135","#4A7C59","#F5E6E8","#CBA135","#351E28","#ffffff","#ffffff"]},
+    {"t": "Black & Gold Elite",           "h": ["#FFFFFF","#000000","#D4AF37","#707070","#000000","#000000","#D4AF37","#ffffff","#ffffff"]},
+    {"t": "Black & Gold Elite · Dark",    "h": ["#050505","#1a1a1a","#D4AF37","#444444","#ffffff","#D4AF37","#050505","#050505","#ffffff"]},
+    {"t": "Teal & Bronze",                "h": ["#F3EFE0","#006D77","#83C5BE","#D62246","#835332","#006D77","#F3EFE0","#006D77","#ffffff"]},
+    {"t": "Teal & Bronze · Dark",         "h": ["#004D54","#006d75","#83C5BE","#D62246","#F3EFE0","#D62246","#ffffff","#004D54","#ffffff"]},
+    {"t": "Cool Blue & Frost",            "h": ["#D7EFFF","#A2D2FF","#0077B6","#FFB703","#0A2240","#0A2240","#D7EFFF","#ffffff","#0A2240"]},
+    {"t": "Cool Blue & Frost · Dark",     "h": ["#0A2240","#12345c","#0077B6","#FFB703","#A2D2FF","#A2D2FF","#0A2240","#ffffff","#0A2240"]},
+    {"t": "Emerald & Gold",               "h": ["#FFFFFF","#042917","#C69214","#A43A83","#0D5C3A","#042917","#C69214","#ffffff","#ffffff"]},
+    {"t": "Emerald & Gold · Dark",        "h": ["#042917","#0b4729","#C69214","#A43A83","#ffffff","#C69214","#042917","#042917","#ffffff"]},
+    {"t": "Purple Rain",                  "h": ["#EBE8F5","#8B72A8","#D8315B","#00b4d8","#2B1F3D","#2B1F3D","#EBE8F5","#ffffff","#ffffff"]},
+    {"t": "Purple Rain · Dark",           "h": ["#2B1F3D","#41305c","#D8315B","#00b4d8","#8B72A8","#8B72A8","#2B1F3D","#ffffff","#2B1F3D"]},
+    {"t": "Warm Suede Luxury",            "h": ["#F3EBE5","#7A5C4A","#C8A165","#466060","#382B22","#382B22","#F3EBE5","#ffffff","#ffffff"]},
+    {"t": "Warm Suede Luxury · Dark",     "h": ["#382B22","#544033","#C8A165","#466060","#F3EBE5","#C8A165","#382B22","#382B22","#ffffff"]}
+  ]
+}

@@ -144,11 +144,43 @@ static bool hasValidMainGateCookie(AsyncWebServerRequest *request)
   return (cookieValue.length() > 0 && cookieValue == mainGateToken);
 }
 
+#ifdef ESP32
+// ESPAsyncWebServer v3.x AsyncFileResponse(FS,...) uses available() to probe the file after
+// open. available() = size() - position(), and if it returns 0 (zero-length file or position
+// already at EOF due to a framework bug), the response falls back to the .gz path. When the .gz
+// doesn't exist _content is left as a null File; _fillBuffer then calls File::read() which
+// returns (size_t)-1 = SIZE_MAX, causing the chunked sender to emit a chunk-size header of
+// 0xFFFFFFFF. The browser waits for that many bytes and hangs (spinner, no 404).
+//
+// Fix: open the file explicitly and use the File-based beginResponse overload, which sets
+// _code = 200 directly from _content.size() without any available() check or gz fallback.
+static AsyncWebServerResponse *beginResponseFromFile(AsyncWebServerRequest *request, const char *path, const char *contentType)
+{
+  File f = LittleFS.open(path, "r");
+  if (!f)
+  {
+    Serial.printf("[Web] LittleFS.open failed: %s\n", path);
+    return nullptr;
+  }
+  Serial.printf("[Web] %s size=%u pos=%u avail=%d\n", path, (unsigned)f.size(), (unsigned)f.position(), f.available());
+  return request->beginResponse(f, String(path), contentType);
+}
+#endif
+
 static void sendMainPageAndIssueGateCookie(AsyncWebServerRequest *request)
 {
   ensureMainGateToken();
 
+#ifdef ESP32
+  AsyncWebServerResponse *response = beginResponseFromFile(request, "/index.html", "text/html");
+  if (!response)
+  {
+    request->send(404);
+    return;
+  }
+#else
   AsyncWebServerResponse *response = request->beginResponse(LittleFS, "/index.html", "text/html", false, nullptr);
+#endif
   response->addHeader("Cache-Control", "no-store");
   response->addHeader("Set-Cookie", String(kMainGateCookieName) + "=" + mainGateToken + "; Path=/; HttpOnly; SameSite=Lax");
   request->send(response);
@@ -202,15 +234,16 @@ static void buildRuntimeStatePayload(char *payload, size_t payloadSize)
 
   // Serves the main page only: relay states, labels, and basic board info.
   // Network/WiFi/MCU/delay fields removed — config page fetches those via /netinfo.
-  // StaticJsonDocument: arena in BSS, not heap.
+  // Static: pool is heap-allocated on first call, then reused across calls (clear()
+  // resets position but does not free the pool, preventing repeated alloc/free churn).
   // Capacity: 16 relays × 10 fields × 16 bytes + 16×2×33 label pool + root ≈ 3900 bytes.
-  static StaticJsonDocument<4096> JSONdoc;
+  static JsonDocument JSONdoc;
   JSONdoc.clear();
 
-  JsonArray array = JSONdoc.createNestedArray("buttons");
+  JsonArray array = JSONdoc["buttons"].template to<JsonArray>();
   for (int i = 0; i < relayCount; i++)
   {
-    JsonObject button = array.createNestedObject();
+    JsonObject button = array.add<JsonObject>();
     button["id"] = i + 1;
     button["on"] = relays[i].on;
     button["d"] = relays[i].disabled;
@@ -237,17 +270,17 @@ void notifyClients()
   // Hot path: called on every config change (setLabel, setBoardName, etc.).
   // Uses char[] to avoid String realloc from interrupt context (ctx: sys).
   // Sized for 16 relays × 4 fields + 6 top-level fields: worst-case ~750 chars.
-  DynamicJsonDocument JSONdoc(1536);
+  JsonDocument JSONdoc;
   static char payload[1024];
   static uint32_t lastPayloadHash = 0;
   static size_t lastPayloadLen = 0;
   uint32_t buildStartUs = micros();
 
   ensureMainGateToken();
-  JsonArray array = JSONdoc.createNestedArray("buttons");
+  JsonArray array = JSONdoc["buttons"].template to<JsonArray>();
   for (int i = 0; i < relayCount; i++)
   {
-    JsonObject button = array.createNestedObject();
+    JsonObject button = array.add<JsonObject>();
     button["id"] = i + 1;
     button["on"] = relays[i].on;
     button["d"] = relays[i].disabled;
@@ -319,14 +352,14 @@ void notifyRelayStates()
   // Capacity: JSON_OBJECT_SIZE(2) + JSON_ARRAY_SIZE(MAX) + MAX*JSON_OBJECT_SIZE(4)
   // On ESP8266 (sizeof(VariantSlot)=16): 32+256+1024 = 1312 bytes minimum.
   // char[] avoids String realloc from interrupt context (ctx: sys).
-  DynamicJsonDocument doc(JSON_OBJECT_SIZE(2) + JSON_ARRAY_SIZE(APP_MAX_RELAYS) + APP_MAX_RELAYS * JSON_OBJECT_SIZE(4));
+  JsonDocument doc;
   static char payload[640];
 
   doc["partial"] = true;
-  JsonArray array = doc.createNestedArray("buttons");
+  JsonArray array = doc["buttons"].template to<JsonArray>();
   for (uint8_t i = 0; i < relayCount; i++)
   {
-    JsonObject button = array.createNestedObject();
+    JsonObject button = array.add<JsonObject>();
     button["id"] = i + 1;
     button["on"] = relays[i].on;
     button["d"] = relays[i].disabled;
@@ -346,12 +379,12 @@ void notifyRelayState(uint8_t relayNum)
 
   uint8_t idx = relayNum - 1;
   // char[] avoids String realloc from interrupt context (ctx: sys).
-  DynamicJsonDocument doc(256);
+  JsonDocument doc;
   static char payload[128];
 
   doc["partial"] = true;
-  JsonArray array = doc.createNestedArray("buttons");
-  JsonObject button = array.createNestedObject();
+  JsonArray array = doc["buttons"].template to<JsonArray>();
+  JsonObject button = array.add<JsonObject>();
   button["id"] = relayNum;
   button["on"] = relays[idx].on;
   button["d"] = relays[idx].disabled;
@@ -415,7 +448,7 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
 
   if (str_buf[0] == '{')
   {
-    DynamicJsonDocument command(2560);
+    JsonDocument command;
     DeserializationError error = deserializeJson(command, str_buf, copyLen);
     if (!error)
     {
@@ -426,7 +459,7 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
         if (relayNum > 0 && relayNum <= relayCount)
         {
           assignRelayLabels(relayNum, String(command["o"] | ""), String(command["f"] | ""));
-          if (command.containsKey("mode"))
+          if (command["mode"].is<JsonVariantConst>())
           {
             String modeStr = String(command["m"] | "L");
             uint8_t mode = RELAY_MODE_ONOFF;
@@ -530,12 +563,12 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
       else if (cmd == "setRelayModes")
       {
         bool changed = false;
-        if (command.containsKey("doDelay"))
+        if (command["doDelay"].is<JsonVariantConst>())
         {
           doDelay = command["doDelay"] | false;
           changed = true;
         }
-        if (command.containsKey("startupDelaySeconds"))
+        if (command["startupDelaySeconds"].is<JsonVariantConst>())
         {
           uint16_t parsed = (uint16_t)(command["startupDelaySeconds"] | startupDelaySeconds);
           if (parsed > 300)
@@ -657,6 +690,27 @@ void registerRuntimeHttpRoutes()
 {
   server.addHandler(&ws);
 
+#ifdef ESP32
+  // Disable Nagle's algorithm for all HTTP connections on ESP32.
+  // ESPAsyncWebServer v3.x iterates handlers and calls canHandle() on each; a
+  // handler that returns false is skipped. We exploit this: return false so the
+  // actual handler still runs, but set TCP_NODELAY as a side effect so every
+  // HTTP response (HTML, CSS, JS) is sent without the 40-200ms delayed-ACK
+  // penalty that Nagle imposes on the final partial TCP segment.
+  // The WebSocket client already gets setNoDelay at WS_EVT_CONNECT; this covers
+  // all plain HTTP connections that serveStatic and the route handlers use.
+  static struct : AsyncWebHandler
+  {
+    bool canHandle(AsyncWebServerRequest *request) const override
+    {
+      request->client()->setNoDelay(true);
+      return false;
+    }
+    void handleRequest(AsyncWebServerRequest *) override {}
+  } noDelayHandler;
+  server.addHandler(&noDelayHandler);
+#endif
+
   ensureMainGateToken();
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
@@ -664,40 +718,56 @@ void registerRuntimeHttpRoutes()
 
   server.on("/config.html", HTTP_GET, [](AsyncWebServerRequest *request)
             {
-    if (!enforceChildPageGate(request))
-    {
-      return;
-    }
-    request->send(LittleFS, "/config.html", "text/html", false, nullptr); });
+    if (!enforceChildPageGate(request)) return;
+#ifdef ESP32
+    AsyncWebServerResponse *r = beginResponseFromFile(request, "/config.html", "text/html");
+    if (!r) { request->send(404); return; }
+    request->send(r);
+#else
+    request->send(LittleFS, "/config.html", "text/html", false, nullptr);
+#endif
+  });
 
   server.on("/relay-config.html", HTTP_GET, [](AsyncWebServerRequest *request)
             {
-    if (!enforceChildPageGate(request))
-    {
-      return;
-    }
-    request->send(LittleFS, "/relay-config.html", "text/html", false, nullptr); });
+    if (!enforceChildPageGate(request)) return;
+#ifdef ESP32
+    AsyncWebServerResponse *r = beginResponseFromFile(request, "/relay-config.html", "text/html");
+    if (!r) { request->send(404); return; }
+    request->send(r);
+#else
+    request->send(LittleFS, "/relay-config.html", "text/html", false, nullptr);
+#endif
+  });
 
   server.on("/boards.html", HTTP_GET, [](AsyncWebServerRequest *request)
             {
-    if (!enforceChildPageGate(request))
-    {
-      return;
-    }
-    request->send(LittleFS, "/boards.html", "text/html", false, nullptr); });
+    if (!enforceChildPageGate(request)) return;
+#ifdef ESP32
+    AsyncWebServerResponse *r = beginResponseFromFile(request, "/boards.html", "text/html");
+    if (!r) { request->send(404); return; }
+    request->send(r);
+#else
+    request->send(LittleFS, "/boards.html", "text/html", false, nullptr);
+#endif
+  });
 
   server.on("/template-editor.html", HTTP_GET, [](AsyncWebServerRequest *request)
             {
-    if (!enforceChildPageGate(request))
-    {
-      return;
-    }
-    request->send(LittleFS, "/template-editor.html", "text/html", false, nullptr); });
+    if (!enforceChildPageGate(request)) return;
+#ifdef ESP32
+    AsyncWebServerResponse *r = beginResponseFromFile(request, "/template-editor.html", "text/html");
+    if (!r) { request->send(404); return; }
+    request->send(r);
+#else
+    request->send(LittleFS, "/template-editor.html", "text/html", false, nullptr);
+#endif
+  });
 
   server.on("/netinfo", HTTP_GET, [](AsyncWebServerRequest *request)
             {
     // 18 fields × ~16 bytes slot overhead + ~600 bytes string data ≈ 900 bytes; 1024 for safety.
-    DynamicJsonDocument doc(1024);
+    JsonDocument doc;
     static char payload[1024];
 
     String activeIp = useStaticIp ? boardIp.toString() : WiFi.localIP().toString();

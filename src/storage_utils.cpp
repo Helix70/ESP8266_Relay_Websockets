@@ -262,12 +262,14 @@ bool initLittleFS()
   return true;
 }
 
+#if !defined(ESP8266) && !defined(ESP32)
 static const char *modeToStr(uint8_t mode)
 {
   if (mode == RELAY_MODE_INTERLOCKED) return "I";
   if (mode == RELAY_MODE_PULSED)      return "P";
   return "L";
 }
+#endif
 
 static uint8_t strToMode(const String &s)
 {
@@ -348,12 +350,12 @@ bool saveRelayLabels()
   Serial.println("Saved relay labels to EEPROM");
   return true;
 #else
-  DynamicJsonDocument doc(6144);
-  JsonArray labels = doc.createNestedArray("labels");
+  JsonDocument doc;
+  JsonArray labels = doc["labels"].template to<JsonArray>();
 
   for (uint8_t i = 0; i < kMaxRelays; i++)
   {
-    JsonObject label = labels.createNestedObject();
+    JsonObject label = labels.add<JsonObject>();
     label["o"]            = relayLabels[i].on;
     label["f"]            = relayLabels[i].off;
     label["m"]            = modeToStr(relayLabels[i].mode);
@@ -449,7 +451,7 @@ bool loadRelayLabels()
     return false;
   }
 
-  DynamicJsonDocument doc(6144);
+  JsonDocument doc;
   DeserializationError error = deserializeJson(doc, file);
   file.close();
 
@@ -501,7 +503,7 @@ bool loadRelayLabels()
     return false;
   }
 
-  DynamicJsonDocument doc(6144);
+  JsonDocument doc;
   DeserializationError error = deserializeJson(doc, file);
   file.close();
 
@@ -645,7 +647,7 @@ bool loadLabelsFromTemplateFile(const String &filename, uint8_t count, String *f
   }
 #endif
 
-  DynamicJsonDocument doc(docCapacity);
+  JsonDocument doc;
   DeserializationError err = deserializeJson(doc, f);
   f.close();
 
@@ -656,7 +658,7 @@ bool loadLabelsFromTemplateFile(const String &filename, uint8_t count, String *f
   {
     f = LittleFS.open(path, "r");
     if (!f) return fail("reopen_failed", path);
-    DynamicJsonDocument retryDoc(32768);
+    JsonDocument retryDoc;
     err = deserializeJson(retryDoc, f);
     f.close();
     if (err) return fail(err == DeserializationError::NoMemory ? "parse_no_memory" : "parse_failed", path, &err);

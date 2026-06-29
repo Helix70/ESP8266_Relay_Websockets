@@ -32,7 +32,7 @@ Files must use compact JSON (no whitespace). ArduinoJson parses whitespace as to
 
 ## Notes
 
-- The firmware parses these files into a `DynamicJsonDocument(2560)` on the ESP8266. Worst-case pool usage for a 16-relay template with 32-char labels is under 2,560 bytes — do not add extra fields or the pool will overflow.
+- The firmware parses these files into a `JsonDocument(2560)` on the ESP8266. Worst-case pool usage for a 16-relay template with 32-char labels is under 2,560 bytes — do not add extra fields or the pool will overflow.
 - Do not add extra fields (e.g. `_help` or comments) — they are parsed into memory and waste heap space on the device.
 - Field names were compacted over several revisions to reduce LittleFS file size and ArduinoJson pool usage:
   - `title` → `t`, `labels` → `l`, `mode` → `m`, `on` → `o`, `off` → `f`

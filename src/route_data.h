@@ -17,8 +17,10 @@ constexpr uint8_t kDefaultShiftRegisterOePin = 5;
 constexpr uint16_t kMaxStartupDelaySeconds = 300;
 constexpr uint8_t kMaxPulseTimeoutSeconds = 30;
 constexpr uint8_t kDefaultPulseTimeoutSeconds = 1;
-constexpr size_t kMaxTemplateTitleLength = 64;
-constexpr size_t kMaxTemplateFilenameLength = 48;
+constexpr size_t kMaxTemplateTitleLength = 40;
+// LFS_NAME_MAX = 32 on ESP8266; temp file is slug+".jt" (3 bytes), final is
+// slug+".json" (5 bytes) — final is the binding constraint: slug <= 26.
+constexpr size_t kMaxTemplateFilenameLength = 26;
 
 inline uint8_t relayCountForVariant(const String &variant) {
   return (variant == "16relay") ? kVariantRelayCount16 : kVariantRelayCount8;

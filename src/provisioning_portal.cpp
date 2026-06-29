@@ -2,13 +2,19 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include <ESPAsyncWebServer.h>
 
-#if defined(ESP8266)
+#if defined(ESP32) || defined(LIBRETINY)
+#include <AsyncTCP.h>
+#include <WiFi.h>
+#elif defined(ESP8266)
 #include <ESP8266WiFi.h>
-#elif defined(ESP32)
+#include <ESPAsyncTCP.h>
+#elif defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
+#include <RPAsyncTCP.h>
 #include <WiFi.h>
 #endif
+
+#include <ESPAsyncWebServer.h>
 
 #include "config_store.h"
 
@@ -206,8 +212,8 @@ void pollProvisioningScan()
   WiFi.scanDelete();
   int scanState = WiFi.scanNetworks(false, true);
 
-  DynamicJsonDocument doc(4096);
-  JsonArray arr = doc.createNestedArray("ssids");
+  JsonDocument doc;
+  JsonArray arr = doc["ssids"].template to<JsonArray>();
   doc["scanning"] = false;
   int visibleCount = 0;
   int hiddenCount = 0;
@@ -228,7 +234,7 @@ void pollProvisioningScan()
         hiddenCount++;
       }
 
-      JsonObject row = arr.createNestedObject();
+      JsonObject row = arr.add<JsonObject>();
       row["ssid"] = ssidName;
       row["rssi"] = WiFi.RSSI(i);
     }

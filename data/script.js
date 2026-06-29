@@ -240,11 +240,19 @@ function setButtonGroupDecoration(selector, mode, group) {
   if (mode === 1 && group > 0) {
     button.classList.add('interlock-group');
     button.style.setProperty('--group-accent', getInterlockGroupColor(group));
+    button.classList.remove('pulse-mode');
     return;
   }
 
   button.classList.remove('interlock-group');
   button.style.removeProperty('--group-accent');
+
+  if (mode === 2) {
+    button.classList.add('pulse-mode');
+    return;
+  }
+
+  button.classList.remove('pulse-mode');
 }
 
 function applyBoardName(boardName) {
@@ -283,34 +291,34 @@ function extractRelayNumber(buttonId) {
 }
 
 function renderRelayTable(count) {
-  var table = document.getElementById('relay-table');
-  if (!table) {
+  var grid = document.getElementById('relay-table');
+  if (!grid) {
     return;
   }
 
-  table.innerHTML = '';
+  grid.className = 'relay-grid';
+  grid.innerHTML = '';
 
-  for (var relayId = 1; relayId <= count; relayId += 2) {
-    var row = document.createElement('tr');
-
-    var leftCell = document.createElement('td');
-    leftCell.className = 'card';
-    leftCell.innerHTML = '<p><button id="button' + relayId + '" class="button"><span class="on">Relay ' + relayId + ' On</span><span class="off">Relay ' + relayId + ' Off</span></button></p>';
-    row.appendChild(leftCell);
-
-    var rightCell = document.createElement('td');
-    rightCell.className = 'card';
-    if (relayId + 1 <= count) {
-      rightCell.innerHTML = '<p><button id="button' + (relayId + 1) + '" class="button"><span class="on">Relay ' + (relayId + 1) + ' On</span><span class="off">Relay ' + (relayId + 1) + ' Off</span></button></p>';
-    }
-    row.appendChild(rightCell);
-
-    table.appendChild(row);
+  for (var relayId = 1; relayId <= count; relayId++) {
+    var card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = '<button id="button' + relayId + '" class="button"><span class="on">Relay ' + relayId + ' On</span><span class="off">Relay ' + relayId + ' Off</span></button>';
+    grid.appendChild(card);
   }
 
-  var actionsRow = document.createElement('tr');
-  actionsRow.innerHTML = '<td class="card"><p><button id="alloff" class="button">All Relays Off</button></p></td><td class="card"><p><button id="home" class="button">Refresh</button></p></td>';
-  table.appendChild(actionsRow);
+  if (count % 2 !== 0) {
+    grid.appendChild(document.createElement('div'));
+  }
+
+  var allOffCard = document.createElement('div');
+  allOffCard.className = 'card';
+  allOffCard.innerHTML = '<button id="alloff" class="button">All Relays Off</button>';
+  grid.appendChild(allOffCard);
+
+  var refreshCard = document.createElement('div');
+  refreshCard.className = 'card';
+  refreshCard.innerHTML = '<button id="home" class="button">Refresh</button>';
+  grid.appendChild(refreshCard);
 
   renderedRelayCount = count;
   relayButtonUi = {};
@@ -328,7 +336,7 @@ function applySetupState(complete) {
     if (table) table.style.display = 'none';
     if (msg) {
       msg.innerHTML = '<p>Board hardware is not configured.</p>'
-                    + '<p><a href="/config.html" class="button">Open Board Configuration</a></p>';
+                    + '<p><a href="/boards.html" class="button">Open Board Manager</a></p>';
       msg.style.display = '';
     }
   }

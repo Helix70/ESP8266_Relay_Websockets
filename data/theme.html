@@ -1,0 +1,31 @@
+<!DOCTYPE HTML>
+<html>
+
+<head>
+  <title>Relay Board - Colour Scheme</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <script src="theme-apply.js"></script>
+  <style>body { background-color: var(--clr-bg); transition: background-color 0.25s; }</style>
+</head>
+
+<body>
+  <div class="topnav">
+    <h1>Colour Scheme</h1>
+  </div>
+  <p id="themeStatus" class="config-note" style="text-align:center;padding:8px 12px;display:none"></p>
+  <div class="theme-toggle-row">
+    <button id="modeBtn" class="theme-mode-btn">Switch to Dark Themes</button>
+  </div>
+  <div id="themeGrid" class="theme-page" data-loading="true"></div>
+  <div class="theme-apply-bar">
+    <button id="applyBtn" class="button" style="min-width:120px" disabled>Apply</button>
+    <button id="backBtn" class="button" style="min-width:120px">Back</button>
+  </div>
+
+  <script src="theme.js"></script>
+</body>
+
+</html>

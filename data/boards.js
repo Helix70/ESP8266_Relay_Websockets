@@ -339,7 +339,7 @@ function buildEditor(cfg, filename) {
   var cancelBtn = document.createElement('button');
   cancelBtn.className = 'button';
   cancelBtn.style.marginTop = '14px';
-  cancelBtn.textContent = 'Cancel';
+  cancelBtn.textContent = 'Back';
   cancelBtn.addEventListener('click', function () {
     currentEditorFilename = '';
     document.getElementById('boardEditorHost').innerHTML = '';

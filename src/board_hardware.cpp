@@ -73,7 +73,7 @@ bool loadBoardHardwareFromPath(const String &path)
     return false;
   }
 
-  DynamicJsonDocument doc(2048);
+  JsonDocument doc;
   DeserializationError err = deserializeJson(doc, f);
   f.close();
 

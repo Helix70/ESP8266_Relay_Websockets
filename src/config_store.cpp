@@ -21,6 +21,7 @@ namespace
 {
 constexpr const char *kDefaultBoardName = "Relay Board";
 constexpr const char *kDefaultVariant = ""; // empty = not yet configured
+constexpr const char *kDefaultThemeHex = "#F8F7F9,#143642,#0f8b8d,#cf2700,#143642,#0f8b8d,#ffffff";
 constexpr size_t kMaxBoardNameLength = 64;
 constexpr size_t kMaxSsidLength = 32;
 constexpr size_t kMaxPasswordLength = 64;
@@ -87,24 +88,24 @@ uint32_t eepromReadU32(int offset)
          ((uint32_t)EEPROM.read(offset + 3) << 24);
 }
 
-bool saveBoardConfigToEepromJson(const String &payload)
+bool saveBoardConfigToEepromJson(const char *payload, size_t payloadLen)
 {
-  if (payload.length() == 0 || payload.length() > kBoardConfigMaxPayload)
+  if (payloadLen == 0 || payloadLen > kBoardConfigMaxPayload)
   {
     return false;
   }
 
   EEPROM.begin((int)kEepromTotalSize);
 
-  uint16_t payloadLen = (uint16_t)payload.length();
-  uint16_t crc = crc16Ccitt((const uint8_t *)payload.c_str(), payloadLen);
+  uint16_t len16 = (uint16_t)payloadLen;
+  uint16_t crc = crc16Ccitt((const uint8_t *)payload, len16);
 
   eepromWriteU32(kBoardConfigHeaderOffsetMagic, kBoardConfigEepromMagic);
   eepromWriteU16(kBoardConfigHeaderOffsetVersion, kBoardConfigEepromVersion);
-  eepromWriteU16(kBoardConfigHeaderOffsetLength, payloadLen);
+  eepromWriteU16(kBoardConfigHeaderOffsetLength, len16);
   eepromWriteU16(kBoardConfigHeaderOffsetCrc, crc);
 
-  for (uint16_t i = 0; i < payloadLen; i++)
+  for (uint16_t i = 0; i < len16; i++)
   {
     EEPROM.write(kBoardConfigPayloadOffset + i, (uint8_t)payload[i]);
   }
@@ -114,10 +115,8 @@ bool saveBoardConfigToEepromJson(const String &payload)
   return ok;
 }
 
-bool loadBoardConfigFromEepromJson(String &payloadOut)
+bool loadBoardConfigFromEepromJson(char *payloadOut, size_t maxLen)
 {
-  payloadOut = "";
-
   EEPROM.begin((int)kEepromTotalSize);
 
   uint32_t magic = eepromReadU32(kBoardConfigHeaderOffsetMagic);
@@ -126,20 +125,20 @@ bool loadBoardConfigFromEepromJson(String &payloadOut)
   uint16_t expectedCrc = eepromReadU16(kBoardConfigHeaderOffsetCrc);
 
   if (magic != kBoardConfigEepromMagic || version != kBoardConfigEepromVersion ||
-      payloadLen == 0 || payloadLen > kBoardConfigMaxPayload)
+      payloadLen == 0 || payloadLen > kBoardConfigMaxPayload || payloadLen >= (uint16_t)maxLen)
   {
     EEPROM.end();
     return false;
   }
 
-  payloadOut.reserve(payloadLen);
   for (uint16_t i = 0; i < payloadLen; i++)
   {
-    payloadOut += (char)EEPROM.read(kBoardConfigPayloadOffset + i);
+    payloadOut[i] = (char)EEPROM.read(kBoardConfigPayloadOffset + i);
   }
+  payloadOut[payloadLen] = '\0';
   EEPROM.end();
 
-  uint16_t actualCrc = crc16Ccitt((const uint8_t *)payloadOut.c_str(), payloadOut.length());
+  uint16_t actualCrc = crc16Ccitt((const uint8_t *)payloadOut, payloadLen);
   return (actualCrc == expectedCrc);
 }
 #endif
@@ -286,6 +285,7 @@ uint8_t parseTemplateRelayCount(const String &filename)
 
 extern const char *kBoardConfigPath;
 extern String boardName;
+extern char themeHex[48];
 extern String wifiSsid;
 extern String wifiPassword;
 extern String selectedRelayTemplateFilename;
@@ -416,6 +416,7 @@ bool saveBoardConfig()
   prefs.putString("wifiSsidEnc", encryptConfigSecret(wifiSsid));
   prefs.putString("wifiPwdEnc", encryptConfigSecret(wifiPassword));
   prefs.putString("selTpl", selectedRelayTemplateFilename);
+  prefs.putString("themeH", themeHex);
   if (useStaticIp)
   {
     prefs.putString("ip", boardIp.toString());
@@ -436,7 +437,7 @@ bool saveBoardConfig()
   Serial.printf("Saved board config to NVS: name=%s, dhcp=%d\n", boardName.c_str(), !useStaticIp);
   return true;
 #elif defined(ESP8266)
-  DynamicJsonDocument doc(2048);
+  JsonDocument doc;
   doc["name"] = boardName;
   doc["doDelay"] = doDelay;
   doc["startupDelaySeconds"] = startupDelaySeconds;
@@ -446,10 +447,11 @@ bool saveBoardConfig()
   doc["selectedRelayTemplate"] = selectedRelayTemplateFilename;
   doc["wifiSsidEnc"] = encryptConfigSecret(wifiSsid);
   doc["wifiPwdEnc"] = encryptConfigSecret(wifiPassword);
+  doc["themeH"] = themeHex;
 
   if (useStaticIp)
   {
-    JsonObject ipConfig = doc.createNestedObject("ipConfig");
+    JsonObject ipConfig = doc["ipConfig"].to<JsonObject>();
     ipConfig["ip"] = boardIp.toString();
     ipConfig["dns"] = boardDns.toString();
     ipConfig["gateway"] = boardGateway.toString();
@@ -460,9 +462,9 @@ bool saveBoardConfig()
     doc["ipConfig"] = nullptr;
   }
 
-  String payload;
-  serializeJson(doc, payload);
-  if (!saveBoardConfigToEepromJson(payload))
+  char payload[768];
+  serializeJson(doc, payload, sizeof(payload));
+  if (!saveBoardConfigToEepromJson(payload, strlen(payload)))
   {
     Serial.println("Failed to save board config to EEPROM");
     return false;
@@ -471,7 +473,7 @@ bool saveBoardConfig()
   Serial.printf("Saved board config to EEPROM: name=%s, dhcp=%d\n", boardName.c_str(), !useStaticIp);
   return true;
 #else
-  DynamicJsonDocument doc(2048);
+  JsonDocument doc;
   doc["name"] = boardName;
   doc["doDelay"] = doDelay;
   doc["startupDelaySeconds"] = startupDelaySeconds;
@@ -484,7 +486,7 @@ bool saveBoardConfig()
 
   if (useStaticIp)
   {
-    JsonObject ipConfig = doc.createNestedObject("ipConfig");
+    JsonObject ipConfig = doc["ipConfig"].to<JsonObject>();
     ipConfig["ip"] = boardIp.toString();
     ipConfig["dns"] = boardDns.toString();
     ipConfig["gateway"] = boardGateway.toString();
@@ -550,6 +552,7 @@ void loadBoardConfig()
   wifiSsid = "";
   wifiPassword = "";
   selectedRelayTemplateFilename = "";
+  strlcpy(themeHex, kDefaultThemeHex, sizeof(themeHex));
 
 #ifdef ESP32
   Preferences prefs;
@@ -586,6 +589,11 @@ void loadBoardConfig()
     wifiPassword = decryptConfigSecret(prefs.getString("wifiPwdEnc", ""));
   selectedRelayTemplateFilename = prefs.getString("selTpl", "");
   selectedRelayTemplateFilename.trim();
+  if (prefs.isKey("themeH"))
+  {
+    String th = prefs.getString("themeH", kDefaultThemeHex);
+    strlcpy(themeHex, th.c_str(), sizeof(themeHex));
+  }
 
   if (wifiSsid.length() > kMaxSsidLength)
     wifiSsid = wifiSsid.substring(0, kMaxSsidLength);
@@ -614,11 +622,11 @@ void loadBoardConfig()
   Serial.printf("Loaded board config from NVS: name=%s, dhcp=%d, doDelay=%d, startupDelaySeconds=%u, strongestSsid=%d, wifiSsidSet=%d\n",
                 boardName.c_str(), !useStaticIp, doDelay, startupDelaySeconds, connectStrongestOnStartup, wifiSsid.length() > 0);
 #elif defined(ESP8266)
-  DynamicJsonDocument doc(2048);
+  JsonDocument doc;
   bool loaded = false;
 
-  String eepromPayload;
-  if (loadBoardConfigFromEepromJson(eepromPayload))
+  char eepromPayload[768];
+  if (loadBoardConfigFromEepromJson(eepromPayload, sizeof(eepromPayload)))
   {
     if (deserializeJson(doc, eepromPayload) == DeserializationError::Ok)
     {
@@ -643,9 +651,9 @@ void loadBoardConfig()
     // Migrate legacy file config into EEPROM so it survives uploadfs.
     if (loaded)
     {
-      String migratedPayload;
-      serializeJson(doc, migratedPayload);
-      if (saveBoardConfigToEepromJson(migratedPayload))
+      char migratedPayload[768];
+      serializeJson(doc, migratedPayload, sizeof(migratedPayload));
+      if (saveBoardConfigToEepromJson(migratedPayload, strlen(migratedPayload)))
       {
         Serial.println("Migrated board config to EEPROM");
       }
@@ -667,15 +675,15 @@ void loadBoardConfig()
     boardName = name;
   }
 
-  if (doc.containsKey("doDelay")) doDelay = doc["doDelay"] | false;
-  if (doc.containsKey("startupDelaySeconds")) startupDelaySeconds = doc["startupDelaySeconds"] | 0;
-  if (doc.containsKey("connectStrongestOnStartup")) connectStrongestOnStartup = doc["connectStrongestOnStartup"] | true;
-  if (doc.containsKey("hardwareVariant"))
+  if (doc["doDelay"].is<JsonVariantConst>()) doDelay = doc["doDelay"] | false;
+  if (doc["startupDelaySeconds"].is<JsonVariantConst>()) startupDelaySeconds = doc["startupDelaySeconds"] | 0;
+  if (doc["connectStrongestOnStartup"].is<JsonVariantConst>()) connectStrongestOnStartup = doc["connectStrongestOnStartup"] | true;
+  if (doc["hardwareVariant"].is<JsonVariantConst>())
   {
     hardwareVariant = String(doc["hardwareVariant"] | kDefaultVariant);
     hardwareVariant.trim();
   }
-  if (doc.containsKey("activeBoardHardwareFile"))
+  if (doc["activeBoardHardwareFile"].is<JsonVariantConst>())
   {
     activeBoardHardwareFilename = String(doc["activeBoardHardwareFile"] | "");
     activeBoardHardwareFilename.trim();
@@ -688,6 +696,11 @@ void loadBoardConfig()
   wifiPassword = decryptConfigSecret(String(doc["wifiPwdEnc"] | ""));
   selectedRelayTemplateFilename = String(doc["selectedRelayTemplate"] | "");
   selectedRelayTemplateFilename.trim();
+  if (doc["themeH"].is<JsonVariantConst>())
+  {
+    const char *th = doc["themeH"] | kDefaultThemeHex;
+    strlcpy(themeHex, th, sizeof(themeHex));
+  }
   if (wifiSsid.length() > kMaxSsidLength)
     wifiSsid = wifiSsid.substring(0, kMaxSsidLength);
   if (wifiPassword.length() > kMaxPasswordLength)
@@ -718,7 +731,7 @@ void loadBoardConfig()
   File file = LittleFS.open(kBoardConfigPath, "r");
   if (!file) return;
 
-  DynamicJsonDocument doc(2048);
+  JsonDocument doc;
   DeserializationError error = deserializeJson(doc, file);
   file.close();
 
@@ -737,15 +750,15 @@ void loadBoardConfig()
     boardName = name;
   }
 
-  if (doc.containsKey("doDelay")) doDelay = doc["doDelay"] | false;
-  if (doc.containsKey("startupDelaySeconds")) startupDelaySeconds = doc["startupDelaySeconds"] | 0;
-  if (doc.containsKey("connectStrongestOnStartup")) connectStrongestOnStartup = doc["connectStrongestOnStartup"] | true;
-  if (doc.containsKey("hardwareVariant"))
+  if (doc["doDelay"].is<JsonVariantConst>()) doDelay = doc["doDelay"] | false;
+  if (doc["startupDelaySeconds"].is<JsonVariantConst>()) startupDelaySeconds = doc["startupDelaySeconds"] | 0;
+  if (doc["connectStrongestOnStartup"].is<JsonVariantConst>()) connectStrongestOnStartup = doc["connectStrongestOnStartup"] | true;
+  if (doc["hardwareVariant"].is<JsonVariantConst>())
   {
     hardwareVariant = String(doc["hardwareVariant"] | kDefaultVariant);
     hardwareVariant.trim();
   }
-  if (doc.containsKey("activeBoardHardwareFile"))
+  if (doc["activeBoardHardwareFile"].is<JsonVariantConst>())
   {
     activeBoardHardwareFilename = String(doc["activeBoardHardwareFile"] | "");
     activeBoardHardwareFilename.trim();
