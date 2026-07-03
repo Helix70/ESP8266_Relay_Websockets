@@ -1,7 +1,18 @@
 (function () {
   var LS = 'rly_theme';
+  var LS_STYLE = 'rly_btnstyle';
+  var BUTTON_STYLES = [
+    { id: 'classic', name: 'Classic' },
+    { id: 'soft',    name: 'Soft' },
+    { id: 'glass',   name: 'Glass' },
+    { id: 'outline', name: 'Outline' },
+    { id: 'tactile', name: 'Tactile' },
+    { id: 'pill',    name: 'Pill' }
+  ];
   var currentHex = '';
   var selectedHex = null;
+  var currentStyle = 'classic';
+  var selectedStyle = null;
   var isDarkMode = false;
   var schemeData = null;
 
@@ -27,6 +38,62 @@
     s.setProperty('--clr-banner-txt', h[6] || '#ffffff');
     s.setProperty('--clr-btn1-txt',   h[7] || '#ffffff');
     s.setProperty('--clr-btn2-txt',   h[8] || '#ffffff');
+  }
+
+  function applyStyleLive(styleId) {
+    if (styleId && styleId !== 'classic') {
+      document.documentElement.setAttribute('data-btnstyle', styleId);
+    } else {
+      document.documentElement.removeAttribute('data-btnstyle');
+    }
+  }
+
+  function updateApplyEnabled() {
+    document.getElementById('applyBtn').disabled = !(selectedHex || selectedStyle);
+  }
+
+  function makeStyleCard(style) {
+    var card = document.createElement('div');
+    card.className = 'style-card' +
+      (style.id === (selectedStyle || currentStyle) ? ' selected' : '');
+    card.setAttribute('data-style', style.id);
+
+    var name = document.createElement('p');
+    name.className = 'style-card-name';
+    name.textContent = style.name;
+    card.appendChild(name);
+
+    var row = document.createElement('div');
+    row.className = 'style-card-buttons';
+    [{ label: 'OFF', on: false }, { label: 'ON', on: true }].forEach(function (sample) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'pv-btn bs-' + style.id + (sample.on ? ' on' : '');
+      btn.textContent = sample.label;
+      row.appendChild(btn);
+    });
+    card.appendChild(row);
+
+    card.addEventListener('click', function () {
+      document.querySelectorAll('.style-card.selected').forEach(function (el) {
+        el.classList.remove('selected');
+      });
+      card.classList.add('selected');
+      selectedStyle = style.id;
+      applyStyleLive(style.id);
+      updateApplyEnabled();
+    });
+
+    return card;
+  }
+
+  function renderStyleGrid() {
+    var grid = document.getElementById('styleGrid');
+    grid.innerHTML = '';
+    BUTTON_STYLES.forEach(function (style) {
+      grid.appendChild(makeStyleCard(style));
+    });
+    document.getElementById('styleSection').removeAttribute('data-loading');
   }
 
   function hexesMatch(h, storedStr) {
@@ -132,8 +199,18 @@
   }
 
   function render(schemes, currentTheme) {
+    if (currentTheme && currentTheme.s) {
+      currentStyle = currentTheme.s;
+      // Device state is the source of truth; refresh this browser's cache
+      // in case the theme was changed from another client.
+      applyStyleLive(currentStyle);
+      try { localStorage.setItem(LS_STYLE, currentStyle); } catch (e) {}
+    }
+    renderStyleGrid();
     if (currentTheme && currentTheme.h) {
       currentHex = currentTheme.h;
+      applyLive(currentHex.split(','));
+      try { localStorage.setItem(LS, JSON.stringify(currentHex.split(','))); } catch (e) {}
       if (schemes) {
         Object.keys(schemes).forEach(function (group) {
           schemes[group].forEach(function (s) {
@@ -160,19 +237,32 @@
   }
 
   document.getElementById('applyBtn').addEventListener('click', function () {
-    if (!selectedHex) return;
+    if (!selectedHex && !selectedStyle) return;
     var btn = document.getElementById('applyBtn');
     btn.disabled = true;
 
-    var body = 'h=' + encodeURIComponent(selectedHex.join(','));
+    var hexStr = selectedHex ? selectedHex.join(',') : currentHex;
+    var styleStr = selectedStyle || currentStyle;
+    if (!hexStr) {
+      showStatus('No colour scheme selected.', false);
+      btn.disabled = false;
+      return;
+    }
+
+    var body = 'h=' + encodeURIComponent(hexStr) +
+               '&s=' + encodeURIComponent(styleStr);
 
     var x = new XMLHttpRequest();
     x.open('POST', '/api/theme', true);
     x.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
     x.onload = function () {
       if (x.status === 200) {
-        try { localStorage.setItem(LS, JSON.stringify(selectedHex)); } catch (e) {}
-        currentHex = selectedHex.join(',');
+        try {
+          localStorage.setItem(LS, JSON.stringify(hexStr.split(',')));
+          localStorage.setItem(LS_STYLE, styleStr);
+        } catch (e) {}
+        currentHex = hexStr;
+        currentStyle = styleStr;
         showStatus('Theme saved.', true);
       } else {
         showStatus('Save failed (' + x.status + ').', false);
@@ -190,7 +280,7 @@
     isDarkMode = !isDarkMode;
     this.textContent = isDarkMode ? 'Switch to Light Themes' : 'Switch to Dark Themes';
     selectedHex = null;
-    document.getElementById('applyBtn').disabled = true;
+    updateApplyEnabled();
     renderGrid();
   });
 

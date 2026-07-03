@@ -814,3 +814,306 @@ body {
   border-width: 6px;
   font-size: 1rem;
 }
+
+/* ── Button styles ────────────────────────────────────
+   Selected via data-btnstyle on <html> (absent = Classic).
+   .pv-btn variants are the live previews on theme.html.
+   Every style derives its colours from the scheme variables,
+   with distinct default / hover / pressed / on states. */
+
+.button {
+  transition: background-color 0.18s ease, border-color 0.18s ease,
+              color 0.18s ease, box-shadow 0.18s ease,
+              transform 0.06s ease, filter 0.15s ease;
+}
+
+@media (hover: hover) {
+  html:not([data-btnstyle]) .button:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
+}
+
+.pv-btn,
+[data-btnstyle] .button {
+  --bs-fill: var(--clr-accent);
+  --bs-ring: 0 0 0 0 transparent;
+}
+
+.pv-btn {
+  flex: 1;
+  min-height: 44px;
+  padding: 8px 4px;
+  font-family: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.18s ease, border-color 0.18s ease,
+              color 0.18s ease, box-shadow 0.18s ease,
+              transform 0.06s ease, filter 0.15s ease;
+}
+
+/* Classic (preview only — the page default needs no override) */
+.pv-btn.bs-classic {
+  background: var(--bs-fill);
+  border: 6px solid var(--bs-fill);
+  border-radius: 5px;
+  color: var(--clr-btn1-txt);
+}
+
+@media (hover: hover) {
+  .pv-btn.bs-classic:hover {
+    filter: brightness(1.08);
+  }
+}
+
+.pv-btn.bs-classic:active {
+  transform: translateY(2px);
+}
+
+/* Soft — rounded, gentle gradient, floats on hover, sinks when pressed */
+[data-btnstyle="soft"] .button,
+.pv-btn.bs-soft {
+  border: none;
+  border-radius: 16px;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--bs-fill) 86%, #ffffff) 0%,
+    var(--bs-fill) 100%);
+  color: var(--clr-btn1-txt);
+  box-shadow: var(--bs-ring),
+    0 5px 14px color-mix(in srgb, var(--clr-primary) 32%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+@media (hover: hover) {
+  [data-btnstyle="soft"] .button:hover:not(:disabled),
+  .pv-btn.bs-soft:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--bs-ring),
+      0 9px 20px color-mix(in srgb, var(--clr-primary) 42%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  }
+}
+
+[data-btnstyle="soft"] .button:active:not(:disabled),
+.pv-btn.bs-soft:active {
+  transform: translateY(1px);
+  background: var(--bs-fill);
+  box-shadow: var(--bs-ring), inset 0 3px 9px rgba(0, 0, 0, 0.3);
+}
+
+/* Glass — translucent, blurred, brightens on hover */
+[data-btnstyle="glass"] .button,
+.pv-btn.bs-glass {
+  border: 1px solid color-mix(in srgb, var(--bs-fill) 55%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bs-fill) 24%, transparent);
+  color: var(--clr-text);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--bs-ring),
+    0 2px 10px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+@media (hover: hover) {
+  [data-btnstyle="glass"] .button:hover:not(:disabled),
+  .pv-btn.bs-glass:hover {
+    background: color-mix(in srgb, var(--bs-fill) 38%, transparent);
+    border-color: color-mix(in srgb, var(--bs-fill) 85%, transparent);
+  }
+}
+
+[data-btnstyle="glass"] .button:active:not(:disabled),
+.pv-btn.bs-glass:active {
+  background: color-mix(in srgb, var(--bs-fill) 54%, transparent);
+  transform: scale(0.98);
+}
+
+/* Outline — ghost button, tints on hover, fills solid when on */
+[data-btnstyle="outline"] .button,
+.pv-btn.bs-outline {
+  border: 2px solid var(--bs-fill);
+  border-radius: 10px;
+  background: transparent;
+  color: color-mix(in srgb, var(--bs-fill) 78%, var(--clr-text));
+  font-weight: 600;
+  box-shadow: var(--bs-ring);
+}
+
+[data-btnstyle="outline"] .button {
+  padding: 20px 8px;
+}
+
+@media (hover: hover) {
+  [data-btnstyle="outline"] .button:hover:not(:disabled),
+  .pv-btn.bs-outline:hover {
+    background: color-mix(in srgb, var(--bs-fill) 14%, transparent);
+  }
+}
+
+[data-btnstyle="outline"] .button:active:not(:disabled),
+.pv-btn.bs-outline:active {
+  background: color-mix(in srgb, var(--bs-fill) 28%, transparent);
+  transform: translateY(1px);
+}
+
+/* Tactile — 3D key with a hard bottom edge that depresses */
+[data-btnstyle="tactile"] .button,
+.pv-btn.bs-tactile {
+  --bs-edge: color-mix(in srgb, var(--bs-fill) 55%, #000000);
+  border: none;
+  border-radius: 12px;
+  background: var(--bs-fill);
+  color: var(--clr-btn1-txt);
+  box-shadow: var(--bs-ring),
+    0 5px 0 var(--bs-edge),
+    0 8px 14px rgba(0, 0, 0, 0.28);
+}
+
+@media (hover: hover) {
+  [data-btnstyle="tactile"] .button:hover:not(:disabled),
+  .pv-btn.bs-tactile:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--bs-ring),
+      0 6px 0 var(--bs-edge),
+      0 10px 16px rgba(0, 0, 0, 0.3);
+  }
+}
+
+[data-btnstyle="tactile"] .button:active:not(:disabled),
+.pv-btn.bs-tactile:active {
+  transform: translateY(4px);
+  box-shadow: var(--bs-ring),
+    0 1px 0 var(--bs-edge),
+    0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Pill — fully rounded, glow ring on hover, compresses when pressed */
+[data-btnstyle="pill"] .button,
+.pv-btn.bs-pill {
+  border: none;
+  border-radius: 999px;
+  background: var(--bs-fill);
+  color: var(--clr-btn1-txt);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  box-shadow: var(--bs-ring), 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+@media (hover: hover) {
+  [data-btnstyle="pill"] .button:hover:not(:disabled),
+  .pv-btn.bs-pill:hover {
+    box-shadow: var(--bs-ring),
+      0 0 0 4px color-mix(in srgb, var(--bs-fill) 30%, transparent),
+      0 3px 10px rgba(0, 0, 0, 0.2);
+  }
+}
+
+[data-btnstyle="pill"] .button:active:not(:disabled),
+.pv-btn.bs-pill:active {
+  transform: scale(0.96);
+}
+
+/* Shared on-state: swap the fill colour to the active colour */
+.pv-btn.on,
+[data-btnstyle] .button.on {
+  --bs-fill: var(--clr-active);
+  color: var(--clr-btn2-txt);
+}
+
+[data-btnstyle] .button.on .on {
+  border: none;
+}
+
+[data-btnstyle="glass"] .button.on,
+.pv-btn.bs-glass.on {
+  background: color-mix(in srgb, var(--clr-active) 88%, transparent);
+  border-color: var(--clr-active);
+}
+
+[data-btnstyle="outline"] .button.on,
+.pv-btn.bs-outline.on {
+  background: var(--clr-active);
+  border-color: var(--clr-active);
+  color: var(--clr-btn2-txt);
+}
+
+/* Last-toggled indicator (classic shows it via its border colour) */
+[data-btnstyle] .button.last {
+  --bs-ring: 0 0 0 3px var(--clr-active);
+}
+
+[data-btnstyle] .button.on.last {
+  --bs-ring: 0 0 0 3px color-mix(in srgb, var(--clr-text) 55%, var(--clr-bg));
+}
+
+/* Mode decorations keep their edge markers under every style */
+[data-btnstyle] .button.interlock-group {
+  border-left: 12px solid var(--group-accent, #0f8b8d);
+}
+
+[data-btnstyle] .button.pulse-mode {
+  border-right: 12px solid var(--clr-primary);
+}
+
+/* Disabled: flatten every style */
+[data-btnstyle] .button:disabled {
+  background: color-mix(in srgb, var(--clr-accent) 30%, var(--clr-bg));
+  border-color: color-mix(in srgb, var(--clr-accent) 30%, var(--clr-bg));
+  color: color-mix(in srgb, var(--clr-text) 40%, var(--clr-bg));
+  box-shadow: none;
+  transform: none;
+  filter: none;
+}
+
+[data-btnstyle] .button.on:disabled {
+  background: color-mix(in srgb, var(--clr-active) 30%, var(--clr-bg));
+  border-color: color-mix(in srgb, var(--clr-active) 30%, var(--clr-bg));
+}
+
+/* ── Button style picker cards ───────────────────────── */
+
+.style-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (min-width: 480px) {
+  .style-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.style-card {
+  border-radius: 8px;
+  padding: 10px 8px;
+  cursor: pointer;
+  border: 3px solid transparent;
+  background: var(--clr-bg);
+  box-shadow: 1px 1px 6px rgba(0, 0, 0, 0.15);
+  transition: box-shadow 0.1s;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.style-card.selected {
+  outline: 3px solid #fff;
+  outline-offset: -5px;
+  box-shadow: 0 0 0 4px #222, 1px 1px 6px rgba(0, 0, 0, 0.15);
+}
+
+.style-card-name {
+  margin: 0 0 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-align: center;
+  color: var(--clr-text);
+}
+
+.style-card-buttons {
+  display: flex;
+  gap: 6px;
+}

@@ -179,8 +179,8 @@ void registerSystemConfigRoutes()
 
   server.on("/api/theme", HTTP_GET, [](AsyncWebServerRequest *request)
             {
-    char buf[100];
-    snprintf(buf, sizeof(buf), "{\"h\":\"%s\"}", themeHex);
+    char buf[128];
+    snprintf(buf, sizeof(buf), "{\"h\":\"%s\",\"s\":\"%s\"}", themeHex, themeStyle);
     request->send(200, "application/json", buf);
   });
 
@@ -209,6 +209,28 @@ void registerSystemConfigRoutes()
     {
       request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid hex\"}");
       return;
+    }
+
+    String s = routeGetBodyParam(request, "s");
+    s.trim();
+    if (s.length() > 0)
+    {
+      static const char *kButtonStyles[] = {"classic", "soft", "glass", "outline", "tactile", "pill"};
+      bool knownStyle = false;
+      for (size_t i = 0; i < sizeof(kButtonStyles) / sizeof(kButtonStyles[0]); i++)
+      {
+        if (s.equals(kButtonStyles[i]))
+        {
+          knownStyle = true;
+          break;
+        }
+      }
+      if (!knownStyle)
+      {
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid style\"}");
+        return;
+      }
+      strlcpy(themeStyle, s.c_str(), sizeof(themeStyle));
     }
 
     strlcpy(themeHex, h.c_str(), sizeof(themeHex));

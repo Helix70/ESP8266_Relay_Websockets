@@ -6,8 +6,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" type="text/css" href="style.css">
-  <script src="theme-apply.js"></script>
+  <link rel="stylesheet" type="text/css" href="style.css?v=20260704a">
+  <script src="theme-apply.js?v=20260704a"></script>
   <style>body { background-color: var(--clr-bg); transition: background-color 0.25s; }</style>
 </head>
 
@@ -16,6 +16,10 @@
     <h1>Colour Scheme</h1>
   </div>
   <p id="themeStatus" class="config-note" style="text-align:center;padding:8px 12px;display:none"></p>
+  <div id="styleSection" class="theme-page" style="padding-bottom:0" data-loading="true">
+    <div class="theme-group-title">Button Style</div>
+    <div id="styleGrid" class="style-grid"></div>
+  </div>
   <div class="theme-toggle-row">
     <button id="modeBtn" class="theme-mode-btn">Switch to Dark Themes</button>
   </div>
@@ -25,7 +29,7 @@
     <button id="backBtn" class="button" style="min-width:120px">Back</button>
   </div>
 
-  <script src="theme.js"></script>
+  <script src="theme.js?v=20260704a"></script>
 </body>
 
 </html>

@@ -21,7 +21,8 @@ namespace
 {
 constexpr const char *kDefaultBoardName = "Relay Board";
 constexpr const char *kDefaultVariant = ""; // empty = not yet configured
-constexpr const char *kDefaultThemeHex = "#F8F7F9,#143642,#0f8b8d,#cf2700,#143642,#0f8b8d,#ffffff";
+constexpr const char *kDefaultThemeHex = "#F8F7F9,#143642,#0f8b8d,#cf2700,#143642,#0f8b8d,#ffffff,#ffffff,#ffffff";
+constexpr const char *kDefaultThemeStyle = "classic";
 constexpr size_t kMaxBoardNameLength = 64;
 constexpr size_t kMaxSsidLength = 32;
 constexpr size_t kMaxPasswordLength = 64;
@@ -285,7 +286,8 @@ uint8_t parseTemplateRelayCount(const String &filename)
 
 extern const char *kBoardConfigPath;
 extern String boardName;
-extern char themeHex[48];
+extern char themeHex[80];
+extern char themeStyle[12];
 extern String wifiSsid;
 extern String wifiPassword;
 extern String selectedRelayTemplateFilename;
@@ -417,6 +419,7 @@ bool saveBoardConfig()
   prefs.putString("wifiPwdEnc", encryptConfigSecret(wifiPassword));
   prefs.putString("selTpl", selectedRelayTemplateFilename);
   prefs.putString("themeH", themeHex);
+  prefs.putString("themeS", themeStyle);
   if (useStaticIp)
   {
     prefs.putString("ip", boardIp.toString());
@@ -448,6 +451,7 @@ bool saveBoardConfig()
   doc["wifiSsidEnc"] = encryptConfigSecret(wifiSsid);
   doc["wifiPwdEnc"] = encryptConfigSecret(wifiPassword);
   doc["themeH"] = themeHex;
+  doc["themeS"] = themeStyle;
 
   if (useStaticIp)
   {
@@ -462,7 +466,7 @@ bool saveBoardConfig()
     doc["ipConfig"] = nullptr;
   }
 
-  char payload[768];
+  char payload[1024];
   serializeJson(doc, payload, sizeof(payload));
   if (!saveBoardConfigToEepromJson(payload, strlen(payload)))
   {
@@ -553,6 +557,7 @@ void loadBoardConfig()
   wifiPassword = "";
   selectedRelayTemplateFilename = "";
   strlcpy(themeHex, kDefaultThemeHex, sizeof(themeHex));
+  strlcpy(themeStyle, kDefaultThemeStyle, sizeof(themeStyle));
 
 #ifdef ESP32
   Preferences prefs;
@@ -594,6 +599,11 @@ void loadBoardConfig()
     String th = prefs.getString("themeH", kDefaultThemeHex);
     strlcpy(themeHex, th.c_str(), sizeof(themeHex));
   }
+  if (prefs.isKey("themeS"))
+  {
+    String ts = prefs.getString("themeS", kDefaultThemeStyle);
+    strlcpy(themeStyle, ts.c_str(), sizeof(themeStyle));
+  }
 
   if (wifiSsid.length() > kMaxSsidLength)
     wifiSsid = wifiSsid.substring(0, kMaxSsidLength);
@@ -625,7 +635,7 @@ void loadBoardConfig()
   JsonDocument doc;
   bool loaded = false;
 
-  char eepromPayload[768];
+  char eepromPayload[1024];
   if (loadBoardConfigFromEepromJson(eepromPayload, sizeof(eepromPayload)))
   {
     if (deserializeJson(doc, eepromPayload) == DeserializationError::Ok)
@@ -651,7 +661,7 @@ void loadBoardConfig()
     // Migrate legacy file config into EEPROM so it survives uploadfs.
     if (loaded)
     {
-      char migratedPayload[768];
+      char migratedPayload[1024];
       serializeJson(doc, migratedPayload, sizeof(migratedPayload));
       if (saveBoardConfigToEepromJson(migratedPayload, strlen(migratedPayload)))
       {
@@ -700,6 +710,11 @@ void loadBoardConfig()
   {
     const char *th = doc["themeH"] | kDefaultThemeHex;
     strlcpy(themeHex, th, sizeof(themeHex));
+  }
+  if (doc["themeS"].is<JsonVariantConst>())
+  {
+    const char *ts = doc["themeS"] | kDefaultThemeStyle;
+    strlcpy(themeStyle, ts, sizeof(themeStyle));
   }
   if (wifiSsid.length() > kMaxSsidLength)
     wifiSsid = wifiSsid.substring(0, kMaxSsidLength);

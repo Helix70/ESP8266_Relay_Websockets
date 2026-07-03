@@ -116,6 +116,20 @@ sequenceDiagram
 - Board config page: `/config.html` (`data/config.html`, `data/config.js`)
 - Relay config + templates: `/relay-config.html` (`data/relay-config.html`, `data/relay-config.js`)
 - Board hardware editor: `/boards.html` (`data/boards.html`, `data/boards.js`)
+- Theme picker (colour scheme + button style): `/theme.html` (`data/theme.html`, `data/theme.js`)
+
+### Theming
+
+The web UI theme has two independent dimensions, both selected on `/theme.html` with live preview:
+
+- **Colour scheme** — light/dark palettes defined in `data/color-schemes.json`, applied everywhere as CSS variables (`--clr-bg`, `--clr-primary`, `--clr-accent`, `--clr-active`, text/banner/button-text colours).
+- **Button style** — one of `classic`, `soft`, `glass`, `outline`, `tactile`, `pill`, defined in `data/style.css` and applied via a `data-btnstyle` attribute on `<html>`. Every style derives its colours from the active scheme and has distinct default, hover, pressed, on, last-toggled, and disabled states. `classic` is the original flat look and is the default.
+
+Persistence and application:
+- `GET /api/theme` returns `{"h":"<9 comma-separated hex colours>","s":"<style id>"}`.
+- `POST /api/theme` accepts form fields `h` (required, 7 or 9 hex colours) and `s` (optional, validated against the known style ids).
+- Stored in board config (`themeH`/`themeS`: ESP32 NVS, ESP8266 EEPROM JSON).
+- `data/theme-apply.js` runs in every page `<head>`, applying the theme from `localStorage` (`rly_theme`, `rly_btnstyle`) instantly and falling back to `/api/theme` on first load.
 
 ### Template System (Current Behavior)
 

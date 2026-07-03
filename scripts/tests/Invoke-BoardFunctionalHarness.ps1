@@ -36,6 +36,8 @@ $endpointCatalog = @(
   [pscustomobject]@{ endpoint = '/api/templates (POST setactive)'; mode = 'Smoke' },
   [pscustomobject]@{ endpoint = '/api/templates (POST rename)'; mode = 'Smoke' },
   [pscustomobject]@{ endpoint = '/api/templates (POST delete)'; mode = 'Smoke' },
+  [pscustomobject]@{ endpoint = '/api/theme'; mode = 'Smoke' },
+  [pscustomobject]@{ endpoint = '/api/theme (POST save/restore)'; mode = 'Smoke' },
   [pscustomobject]@{ endpoint = '/api/boards (POST save)'; mode = 'Full' },
   [pscustomobject]@{ endpoint = '/api/boards (POST rename)'; mode = 'Full' },
   [pscustomobject]@{ endpoint = '/api/boards (POST setactive)'; mode = 'Full' },
@@ -213,6 +215,49 @@ function Test-BasicEndpoints {
       Add-Result -Target $Target -Suite $suite -Test ("GET $path") -Endpoint $path -Passed $false -Details $_.Exception.Message
     }
   }
+}
+
+function Test-ThemeRoundTrip {
+  param([string]$Target, [string]$BaseUrl)
+
+  $suite = 'theme'
+
+  $before = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/api/theme') -TimeoutSec $TimeoutSec
+  $beforeOk = $false
+  $beforeTheme = $null
+  if ($before.status -eq 200) {
+    try {
+      $beforeTheme = $before.body | ConvertFrom-Json
+      $beforeOk = ($null -ne $beforeTheme.h) -and ($beforeTheme.h.Split(',').Count -ge 7)
+    } catch {}
+  }
+  Add-Result -Target $Target -Suite $suite -Test 'get theme' -Endpoint '/api/theme' -Passed $beforeOk -Details ("status=" + $before.status + ", body=" + $before.body)
+  if (-not $beforeOk) { return }
+
+  $originalStyle = if ($beforeTheme.s) { [string]$beforeTheme.s } else { 'classic' }
+  $testStyle = if ($originalStyle -eq 'soft') { 'classic' } else { 'soft' }
+
+  $save = Invoke-ApiWithRetry -Method 'POST' -Url ($BaseUrl + '/api/theme') -Form @{ h = $beforeTheme.h; s = $testStyle } -TimeoutSec $TimeoutSec
+  $saveOk = $save.status -eq 200
+
+  $after = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/api/theme') -TimeoutSec $TimeoutSec
+  $roundTripOk = $false
+  if ($saveOk -and $after.status -eq 200) {
+    try {
+      $afterTheme = $after.body | ConvertFrom-Json
+      $roundTripOk = ($afterTheme.h -eq $beforeTheme.h) -and ($afterTheme.s -eq $testStyle)
+    } catch {}
+  }
+
+  $badStyle = Invoke-ApiWithRetry -Method 'POST' -Url ($BaseUrl + '/api/theme') -Form @{ h = $beforeTheme.h; s = 'not-a-style' } -TimeoutSec $TimeoutSec
+  $rejectOk = $badStyle.status -eq 400
+
+  $restore = Invoke-ApiWithRetry -Method 'POST' -Url ($BaseUrl + '/api/theme') -Form @{ h = $beforeTheme.h; s = $originalStyle } -TimeoutSec $TimeoutSec
+  $restoreOk = $restore.status -eq 200
+
+  Add-Result -Target $Target -Suite $suite -Test 'save + read back style' -Endpoint '/api/theme (POST save/restore)' -Passed $roundTripOk -Details ("saveStatus=" + $save.status + ", after=" + $after.body)
+  Add-Result -Target $Target -Suite $suite -Test 'reject unknown style' -Endpoint '/api/theme (POST save/restore)' -Passed $rejectOk -Details ("status=" + $badStyle.status + ", body=" + $badStyle.body)
+  Add-Result -Target $Target -Suite $suite -Test 'restore original' -Endpoint '/api/theme (POST save/restore)' -Passed $restoreOk -Details ("status=" + $restore.status + ", style=" + $originalStyle)
 }
 
 function Test-UiSelectionAndNavigation {
@@ -621,6 +666,7 @@ foreach ($targetRaw in $Targets) {
 
   Test-BasicEndpoints -Target $target -BaseUrl $base
   Test-UiSelectionAndNavigation -Target $target -BaseUrl $base
+  Test-ThemeRoundTrip -Target $target -BaseUrl $base
   Test-TemplateCrud -Target $target -BaseUrl $base
 
   if ($Mode -eq 'Full') {
