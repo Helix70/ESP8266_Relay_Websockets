@@ -316,7 +316,7 @@ function Test-UiSelectionAndNavigation {
   $netinfo = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/netinfo') -TimeoutSec $TimeoutSec
   $hasMcuType = ($netinfo.json -and $netinfo.json.PSObject.Properties.Name -contains 'mcuType' -and [string]$netinfo.json.mcuType)
   $hasHardwareVariant = ($netinfo.json -and $netinfo.json.PSObject.Properties.Name -contains 'hardwareVariant' -and [string]$netinfo.json.hardwareVariant)
-  $hasRelayCount = ($netinfo.json -and $netinfo.json.PSObject.Properties.Name -contains 'relayCount')
+  $hasRelayCount = ($netinfo.json -and $netinfo.json.PSObject.Properties.Name -contains 'n')
   $hasWifiConnected = ($netinfo.json -and $netinfo.json.PSObject.Properties.Name -contains 'wifiConnected')
   $hasWifiConfiguredSsid = ($netinfo.json -and $netinfo.json.PSObject.Properties.Name -contains 'wifiConfiguredSsid')
   $netinfoSummaryOk = ($netinfo.status -eq 200 -and $hasMcuType -and $hasHardwareVariant -and $hasRelayCount -and $hasWifiConnected -and $hasWifiConfiguredSsid)

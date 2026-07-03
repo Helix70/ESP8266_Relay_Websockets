@@ -712,6 +712,8 @@ void registerTemplateRoutes()
     response->print(relayCount);
     response->print(",\"selectedTemplate\":");
     writeEscapedJsonString(*response, selectedRelayTemplateFilename);
+    response->print(",\"bootSessionId\":");
+    writeEscapedJsonString(*response, getBootSessionToken());
     response->print(",\"templates\":[");
 
     size_t scannedFiles = 0;

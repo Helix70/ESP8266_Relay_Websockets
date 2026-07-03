@@ -116,6 +116,12 @@ static void ensureMainGateToken()
   Serial.println("Main-page access gate initialized for current boot session");
 }
 
+String getBootSessionToken()
+{
+  ensureMainGateToken();
+  return mainGateToken;
+}
+
 static bool hasValidMainGateCookie(AsyncWebServerRequest *request)
 {
   if (mainGateToken.length() == 0)

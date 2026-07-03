@@ -4,7 +4,42 @@ var relayCount = 0;
 var templateSummaryCache = {};
 var diagnosticsLoadTimer = null;
 
+var bootSessionStorageKey = 'relayBootSessionId:' + window.location.hostname;
+
 window.addEventListener('load', onLoad);
+
+function forceRootRefreshAfterBootChange() {
+  var cacheBuster = Date.now();
+  window.location.replace('/?refresh=' + cacheBuster);
+}
+
+function trackBootSessionAndRedirectIfChanged(payload) {
+  if (!payload || !payload.bootSessionId) {
+    return false;
+  }
+
+  var incomingBootSessionId = String(payload.bootSessionId);
+  var previousBootSessionId = '';
+
+  try {
+    previousBootSessionId = window.localStorage.getItem(bootSessionStorageKey) || '';
+  } catch (e) {
+    previousBootSessionId = '';
+  }
+
+  try {
+    window.localStorage.setItem(bootSessionStorageKey, incomingBootSessionId);
+  } catch (e) {
+    // Ignore storage failures; the page still works without boot tracking.
+  }
+
+  if (previousBootSessionId && previousBootSessionId !== incomingBootSessionId) {
+    forceRootRefreshAfterBootChange();
+    return true;
+  }
+
+  return false;
+}
 
 function clearRefreshQueryParam() {
   if (!window.history || typeof window.history.replaceState !== 'function') {
@@ -131,6 +166,9 @@ function loadTemplateList() {
   fetch('/api/templates/bootstrap', { cache: 'no-store' })
     .then(function (r) { return r.json(); })
     .then(function (data) {
+      if (trackBootSessionAndRedirectIfChanged(data)) {
+        return;
+      }
       applyRelayConfigBootstrap(data);
       scheduleTemplateDiagnosticsLoad();
       setRelayConfigPageReady();
