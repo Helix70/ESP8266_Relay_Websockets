@@ -215,17 +215,18 @@ void registerSystemConfigRoutes()
     s.trim();
     if (s.length() > 0)
     {
-      static const char *kButtonStyles[] = {"classic", "soft", "glass", "outline", "tactile", "pill"};
-      bool knownStyle = false;
-      for (size_t i = 0; i < sizeof(kButtonStyles) / sizeof(kButtonStyles[0]); i++)
+      // Firmware doesn't need to know the specific style names — it just needs
+      // a short, safe token to persist and echo back as a data-btnstyle
+      // attribute value. The actual set of styles (and their CSS/JS) lives
+      // entirely in data/theme.js + data/style.css, so adding a new one is a
+      // pure front-end change with no firmware rebuild required.
+      bool valid = s.length() < sizeof(themeStyle);
+      for (size_t i = 0; valid && i < s.length(); i++)
       {
-        if (s.equals(kButtonStyles[i]))
-        {
-          knownStyle = true;
-          break;
-        }
+        char c = s[i];
+        if (c < 'a' || c > 'z') valid = false;
       }
-      if (!knownStyle)
+      if (!valid)
       {
         request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid style\"}");
         return;
@@ -258,11 +259,10 @@ void registerSystemConfigRoutes()
       uint8_t mode = RELAY_MODE_ONOFF;
       if (modeStr == "I") mode = RELAY_MODE_INTERLOCKED;
       else if (modeStr == "P") mode = RELAY_MODE_PULSED;
-      else if (modeStr == "IP") mode = RELAY_MODE_INTERLOCKED_PULSED;
 
       uint8_t group = (uint8_t)routeGetBodyParam(request, (prefix + "_group").c_str()).toInt();
       uint8_t timeout = (uint8_t)routeGetBodyParam(request, (prefix + "_pulse").c_str()).toInt();
-      if (mode == RELAY_MODE_PULSED || mode == RELAY_MODE_INTERLOCKED_PULSED)
+      if (mode == RELAY_MODE_PULSED)
       {
         if (timeout == 0 || timeout > kMaxPulseTimeoutSeconds) timeout = kDefaultPulseTimeoutSeconds;
       }

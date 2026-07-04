@@ -21,7 +21,9 @@ var wifiRefreshTimer = null;
 var restartRedirectDelayTimer = null;
 var restartRedirectPollTimer = null;
 var suspendConfigFormHydration = false;
-var bootSessionStorageKey = 'relayBootSessionId:' + window.location.hostname;
+// bootSessionStorageKey, forceRootRefreshAfterBootChange, clearRefreshQueryParam,
+// and trackBootSessionAndRedirectIfChanged live in theme-apply.js (loaded on
+// every page before this script).
 
 var wifiSsidDisplay;
 var wifiConnectedSsidDisplay;
@@ -67,33 +69,6 @@ function debugLog() {
   if (DEBUG_LOGS && window.console && typeof console.log === 'function') {
     console.log.apply(console, arguments);
   }
-}
-
-function forceRootRefreshAfterBootChange() {
-  window.location.replace('/?refresh=' + Date.now());
-}
-
-function clearRefreshQueryParam() {
-  if (!window.history || typeof window.history.replaceState !== 'function') { return; }
-  if (window.location.search.indexOf('refresh=') === -1) { return; }
-  window.history.replaceState(null, '', window.location.pathname + window.location.hash);
-}
-
-function trackBootSessionAndRedirectIfChanged(payload) {
-  if (!payload || !payload.bootSessionId) { return false; }
-
-  var incomingBootSessionId = String(payload.bootSessionId);
-  var previousBootSessionId = '';
-
-  try { previousBootSessionId = window.localStorage.getItem(bootSessionStorageKey) || ''; } catch (e) {}
-  try { window.localStorage.setItem(bootSessionStorageKey, incomingBootSessionId); } catch (e) {}
-
-  if (previousBootSessionId && previousBootSessionId !== incomingBootSessionId) {
-    forceRootRefreshAfterBootChange();
-    return true;
-  }
-
-  return false;
 }
 
 function setIpPlaceholders(ip, dns, gateway, subnet) {
@@ -190,8 +165,10 @@ function fetchNetInfo() {
     .then(function (net) {
       if (trackBootSessionAndRedirectIfChanged(net)) { return; }
 
-      var useDhcp = (typeof net.useDhcp === 'boolean') ? net.useDhcp : undefined;
-      applyNetworkState(useDhcp, net.ipAddress || '', net.dns || '', net.gateway || '', net.subnet || '');
+      if (!suspendConfigFormHydration) {
+        var useDhcp = (typeof net.useDhcp === 'boolean') ? net.useDhcp : undefined;
+        applyNetworkState(useDhcp, net.ipAddress || '', net.dns || '', net.gateway || '', net.subnet || '');
+      }
 
       if (net.boardName && !suspendConfigFormHydration) {
         applyBoardName(net.boardName);

@@ -12,8 +12,11 @@
 #include "storage_utils.h"
 #include "web_runtime.h"
 
-#ifndef OTA_HOSTNAME
-#define OTA_HOSTNAME "relay-board"
+// Injected by scripts/pio_custom_targets.py from `git rev-parse --short HEAD`
+// + the commit's checkin date (not the compile date, so rebuilding without
+// new commits doesn't produce a misleadingly "newer" version string).
+#ifndef FIRMWARE_VERSION
+#define FIRMWARE_VERSION "unknown"
 #endif
 
 static bool initializeRuntime()
@@ -43,7 +46,8 @@ static bool initializeRuntime()
       }
       else
       {
-        Serial.printf("Selected relay template unavailable: %s\n", selectedRelayTemplateFilename.c_str());
+        recordBootWarning("Selected relay template '" + selectedRelayTemplateFilename +
+                           "' is missing or unreadable; using default labels");
       }
     }
 
@@ -121,13 +125,28 @@ static void setupOta()
     else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
     else if (error == OTA_END_ERROR) Serial.println("End Failed"); });
 
-  ArduinoOTA.setHostname(OTA_HOSTNAME);
+  // mDNS is disabled: OTA uploads target a fixed IP (platformio.ini upload_port),
+  // never a .local hostname, and the OTA transfer itself runs over its own UDP
+  // port independent of mDNS. Leaving mDNS on means parsing every multicast
+  // packet from every device on the LAN; on ESP8266 that parser has no
+  // allocation ceiling and a single busy packet can exhaust the ~16KB heap
+  // margin in one pass (observed OOM crash in MDNSResponder::_readRRAnswer).
+  // setHostname() served no purpose beyond mDNS registration (verified in the
+  // ArduinoOTA library: _hostname is only used for MDNS.begin() and a debug
+  // log gated behind #ifdef OTA_DEBUG, which this project never defines) and
+  // has been removed along with mDNS.
+#if defined(ESP32)
+  ArduinoOTA.setMdnsEnabled(false);
   ArduinoOTA.begin();
+#else
+  ArduinoOTA.begin(false);
+#endif
 }
 
 void setup()
 {
   Serial.begin(115200);
+  Serial.printf("Firmware version: %s\n", FIRMWARE_VERSION);
   printSerialHelp();
 
   bool littleFsReady = initializeRuntime();
@@ -190,6 +209,35 @@ void loop()
     if (reportSignalStrength)
     {
       Serial.printf("WiFi Signal Strength: %d\n", WiFi.RSSI());
+
+      // Heap logging is throttled separately from the 2s tick above: only log
+      // when free heap moves by a meaningful amount (catches real leaks/drops
+      // like the mDNS OOM precursor) or at least once a minute (keeps a
+      // baseline in the log even when heap is perfectly stable).
+      const uint32_t kHeapLogIntervalMs = 60000;
+      const uint32_t kHeapChangeThresholdBytes = 1024;
+      static uint32_t lastHeapLogAt = 0;
+      static uint32_t lastLoggedFreeHeap = 0;
+      static bool heapLogged = false;
+
+      uint32_t freeHeap = ESP.getFreeHeap();
+      uint32_t heapDelta = (freeHeap > lastLoggedFreeHeap)
+                               ? (freeHeap - lastLoggedFreeHeap)
+                               : (lastLoggedFreeHeap - freeHeap);
+      bool changedSignificantly = !heapLogged || heapDelta >= kHeapChangeThresholdBytes;
+      bool intervalElapsed = (elapsed - lastHeapLogAt) >= kHeapLogIntervalMs;
+
+      if (changedSignificantly || intervalElapsed)
+      {
+#if defined(ESP8266)
+        Serial.printf("Heap free: %u, largest block: %u\n", freeHeap, ESP.getMaxFreeBlockSize());
+#else
+        Serial.printf("Heap free: %u, largest block: %u\n", freeHeap, ESP.getMaxAllocHeap());
+#endif
+        lastHeapLogAt = elapsed;
+        lastLoggedFreeHeap = freeHeap;
+        heapLogged = true;
+      }
     }
   }
 
@@ -205,9 +253,28 @@ void loop()
   processStrongestSsidRescan();
 
   dispatchPendingNotifications();
-  ws.cleanupClients();
+
+  // Rate-limited: cleanupClients() takes the same lock as WS_EVT_DATA dispatch
+  // and textAll()/text() broadcasts. Calling it unconditionally every loop()
+  // pass (previously throttled only by a delayMicroseconds(100) busy-wait)
+  // starved the ESP32 AsyncTCP task of that lock, causing intermittent
+  // relay-toggle latency. Stale-client cleanup doesn't need per-tick freshness.
+  static uint32_t lastWsCleanup = 0;
+  if ((elapsed - lastWsCleanup) > 250)
+  {
+    ws.cleanupClients();
+    lastWsCleanup = elapsed;
+  }
+
   processSerialCommands();
   ArduinoOTA.handle();
 
-  delayMicroseconds(100); // JNA this seems to be required to prevent high latency.
+#ifdef ESP8266
+  // ESP32 needed cleanupClients() rate-limited above to stop it starving the
+  // AsyncTCP task of _ws_clients_lock; ESP8266 never needed that (WS sends are
+  // already deferred out of interrupt context, see dispatchPendingNotifications()).
+  // Keep this platform's loop cadence unchanged from before that ESP32 fix,
+  // since altering it here is untested and unrelated to the problem it solved.
+  delayMicroseconds(100);
+#endif
 }

@@ -226,10 +226,8 @@ function Test-ThemeRoundTrip {
   $beforeOk = $false
   $beforeTheme = $null
   if ($before.status -eq 200) {
-    try {
-      $beforeTheme = $before.body | ConvertFrom-Json
-      $beforeOk = ($null -ne $beforeTheme.h) -and ($beforeTheme.h.Split(',').Count -ge 7)
-    } catch {}
+    $beforeTheme = $before.json
+    $beforeOk = ($null -ne $beforeTheme.h) -and ($beforeTheme.h.Split(',').Count -ge 7)
   }
   Add-Result -Target $Target -Suite $suite -Test 'get theme' -Endpoint '/api/theme' -Passed $beforeOk -Details ("status=" + $before.status + ", body=" + $before.body)
   if (-not $beforeOk) { return }
@@ -243,10 +241,8 @@ function Test-ThemeRoundTrip {
   $after = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/api/theme') -TimeoutSec $TimeoutSec
   $roundTripOk = $false
   if ($saveOk -and $after.status -eq 200) {
-    try {
-      $afterTheme = $after.body | ConvertFrom-Json
-      $roundTripOk = ($afterTheme.h -eq $beforeTheme.h) -and ($afterTheme.s -eq $testStyle)
-    } catch {}
+    $afterTheme = $after.json
+    $roundTripOk = ($afterTheme.h -eq $beforeTheme.h) -and ($afterTheme.s -eq $testStyle)
   }
 
   $badStyle = Invoke-ApiWithRetry -Method 'POST' -Url ($BaseUrl + '/api/theme') -Form @{ h = $beforeTheme.h; s = 'not-a-style' } -TimeoutSec $TimeoutSec
@@ -322,23 +318,32 @@ function Test-UiSelectionAndNavigation {
   $netinfoSummaryOk = ($netinfo.status -eq 200 -and $hasMcuType -and $hasHardwareVariant -and $hasRelayCount -and $hasWifiConnected -and $hasWifiConfiguredSsid)
   Add-Result -Target $Target -Suite $suite -Test 'netinfo contains config fallback summary fields' -Endpoint '/netinfo (config fallback summary fields)' -Passed $netinfoSummaryOk -Details ("status=" + $netinfo.status + ", mcu=" + $hasMcuType + ", hw=" + $hasHardwareVariant + ", rc=" + $hasRelayCount + ", wifi=" + $hasWifiConnected + ", ssid=" + $hasWifiConfiguredSsid)
 
-  $mainJs = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/script.js') -TimeoutSec $TimeoutSec
-  $relayJsForBoot = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/relay-config.js') -TimeoutSec $TimeoutSec
-  $boardsJsForBoot = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/boards.js') -TimeoutSec $TimeoutSec
-  $configJsForBoot = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/config.js') -TimeoutSec $TimeoutSec
-  $templateEditorJsForBoot = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/template-editor.js') -TimeoutSec $TimeoutSec
+  # The boot-guard trio (trackBootSessionAndRedirectIfChanged et al.) lives in
+  # theme-apply.js, shared by every page, rather than duplicated per-page script
+  # — so check the guard logic there once, and separately confirm each page's
+  # HTML actually loads theme-apply.js.
+  $themeApplyJs = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/theme-apply.js') -TimeoutSec $TimeoutSec
 
   $bootGuardPattern = 'trackBootSessionAndRedirectIfChanged'
   $rootRefreshPattern = 'window\.location\.replace\(\''/\?refresh='
 
-  $mainBootGuardOk = ($mainJs.status -eq 200 -and ([string]$mainJs.body -match $bootGuardPattern) -and ([string]$mainJs.body -match $rootRefreshPattern))
-  $relayBootGuardOk = ($relayJsForBoot.status -eq 200 -and ([string]$relayJsForBoot.body -match $bootGuardPattern) -and ([string]$relayJsForBoot.body -match $rootRefreshPattern))
-  $boardsBootGuardOk = ($boardsJsForBoot.status -eq 200 -and ([string]$boardsJsForBoot.body -match $bootGuardPattern) -and ([string]$boardsJsForBoot.body -match $rootRefreshPattern))
-  $configBootGuardOk = ($configJsForBoot.status -eq 200 -and ([string]$configJsForBoot.body -match $bootGuardPattern) -and ([string]$configJsForBoot.body -match $rootRefreshPattern))
-  $templateEditorBootGuardOk = ($templateEditorJsForBoot.status -eq 200 -and ([string]$templateEditorJsForBoot.body -match $bootGuardPattern) -and ([string]$templateEditorJsForBoot.body -match $rootRefreshPattern))
+  $bootGuardLogicOk = ($themeApplyJs.status -eq 200 -and ([string]$themeApplyJs.body -match $bootGuardPattern) -and ([string]$themeApplyJs.body -match $rootRefreshPattern))
+  Add-Result -Target $Target -Suite $suite -Test 'client reboot redirect wiring present in theme-apply.js' -Endpoint '/theme-apply.js (reboot redirect wiring)' -Passed $bootGuardLogicOk -Details ("status=" + $themeApplyJs.status)
 
-  $bootGuardAllOk = ($mainBootGuardOk -and $relayBootGuardOk -and $boardsBootGuardOk -and $configBootGuardOk -and $templateEditorBootGuardOk)
-  Add-Result -Target $Target -Suite $suite -Test 'client reboot redirect wiring present on ws pages' -Endpoint '/ws client reboot redirect wiring' -Passed $bootGuardAllOk -Details ("main=" + $mainBootGuardOk + ", relay=" + $relayBootGuardOk + ", boards=" + $boardsBootGuardOk + ", config=" + $configBootGuardOk + ", editor=" + $templateEditorBootGuardOk)
+  $themeApplyScriptPattern = 'src="theme-apply\.js"'
+  $relayPageForBoot = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/relay-config.html') -TimeoutSec $TimeoutSec
+  $boardsPageForBoot = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/boards.html') -TimeoutSec $TimeoutSec
+  $configPageForBoot = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/config.html') -TimeoutSec $TimeoutSec
+  $templateEditorPageForBoot = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/template-editor.html') -TimeoutSec $TimeoutSec
+
+  $mainLoadsGuardOk = ($main.status -eq 200 -and ([string]$main.body -match $themeApplyScriptPattern))
+  $relayLoadsGuardOk = ($relayPageForBoot.status -eq 200 -and ([string]$relayPageForBoot.body -match $themeApplyScriptPattern))
+  $boardsLoadsGuardOk = ($boardsPageForBoot.status -eq 200 -and ([string]$boardsPageForBoot.body -match $themeApplyScriptPattern))
+  $configLoadsGuardOk = ($configPageForBoot.status -eq 200 -and ([string]$configPageForBoot.body -match $themeApplyScriptPattern))
+  $templateEditorLoadsGuardOk = ($templateEditorPageForBoot.status -eq 200 -and ([string]$templateEditorPageForBoot.body -match $themeApplyScriptPattern))
+
+  $bootGuardAllOk = ($bootGuardLogicOk -and $mainLoadsGuardOk -and $relayLoadsGuardOk -and $boardsLoadsGuardOk -and $configLoadsGuardOk -and $templateEditorLoadsGuardOk)
+  Add-Result -Target $Target -Suite $suite -Test 'pages load theme-apply.js for reboot redirect wiring' -Endpoint '/ws client reboot redirect wiring' -Passed $bootGuardAllOk -Details ("main=" + $mainLoadsGuardOk + ", relay=" + $relayLoadsGuardOk + ", boards=" + $boardsLoadsGuardOk + ", config=" + $configLoadsGuardOk + ", editor=" + $templateEditorLoadsGuardOk)
 
   $relayPage = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/relay-config.html') -TimeoutSec $TimeoutSec
   $relayJs = Invoke-ApiWithRetry -Method 'GET' -Url ($BaseUrl + '/relay-config.js') -TimeoutSec $TimeoutSec

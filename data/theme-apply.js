@@ -51,3 +51,55 @@
   };
   x.send();
 }());
+
+// Shared across every page (this file loads first in <head> on all of them):
+// detects a boot-session change (relay board rebooted, e.g. after a network
+// config save) via the bootSessionId the firmware includes in WS/JSON
+// payloads, and forces a full reload so stale in-page JS/state doesn't keep
+// running against a restarted device.
+var bootSessionStorageKey = 'relayBootSessionId:' + window.location.hostname;
+
+function forceRootRefreshAfterBootChange() {
+  var cacheBuster = Date.now();
+  window.location.replace('/?refresh=' + cacheBuster);
+}
+
+function clearRefreshQueryParam() {
+  if (!window.history || typeof window.history.replaceState !== 'function') {
+    return;
+  }
+
+  if (window.location.search.indexOf('refresh=') === -1) {
+    return;
+  }
+
+  window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+}
+
+function trackBootSessionAndRedirectIfChanged(payload) {
+  if (!payload || !payload.bootSessionId) {
+    return false;
+  }
+
+  var incomingBootSessionId = String(payload.bootSessionId);
+  var previousBootSessionId = '';
+
+  try {
+    previousBootSessionId = window.localStorage.getItem(bootSessionStorageKey) || '';
+  } catch (e) {
+    previousBootSessionId = '';
+  }
+
+  try {
+    window.localStorage.setItem(bootSessionStorageKey, incomingBootSessionId);
+  } catch (e) {
+    // Ignore storage failures; the page still works without boot tracking.
+  }
+
+  if (previousBootSessionId && previousBootSessionId !== incomingBootSessionId) {
+    forceRootRefreshAfterBootChange();
+    return true;
+  }
+
+  return false;
+}

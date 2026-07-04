@@ -4,55 +4,12 @@ var activeBoardFile = '';
 var restartRedirectDelayTimer = null;
 var restartRedirectPollTimer = null;
 var websocketEverConnected = false;
-var bootSessionStorageKey = 'relayBootSessionId:' + window.location.hostname;
+// bootSessionStorageKey, forceRootRefreshAfterBootChange, clearRefreshQueryParam,
+// and trackBootSessionAndRedirectIfChanged live in theme-apply.js (loaded on
+// every page before this script).
 
 var boardData = [];
 var currentEditorFilename = '';
-
-function forceRootRefreshAfterBootChange() {
-  var cacheBuster = Date.now();
-  window.location.replace('/?refresh=' + cacheBuster);
-}
-
-function clearRefreshQueryParam() {
-  if (!window.history || typeof window.history.replaceState !== 'function') {
-    return;
-  }
-
-  if (window.location.search.indexOf('refresh=') === -1) {
-    return;
-  }
-
-  window.history.replaceState(null, '', window.location.pathname + window.location.hash);
-}
-
-function trackBootSessionAndRedirectIfChanged(payload) {
-  if (!payload || !payload.bootSessionId) {
-    return false;
-  }
-
-  var incomingBootSessionId = String(payload.bootSessionId);
-  var previousBootSessionId = '';
-
-  try {
-    previousBootSessionId = window.localStorage.getItem(bootSessionStorageKey) || '';
-  } catch (e) {
-    previousBootSessionId = '';
-  }
-
-  try {
-    window.localStorage.setItem(bootSessionStorageKey, incomingBootSessionId);
-  } catch (e) {
-    // Ignore storage failures; restart watchers still handle reconnect.
-  }
-
-  if (previousBootSessionId && previousBootSessionId !== incomingBootSessionId) {
-    forceRootRefreshAfterBootChange();
-    return true;
-  }
-
-  return false;
-}
 
 window.addEventListener('load', function () {
   clearRefreshQueryParam();

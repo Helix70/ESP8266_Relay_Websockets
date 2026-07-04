@@ -4,52 +4,11 @@ var relayCount = 0;
 var templateSummaryCache = {};
 var diagnosticsLoadTimer = null;
 
-var bootSessionStorageKey = 'relayBootSessionId:' + window.location.hostname;
+// bootSessionStorageKey, forceRootRefreshAfterBootChange, clearRefreshQueryParam,
+// and trackBootSessionAndRedirectIfChanged live in theme-apply.js (loaded on
+// every page before this script).
 
 window.addEventListener('load', onLoad);
-
-function forceRootRefreshAfterBootChange() {
-  var cacheBuster = Date.now();
-  window.location.replace('/?refresh=' + cacheBuster);
-}
-
-function trackBootSessionAndRedirectIfChanged(payload) {
-  if (!payload || !payload.bootSessionId) {
-    return false;
-  }
-
-  var incomingBootSessionId = String(payload.bootSessionId);
-  var previousBootSessionId = '';
-
-  try {
-    previousBootSessionId = window.localStorage.getItem(bootSessionStorageKey) || '';
-  } catch (e) {
-    previousBootSessionId = '';
-  }
-
-  try {
-    window.localStorage.setItem(bootSessionStorageKey, incomingBootSessionId);
-  } catch (e) {
-    // Ignore storage failures; the page still works without boot tracking.
-  }
-
-  if (previousBootSessionId && previousBootSessionId !== incomingBootSessionId) {
-    forceRootRefreshAfterBootChange();
-    return true;
-  }
-
-  return false;
-}
-
-function clearRefreshQueryParam() {
-  if (!window.history || typeof window.history.replaceState !== 'function') {
-    return;
-  }
-
-  if (window.location.search.indexOf('refresh=') !== -1) {
-    window.history.replaceState(null, '', window.location.pathname + window.location.hash);
-  }
-}
 
 function setRelayConfigPageReady() {
   var page = document.querySelector('.labels-page');
@@ -258,9 +217,6 @@ function summarizeMode(mode, group, pulse) {
   if (mode === 'P') {
     return 'pulsed' + (pulse > 0 ? (' ' + pulse + 's') : '') + groupText;
   }
-  if (mode === 'IP') {
-    return 'interlocked+pulsed' + (pulse > 0 ? (' ' + pulse + 's') : '') + groupText;
-  }
   return 'latched' + groupText;
 }
 
@@ -282,7 +238,7 @@ function getCompactLabelText(label) {
 
 function normalizeSummaryMode(modeValue) {
   var mode = String(modeValue || 'L');
-  if (mode !== 'I' && mode !== 'P' && mode !== 'IP') {
+  if (mode !== 'I' && mode !== 'P') {
     mode = 'L';
   }
   return mode;
@@ -311,7 +267,7 @@ function renderTemplateSummaryDoc(doc, filename) {
   header.textContent = title;
   container.appendChild(header);
 
-  var modeCounts = { L: 0, I: 0, P: 0, IP: 0 };
+  var modeCounts = { L: 0, I: 0, P: 0 };
   labels.forEach(function (label) {
     modeCounts[normalizeSummaryMode(label.m)] += 1;
   });
@@ -322,8 +278,7 @@ function renderTemplateSummaryDoc(doc, filename) {
     'Relays: ' + labels.length +
     ' | Latched: ' + modeCounts.L +
     ' | Interlocked: ' + modeCounts.I +
-    ' | Pulsed: ' + modeCounts.P +
-    ' | Interlocked+Pulsed: ' + modeCounts.IP;
+    ' | Pulsed: ' + modeCounts.P;
   container.appendChild(meta);
 
   var grid = document.createElement('div');
@@ -652,7 +607,7 @@ function uploadSelectedTemplateFile() {
       var relayIndex = i + 1;
       var label = labels[i] || {};
       var mode = String(label.m || 'L');
-      if (mode !== 'I' && mode !== 'P' && mode !== 'IP') {
+      if (mode !== 'I' && mode !== 'P') {
         mode = 'L';
       }
 
@@ -666,7 +621,7 @@ function uploadSelectedTemplateFile() {
         pulse = 1;
       }
 
-      var usesPulse = (mode === 'P' || mode === 'IP');
+      var usesPulse = (mode === 'P');
       payload.set('relay' + relayIndex + '_on', String(label.o || ''));
       payload.set('relay' + relayIndex + '_off', String(label.f || ''));
       payload.set('relay' + relayIndex + '_mode', mode);

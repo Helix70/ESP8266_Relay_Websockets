@@ -10,6 +10,12 @@
 #include "relay_runtime.h"
 #include "storage_utils.h"
 
+// Defined in main.cpp; the CPPDEFINE injected by scripts/pio_custom_targets.py
+// applies build-wide, so it's already available here without extra plumbing.
+#ifndef FIRMWARE_VERSION
+#define FIRMWARE_VERSION "unknown"
+#endif
+
 static const char *kMainGateCookieName = "relay_main_gate";
 static String mainGateToken;
 
@@ -240,8 +246,10 @@ static void buildRuntimeStatePayload(char *payload, size_t payloadSize)
 
   // Serves the main page only: relay states, labels, and basic board info.
   // Network/WiFi/MCU/delay fields removed — config page fetches those via /netinfo.
-  // Static: pool is heap-allocated on first call, then reused across calls (clear()
-  // resets position but does not free the pool, preventing repeated alloc/free churn).
+  // Not a hot path (once per client "home"/connect, not per toggle), so the
+  // simplicity of clear()-and-rebuild is kept even though ArduinoJson v7's
+  // clear() actually frees its pools each call (see notifyRelayStates() for
+  // the build-once alternative used on the genuinely hot broadcast paths).
   // Capacity: 16 relays × 10 fields × 16 bytes + 16×2×33 label pool + root ≈ 3900 bytes.
   static JsonDocument JSONdoc;
   JSONdoc.clear();
@@ -267,13 +275,23 @@ static void buildRuntimeStatePayload(char *payload, size_t payloadSize)
   JSONdoc["setupComplete"] = (relayCount > 0 && hardwareVariant.length() > 0);
   JSONdoc["n"] = relayCount;
   JSONdoc["selectedRelayTemplate"] = selectedRelayTemplateFilename;
+  JSONdoc["bootWarning"] = bootWarning;
+  JSONdoc["firmwareVersion"] = FIRMWARE_VERSION;
 
   serializeJson(JSONdoc, payload, payloadSize);
 }
 
 void notifyClients()
 {
-  // Hot path: called on every config change (setLabel, setBoardName, etc.).
+  // Called on config changes (setLabel, setBoardName, etc.) — not per relay
+  // toggle (those go through notifyRelayStates()/notifyRelayState() instead),
+  // so it's low-frequency enough that a local JsonDocument (fresh pool each
+  // call) is fine; a build-once cache here would also need to diff the
+  // boardName/bootSessionId/selectedRelayTemplate strings against their last
+  // value to actually avoid allocation, since ArduinoJson frees+reallocates a
+  // string slot on every assignment even when the value is unchanged
+  // (VariantData::clear() dereferences the old owned string before setString()
+  // stores the new one) — not worth the complexity at this call frequency.
   // Uses char[] to avoid String realloc from interrupt context (ctx: sys).
   // Sized for 16 relays × 4 fields + 6 top-level fields: worst-case ~750 chars.
   JsonDocument JSONdoc;
@@ -355,21 +373,43 @@ static void notifyClient(AsyncWebSocketClient *client)
 
 void notifyRelayStates()
 {
+  // Hot path: runs on every relay toggle. The buttons array/object structure
+  // is built once and reused — ArduinoJson v7's JsonDocument::clear() actually
+  // frees its memory pools (MemoryPool::destroy() calls allocator->deallocate(),
+  // see ArduinoJson/Memory/MemoryPool.hpp), so calling clear() every call would
+  // silently reallocate from scratch each time despite the "static" keyword.
+  // Only rebuilding when relayCount changes (boot/hardware reconfig, not a
+  // per-toggle event) means every ordinary call just overwrites existing
+  // numeric/boolean slots in place — verified zero-allocation: the integer/
+  // bool converters (ArduinoJson/Variant/ConverterImpl.hpp) call setInteger()/
+  // setBoolean() directly with no pool interaction, unlike string assignment.
+  //
   // Capacity: JSON_OBJECT_SIZE(2) + JSON_ARRAY_SIZE(MAX) + MAX*JSON_OBJECT_SIZE(4)
   // On ESP8266 (sizeof(VariantSlot)=16): 32+256+1024 = 1312 bytes minimum.
-  // char[] avoids String realloc from interrupt context (ctx: sys).
-  JsonDocument doc;
+  // char[] payload avoids String realloc from interrupt context (ctx: sys).
+  static JsonDocument doc;
+  static JsonObject buttons[APP_MAX_RELAYS];
+  static uint8_t builtCount = 255; // sentinel: forces (re)build on first call
   static char payload[640];
 
-  doc["partial"] = true;
-  JsonArray array = doc["buttons"].template to<JsonArray>();
+  if (builtCount != relayCount)
+  {
+    doc.clear();
+    doc["partial"] = true;
+    JsonArray array = doc["buttons"].template to<JsonArray>();
+    for (uint8_t i = 0; i < relayCount; i++)
+    {
+      buttons[i] = array.add<JsonObject>();
+    }
+    builtCount = relayCount;
+  }
+
   for (uint8_t i = 0; i < relayCount; i++)
   {
-    JsonObject button = array.add<JsonObject>();
-    button["id"] = i + 1;
-    button["on"] = relays[i].on;
-    button["d"] = relays[i].disabled;
-    button["last"] = relays[i].last;
+    buttons[i]["id"] = i + 1;
+    buttons[i]["on"] = relays[i].on;
+    buttons[i]["d"] = relays[i].disabled;
+    buttons[i]["last"] = relays[i].last;
   }
 
   serializeJson(doc, payload, sizeof(payload));
@@ -384,13 +424,25 @@ void notifyRelayState(uint8_t relayNum)
   }
 
   uint8_t idx = relayNum - 1;
-  // char[] avoids String realloc from interrupt context (ctx: sys).
-  JsonDocument doc;
+  // Hot path: runs on every relay toggle. Built once (always exactly one
+  // button object, unlike notifyRelayStates() this never needs to resize) and
+  // reused thereafter — see notifyRelayStates() above for why clear() isn't
+  // called per-call. char[] payload avoids String realloc from interrupt
+  // context (ctx: sys).
+  static JsonDocument doc;
+  static JsonObject button;
+  static bool built = false;
   static char payload[128];
 
-  doc["partial"] = true;
-  JsonArray array = doc["buttons"].template to<JsonArray>();
-  JsonObject button = array.add<JsonObject>();
+  if (!built)
+  {
+    doc.clear();
+    doc["partial"] = true;
+    JsonArray array = doc["buttons"].template to<JsonArray>();
+    button = array.add<JsonObject>();
+    built = true;
+  }
+
   button["id"] = relayNum;
   button["on"] = relays[idx].on;
   button["d"] = relays[idx].disabled;
@@ -471,7 +523,6 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
             uint8_t mode = RELAY_MODE_ONOFF;
             if (modeStr == "I") mode = RELAY_MODE_INTERLOCKED;
             else if (modeStr == "P") mode = RELAY_MODE_PULSED;
-            else if (modeStr == "IP") mode = RELAY_MODE_INTERLOCKED_PULSED;
             assignRelayMode(relayNum, mode,
                             (uint8_t)(command["g"] | (uint8_t)0),
                             (uint8_t)(command["p"] | (uint8_t)1));
@@ -501,7 +552,6 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
               uint8_t mode = RELAY_MODE_ONOFF;
               if (modeStr == "I") mode = RELAY_MODE_INTERLOCKED;
               else if (modeStr == "P") mode = RELAY_MODE_PULSED;
-              else if (modeStr == "IP") mode = RELAY_MODE_INTERLOCKED_PULSED;
               assignRelayMode(relayNum, mode,
                               (uint8_t)(label["g"] | (uint8_t)0),
                               (uint8_t)(label["p"] | (uint8_t)1));
@@ -620,8 +670,8 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
         uint8_t idx = (uint8_t)(relayNum - 1);
         if (relayLabels[idx].group > 0)
         {
-          // Grouped modes (latched / interlocked / pulsed / interlocked+pulsed)
-          // can switch or disable several relays at once, so refresh the grid.
+          // Grouped modes (latched / interlocked / pulsed) can switch or
+          // disable several relays at once, so refresh the grid.
           notifyRelayAll = true;
           notifyRelaySingle = false;
         }
@@ -824,7 +874,13 @@ void registerRuntimeHttpRoutes()
     serializeJson(doc, payload, sizeof(payload));
     request->send(200, "application/json", payload); });
 
-  server.serveStatic("/", LittleFS, "/");
+  // no-store: static assets are small and change during development/updates.
+  // The library's default (no explicit Cache-Control) falls back to an ETag
+  // based on file size when LittleFS doesn't preserve mtimes (mklittlefs has
+  // no such option), which can miss same-size content edits. no-store trades
+  // browser caching for guaranteed-fresh assets without needing hand-stamped
+  // ?v= query strings on every reference.
+  server.serveStatic("/", LittleFS, "/").setCacheControl("no-store");
 }
 
 void startRuntimeServer()

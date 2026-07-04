@@ -123,11 +123,11 @@ sequenceDiagram
 The web UI theme has two independent dimensions, both selected on `/theme.html` with live preview:
 
 - **Colour scheme** — light/dark palettes defined in `data/color-schemes.json`, applied everywhere as CSS variables (`--clr-bg`, `--clr-primary`, `--clr-accent`, `--clr-active`, text/banner/button-text colours).
-- **Button style** — one of `classic`, `soft`, `glass`, `outline`, `tactile`, `pill`, defined in `data/style.css` and applied via a `data-btnstyle` attribute on `<html>`. Every style derives its colours from the active scheme and has distinct default, hover, pressed, on, last-toggled, and disabled states. `classic` is the original flat look and is the default.
+- **Button style** — currently `classic`, `soft`, `glass`, `outline`, `tactile`, `pill`, listed in `data/theme.js` and defined in `data/style.css`, applied via a `data-btnstyle` attribute on `<html>`. Every style derives its colours from the active scheme and has distinct default, hover, pressed, on, last-toggled, and disabled states. `classic` is the original flat look and is the default. Firmware doesn't hardcode this set — adding a new style is a `data/`-only change (CSS + `theme.js`), no firmware rebuild.
 
 Persistence and application:
 - `GET /api/theme` returns `{"h":"<9 comma-separated hex colours>","s":"<style id>"}`.
-- `POST /api/theme` accepts form fields `h` (required, 7 or 9 hex colours) and `s` (optional, validated against the known style ids).
+- `POST /api/theme` accepts form fields `h` (required, 7 or 9 hex colours) and `s` (optional, must be lowercase letters only, up to 11 chars).
 - Stored in board config (`themeH`/`themeS`: ESP32 NVS, ESP8266 EEPROM JSON).
 - `data/theme-apply.js` runs in every page `<head>`, applying the theme from `localStorage` (`rly_theme`, `rly_btnstyle`) instantly and falling back to `/api/theme` on first load.
 

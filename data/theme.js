@@ -4,7 +4,8 @@
   var BUTTON_STYLES = [
     { id: 'classic', name: 'Classic' },
     { id: 'soft',    name: 'Soft' },
-    { id: 'glass',   name: 'Glass' },
+    { id: 'glass',   name: 'Glass',
+      note: 'Heaviest style — blurs behind every button and redraws on each relay update. Fine on desktop; may feel less smooth on phones/tablets, especially with many relays.' },
     { id: 'outline', name: 'Outline' },
     { id: 'tactile', name: 'Tactile' },
     { id: 'pill',    name: 'Pill' }
@@ -76,6 +77,13 @@
       row.appendChild(btn);
     });
     card.appendChild(row);
+
+    if (style.note) {
+      var note = document.createElement('p');
+      note.className = 'style-card-note';
+      note.textContent = style.note;
+      card.appendChild(note);
+    }
 
     card.addEventListener('click', function () {
       document.querySelectorAll('.style-card.selected').forEach(function (el) {
@@ -160,7 +168,7 @@
       card.classList.add('selected');
       selectedHex = h;
       applyLive(h);
-      document.getElementById('applyBtn').disabled = false;
+      updateApplyEnabled();
     });
 
     return card;

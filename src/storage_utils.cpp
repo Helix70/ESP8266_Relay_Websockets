@@ -4,6 +4,7 @@
 #include <ArduinoJson.h>
 #include <string.h>
 
+#include "app_state.h"
 #include "route_data.h"
 
 #if defined(ESP8266)
@@ -15,6 +16,11 @@
 #endif
 
 extern RelayLabel relayLabels[16];
+
+static bool isValidRelayMode(uint8_t mode)
+{
+  return mode <= RELAY_MODE_MAX && mode != RELAY_MODE_MOMENTARY;
+}
 
 namespace
 {
@@ -210,6 +216,13 @@ bool loadRelayLabelsFromEeprom()
       anyFound = true;
     }
 
+    if (!isValidRelayMode(mode))
+    {
+      recordBootWarning("Relay " + String(i + 1) + ": invalid mode " + String(mode) +
+                         " in EEPROM (from a newer/older firmware?), reset to Latched");
+      mode = RELAY_MODE_ONOFF;
+    }
+
     assignRelayLabels(i + 1, on, off);
     assignRelayMode(i + 1, mode, group, pulseTimeout);
   }
@@ -267,7 +280,6 @@ static const char *modeToStr(uint8_t mode)
 {
   if (mode == RELAY_MODE_INTERLOCKED) return "I";
   if (mode == RELAY_MODE_PULSED)      return "P";
-  if (mode == RELAY_MODE_INTERLOCKED_PULSED) return "IP";
   return "L";
 }
 #endif
@@ -276,7 +288,6 @@ static uint8_t strToMode(const String &s)
 {
   if (s == "I")  return RELAY_MODE_INTERLOCKED;
   if (s == "P")  return RELAY_MODE_PULSED;
-  if (s == "IP") return RELAY_MODE_INTERLOCKED_PULSED;
   return RELAY_MODE_ONOFF;
 }
 
@@ -292,7 +303,7 @@ void assignRelayMode(uint8_t relayNum, uint8_t mode, uint8_t group, uint8_t puls
   }
   relayLabels[idx].mode         = mode;
   relayLabels[idx].group        = group;
-  if (mode == RELAY_MODE_PULSED || mode == RELAY_MODE_INTERLOCKED_PULSED)
+  if (mode == RELAY_MODE_PULSED)
   {
     relayLabels[idx].pulseTimeout = (pulseTimeout >= 1 && pulseTimeout <= kMaxPulseTimeoutSeconds)
                                       ? pulseTimeout
@@ -426,7 +437,17 @@ bool loadRelayLabels()
       assignRelayLabels(i + 1, relayLabels[i].on, prefs.getString(key, ""));
     }
     snprintf(key, sizeof(key), "md_%d", i);
-    if (prefs.isKey(key)) relayLabels[i].mode = prefs.getUChar(key, RELAY_MODE_ONOFF);
+    if (prefs.isKey(key))
+    {
+      uint8_t storedMode = prefs.getUChar(key, RELAY_MODE_ONOFF);
+      if (!isValidRelayMode(storedMode))
+      {
+        recordBootWarning("Relay " + String(i + 1) + ": invalid mode " + String(storedMode) +
+                           " in NVS (from a newer/older firmware?), reset to Latched");
+        storedMode = RELAY_MODE_ONOFF;
+      }
+      relayLabels[i].mode = storedMode;
+    }
     snprintf(key, sizeof(key), "gr_%d", i);
     if (prefs.isKey(key)) relayLabels[i].group = prefs.getUChar(key, 0);
     snprintf(key, sizeof(key), "pt_%d", i);

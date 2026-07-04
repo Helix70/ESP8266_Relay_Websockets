@@ -3,6 +3,8 @@
 #include "LittleFS.h"
 #include <ArduinoJson.h>
 
+#include "app_state.h"
+
 BoardHardware activeBoardHardware;
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -69,7 +71,7 @@ bool loadBoardHardwareFromPath(const String &path)
   File f = LittleFS.open(path, "r");
   if (!f)
   {
-    Serial.printf("Failed to open board hardware config: %s\n", path.c_str());
+    recordBootWarning("Board hardware config exists but failed to open (" + path + "); using defaults");
     return false;
   }
 
@@ -79,7 +81,8 @@ bool loadBoardHardwareFromPath(const String &path)
 
   if (err)
   {
-    Serial.printf("Board hardware config parse error (%s): %s\n", path.c_str(), err.c_str());
+    recordBootWarning("Board hardware config '" + path + "' is corrupt (" + String(err.c_str()) +
+                       "); using defaults");
     return false;
   }
 

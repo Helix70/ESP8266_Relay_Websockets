@@ -8,10 +8,9 @@
 // "on while held" mode that is not implemented yet.
 constexpr uint8_t RELAY_MODE_ONOFF = 0;        // "Latched": manual on/off
 constexpr uint8_t RELAY_MODE_INTERLOCKED = 1;  // manual on/off, group required
-constexpr uint8_t RELAY_MODE_PULSED = 2;       // on, auto-off after timeout
+constexpr uint8_t RELAY_MODE_PULSED = 2;       // on, auto-off after timeout; with a group, behaves as interlocked+pulsed
 constexpr uint8_t RELAY_MODE_MOMENTARY = 3;    // reserved, not implemented
-constexpr uint8_t RELAY_MODE_INTERLOCKED_PULSED = 4; // interlocked + pulsed
-constexpr uint8_t RELAY_MODE_MAX = RELAY_MODE_INTERLOCKED_PULSED;
+constexpr uint8_t RELAY_MODE_MAX = RELAY_MODE_MOMENTARY;
 
 struct RelayLabel {
   String on;

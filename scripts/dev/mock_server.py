@@ -11,6 +11,7 @@ Usage: python scripts/dev/mock_server.py [port]   (default 8321)
 """
 import json
 import os
+import re
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -61,9 +62,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/theme":
             from urllib.parse import parse_qs
             form = parse_qs(body)
-            styles = {"classic", "soft", "glass", "outline", "tactile", "pill"}
-            if "s" in form and form["s"][0] not in styles:
-                return self._send(400, '{"ok":false,"error":"invalid style"}')
+            # Matches firmware: any lowercase token up to 11 chars (themeStyle[12]
+            # in app_state.cpp), not a fixed list — new styles are a pure
+            # data/theme.js + data/style.css change, no firmware validation to update.
+            if "s" in form:
+                style = form["s"][0]
+                if not (0 < len(style) <= 11 and re.fullmatch(r"[a-z]+", style)):
+                    return self._send(400, '{"ok":false,"error":"invalid style"}')
             if "h" in form:
                 STATE["h"] = form["h"][0]
             if "s" in form:

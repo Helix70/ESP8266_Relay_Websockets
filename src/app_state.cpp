@@ -53,6 +53,18 @@ String wifiRescanStatus = "Idle";
 bool pendingRestart = false;
 uint32_t pendingRestartAt = 0;
 
+String bootWarning = "";
+
+void recordBootWarning(const String &message)
+{
+  if (bootWarning.length() > 0)
+  {
+    bootWarning += " | ";
+  }
+  bootWarning += message;
+  Serial.println("[BootWarning] " + message);
+}
+
 String hardwareVariant = "";
 String activeBoardHardwareFilename = "";
 uint8_t relayCount = 0;

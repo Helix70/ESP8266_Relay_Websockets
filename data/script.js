@@ -7,7 +7,9 @@ var DEBUG_LOGS = false;
 var renderedRelayCount = 0;
 var relayButtonUi = {};
 var relayButtonStateCache = {};
-var bootSessionStorageKey = 'relayBootSessionId:' + window.location.hostname;
+// bootSessionStorageKey, forceRootRefreshAfterBootChange, clearRefreshQueryParam,
+// and trackBootSessionAndRedirectIfChanged live in theme-apply.js (loaded on
+// every page before this script).
 
 var INTERLOCK_GROUP_COLORS = [
   '#2e8b57', '#1f6feb', '#d97706', '#7c3aed', '#0f766e', '#c2410c', '#b45309', '#4338ca'
@@ -17,51 +19,6 @@ function debugLog() {
   if (DEBUG_LOGS && window.console && typeof console.log === 'function') {
     console.log.apply(console, arguments);
   }
-}
-
-function forceRootRefreshAfterBootChange() {
-  var cacheBuster = Date.now();
-  window.location.replace('/?refresh=' + cacheBuster);
-}
-
-function clearRefreshQueryParam() {
-  if (!window.history || typeof window.history.replaceState !== 'function') {
-    return;
-  }
-
-  if (window.location.search.indexOf('refresh=') === -1) {
-    return;
-  }
-
-  window.history.replaceState(null, '', window.location.pathname + window.location.hash);
-}
-
-function trackBootSessionAndRedirectIfChanged(payload) {
-  if (!payload || !payload.bootSessionId) {
-    return false;
-  }
-
-  var incomingBootSessionId = String(payload.bootSessionId);
-  var previousBootSessionId = '';
-
-  try {
-    previousBootSessionId = window.localStorage.getItem(bootSessionStorageKey) || '';
-  } catch (e) {
-    previousBootSessionId = '';
-  }
-
-  try {
-    window.localStorage.setItem(bootSessionStorageKey, incomingBootSessionId);
-  } catch (e) {
-    // Ignore storage failures; reconnect behavior still works.
-  }
-
-  if (previousBootSessionId && previousBootSessionId !== incomingBootSessionId) {
-    forceRootRefreshAfterBootChange();
-    return true;
-  }
-
-  return false;
 }
 
 window.addEventListener('load', onLoad);
@@ -238,7 +195,7 @@ function setButtonGroupDecoration(selector, mode, group) {
   }
 
   // Left edge marks group membership (any grouped mode); right edge marks a
-  // pulse mode. Interlocked + Pulsed (mode 4) shows both.
+  // pulse mode.
   if (group > 0) {
     button.classList.add('interlock-group');
     button.style.setProperty('--group-accent', getInterlockGroupColor(group));
@@ -247,7 +204,7 @@ function setButtonGroupDecoration(selector, mode, group) {
     button.style.removeProperty('--group-accent');
   }
 
-  if (mode === 2 || mode === 4) {
+  if (mode === 2) {
     button.classList.add('pulse-mode');
   } else {
     button.classList.remove('pulse-mode');
@@ -341,6 +298,30 @@ function applySetupState(complete) {
   }
 }
 
+var bootWarningDismissed = false;
+
+function applyBootWarning(message) {
+  var banner = document.getElementById('boot-warning');
+  if (!banner) return;
+  if (!message || bootWarningDismissed) {
+    banner.style.display = 'none';
+    return;
+  }
+  banner.innerHTML = '';
+  var text = document.createElement('span');
+  text.textContent = message;
+  banner.appendChild(text);
+  var dismiss = document.createElement('button');
+  dismiss.textContent = 'Dismiss';
+  dismiss.className = 'boot-warning-dismiss';
+  dismiss.addEventListener('click', function () {
+    bootWarningDismissed = true;
+    banner.style.display = 'none';
+  });
+  banner.appendChild(dismiss);
+  banner.style.display = '';
+}
+
 function onMessage(event) {
   var jsonObj = JSON.parse(event.data);
   debugLog("Received message: ", jsonObj);
@@ -362,6 +343,17 @@ function onMessage(event) {
 
   if (typeof jsonObj.setupComplete !== 'undefined') {
     applySetupState(jsonObj.setupComplete);
+  }
+
+  if (typeof jsonObj.bootWarning !== 'undefined') {
+    applyBootWarning(jsonObj.bootWarning);
+  }
+
+  if (jsonObj.firmwareVersion) {
+    var versionItem = document.getElementById('firmwareVersionItem');
+    if (versionItem) {
+      versionItem.textContent = 'Firmware ' + jsonObj.firmwareVersion;
+    }
   }
 
   var incomingCount = jsonObj.n || (jsonObj.buttons ? jsonObj.buttons.length : 0);

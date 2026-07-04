@@ -178,35 +178,6 @@ bool handlePerRelayModeToggle(uint8_t relayNum)
     return true;
   }
 
-  if (mode == RELAY_MODE_INTERLOCKED_PULSED)
-  {
-    uint8_t timeout = relayLabels[idx].pulseTimeout;
-    if (timeout == 0 || timeout > 30)
-    {
-      timeout = 1;
-    }
-    // Switch off and disable the other interlocked-and-pulsed relays in the
-    // group; they are re-enabled when this pulse expires.
-    if (group > 0)
-    {
-      for (uint8_t j = 0; j < relayCount; j++)
-      {
-        if (j != idx && relayLabels[j].mode == RELAY_MODE_INTERLOCKED_PULSED && relayLabels[j].group == group)
-        {
-          relays[j].low();
-          relays[j].update();
-          relays[j].disabled = 1;
-          pulsed_relays[j].counter = 0;
-        }
-      }
-    }
-    relays[idx].high();
-    relays[idx].update();
-    relays[idx].disabled = 1;
-    pulsed_relays[idx].counter = (uint32_t)timeout * DELAY_COUNTER;
-    return true;
-  }
-
   // RELAY_MODE_ONOFF (Latched), and any fallback mode.
   bool turningOn = !relays[idx].on;
   relays[idx].toggle();
@@ -237,7 +208,7 @@ bool handlePerRelayModeToggle(uint8_t relayNum)
 
 static bool isPulseMode(uint8_t mode)
 {
-  return mode == RELAY_MODE_PULSED || mode == RELAY_MODE_INTERLOCKED_PULSED;
+  return mode == RELAY_MODE_PULSED;
 }
 
 bool processRelayTimers(uint32_t now)

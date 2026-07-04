@@ -11,52 +11,9 @@ var websocketEverConnected = false;
 var activeLabelInput = null;
 var suppressTemplateSelectChange = false;
 var invalidTemplateFilenames = {};
-var bootSessionStorageKey = 'relayBootSessionId:' + window.location.hostname;
-
-function forceRootRefreshAfterBootChange() {
-  var cacheBuster = Date.now();
-  window.location.replace('/?refresh=' + cacheBuster);
-}
-
-function clearRefreshQueryParam() {
-  if (!window.history || typeof window.history.replaceState !== 'function') {
-    return;
-  }
-
-  if (window.location.search.indexOf('refresh=') === -1) {
-    return;
-  }
-
-  window.history.replaceState(null, '', window.location.pathname + window.location.hash);
-}
-
-function trackBootSessionAndRedirectIfChanged(payload) {
-  if (!payload || !payload.bootSessionId) {
-    return false;
-  }
-
-  var incomingBootSessionId = String(payload.bootSessionId);
-  var previousBootSessionId = '';
-
-  try {
-    previousBootSessionId = window.localStorage.getItem(bootSessionStorageKey) || '';
-  } catch (e) {
-    previousBootSessionId = '';
-  }
-
-  try {
-    window.localStorage.setItem(bootSessionStorageKey, incomingBootSessionId);
-  } catch (e) {
-    // Ignore storage failures; restart watchers still handle reconnect.
-  }
-
-  if (previousBootSessionId && previousBootSessionId !== incomingBootSessionId) {
-    forceRootRefreshAfterBootChange();
-    return true;
-  }
-
-  return false;
-}
+// bootSessionStorageKey, forceRootRefreshAfterBootChange, clearRefreshQueryParam,
+// and trackBootSessionAndRedirectIfChanged live in theme-apply.js (loaded on
+// every page before this script).
 
 function normalizeTemplateFilenameRef(value) {
   var normalized = String(value || '').trim();
@@ -74,8 +31,91 @@ var INTERLOCK_GROUP_COLORS = [
 ];
 
 // Indexed by the numeric mode from the firmware (0=Latched, 1=Interlocked,
-// 2=Pulsed, 3=Momentary [reserved, shown as Latched], 4=Interlocked+Pulsed).
-var MODES = ['L', 'I', 'P', 'L', 'IP'];
+// 2=Pulsed, 3=Momentary [reserved, shown as Latched]).
+var MODES = ['L', 'I', 'P', 'L'];
+
+var MODE_HELP_CONTENT = [
+  {
+    name: 'Latched',
+    badge: 'group optional',
+    required: false,
+    text: 'Switch on or off manually. If a group is assigned: switching a latched button on switches off '
+      + 'and disables the other latched buttons in the group; switching it back off re-enables them.'
+  },
+  {
+    name: 'Interlocked',
+    badge: 'group required',
+    required: true,
+    text: 'Switch on or off manually. Switching an interlocked button on switches off all other buttons in '
+      + 'the same group (they are not disabled — they can still be switched on again directly). '
+      + 'Switching it off has no special effect on the group.'
+  },
+  {
+    name: 'Pulsed',
+    badge: 'group optional',
+    required: false,
+    text: 'Switch on manually; it switches itself off after its pulse timeout. If a group is assigned: '
+      + 'switching a pulsed button on disables the other pulsed buttons in the group until the pulse '
+      + 'expires, at which point they are enabled again.'
+  }
+];
+
+function buildModeHelpContent() {
+  var container = document.getElementById('modeHelpBody');
+  if (!container || container.childElementCount) {
+    return;
+  }
+  MODE_HELP_CONTENT.forEach(function (mode) {
+    var entry = document.createElement('div');
+    entry.className = 'mode-help-entry';
+
+    var heading = document.createElement('div');
+    heading.className = 'mode-help-heading';
+
+    var name = document.createElement('span');
+    name.className = 'mode-help-name';
+    name.textContent = mode.name;
+    heading.appendChild(name);
+
+    var badge = document.createElement('span');
+    badge.className = 'mode-help-badge' + (mode.required ? ' mode-help-badge-required' : '');
+    badge.textContent = mode.badge;
+    heading.appendChild(badge);
+
+    entry.appendChild(heading);
+
+    var text = document.createElement('p');
+    text.textContent = mode.text;
+    entry.appendChild(text);
+
+    container.appendChild(entry);
+  });
+}
+
+function openModeHelpModal() {
+  buildModeHelpContent();
+  var overlay = document.getElementById('modeHelpOverlay');
+  if (overlay) overlay.style.display = 'flex';
+}
+
+function closeModeHelpModal() {
+  var overlay = document.getElementById('modeHelpOverlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
+function initModeHelpModal() {
+  var overlay = document.getElementById('modeHelpOverlay');
+  var closeBtn = document.getElementById('modeHelpClose');
+  if (closeBtn) closeBtn.addEventListener('click', closeModeHelpModal);
+  if (overlay) {
+    overlay.addEventListener('click', function (event) {
+      if (event.target === overlay) closeModeHelpModal();
+    });
+  }
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') closeModeHelpModal();
+  });
+}
 
 window.addEventListener('load', onLoad);
 
@@ -123,6 +163,7 @@ function onLoad() {
     }
   });
 
+  initModeHelpModal();
   loadTemplateList();
   initWebSocket();
 
@@ -327,11 +368,11 @@ function getInterlockGroupColor(group) {
 }
 
 function modeRequiresGroup(mode) {
-  return mode === 'I' || mode === 'IP';
+  return mode === 'I';
 }
 
 function modeUsesPulse(mode) {
-  return mode === 'P' || mode === 'IP';
+  return mode === 'P';
 }
 
 function updateGroupDecoration(relayId) {
@@ -359,7 +400,7 @@ function updateModeUI(relayId) {
   if (!modeEl) return;
   var val = modeEl.value;
   // Every mode can carry a group: optional for Latched/Pulsed, required for
-  // Interlocked and Interlocked+Pulsed.
+  // Interlocked.
   if (grpEl) grpEl.style.display = 'block';
   if (grpLbl) grpLbl.textContent = modeRequiresGroup(val) ? 'Group (required)' : 'Group (optional)';
   if (pulseEl) pulseEl.style.display = modeUsesPulse(val) ? 'block' : 'none';
@@ -417,15 +458,27 @@ function renderRelayEditor() {
     offInput.maxLength = 32;
     offInput.value = relay.offLabel || '';
 
+    var modeLblRow = document.createElement('div');
+    modeLblRow.className = 'relay-input-label-row';
+
     var modeLbl = document.createElement('label');
     modeLbl.className = 'relay-input-label';
     modeLbl.setAttribute('for', 'mode' + relayId);
     modeLbl.textContent = 'Button Mode';
+    modeLblRow.appendChild(modeLbl);
+
+    var modeHelpBtn = document.createElement('button');
+    modeHelpBtn.type = 'button';
+    modeHelpBtn.className = 'help-icon-button';
+    modeHelpBtn.textContent = '?';
+    modeHelpBtn.setAttribute('aria-label', 'Explain button modes');
+    modeHelpBtn.addEventListener('click', openModeHelpModal);
+    modeLblRow.appendChild(modeHelpBtn);
 
     var modeSelect = document.createElement('select');
     modeSelect.id = 'mode' + relayId;
     modeSelect.className = 'relay-label-input';
-    [['L', 'Latched (On/Off)'], ['I', 'Interlocked'], ['P', 'Pulsed'], ['IP', 'Interlocked + Pulsed']].forEach(function (pair) {
+    [['L', 'Latched (On/Off)'], ['I', 'Interlocked'], ['P', 'Pulsed']].forEach(function (pair) {
       var o = document.createElement('option');
       o.value = pair[0];
       o.textContent = pair[1];
@@ -493,7 +546,7 @@ function renderRelayEditor() {
     card.appendChild(onInput);
     card.appendChild(offLabelTitle);
     card.appendChild(offInput);
-    card.appendChild(modeLbl);
+    card.appendChild(modeLblRow);
     card.appendChild(modeSelect);
     card.appendChild(groupSection);
     card.appendChild(pulseSection);
@@ -556,7 +609,7 @@ function collectRelayConfig(validate) {
       }
     });
     if (converted.length > 0) {
-      alert('Converted to Latched (Interlocked and Interlocked + Pulsed need a group with at least two members): ' + converted.join(', '));
+      alert('Converted to Latched (Interlocked needs a group with at least two members): ' + converted.join(', '));
     }
   }
 

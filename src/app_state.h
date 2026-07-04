@@ -99,6 +99,13 @@ extern String wifiRescanStatus;
 extern bool pendingRestart;
 extern uint32_t pendingRestartAt;
 
+// Accumulates human-readable notes about invalid/unreadable persisted data
+// (relay mode out of range, corrupt config file, etc.) found and defaulted
+// during boot, so recovery from a bad update is visible instead of silent.
+// Empty string = nothing to report. Set via recordBootWarning().
+extern String bootWarning;
+void recordBootWarning(const String &message);
+
 extern String hardwareVariant;
 extern String activeBoardHardwareFilename;
 extern uint8_t relayCount;

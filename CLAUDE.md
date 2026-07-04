@@ -2,7 +2,7 @@
 
 ## Priorities
 
-1. Main page performance is Priority 1.
+1. Main page performance is Priority 1 — within that, low latency (relay-toggle responsiveness) outranks low heap usage/reliance when the two trade off against each other.
 2. Maintain compatibility across ESP8266 and ESP32.
 3. Keep persistence and route behavior reliable and deterministic.
 
