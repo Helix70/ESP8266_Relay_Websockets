@@ -821,10 +821,11 @@ body {
    Every style derives its colours from the scheme variables,
    with distinct default / hover / pressed / on states. */
 
+/* Default (Classic) buttons transition only the hover brightness, so relay
+   state changes on the main page (WebSocket-driven .on flips) stay instant —
+   main page performance is Priority 1. Themed styles get the full transition. */
 .button {
-  transition: background-color 0.18s ease, border-color 0.18s ease,
-              color 0.18s ease, box-shadow 0.18s ease,
-              transform 0.06s ease, filter 0.15s ease;
+  transition: filter 0.15s ease;
 }
 
 @media (hover: hover) {
@@ -837,6 +838,9 @@ body {
 [data-btnstyle] .button {
   --bs-fill: var(--clr-accent);
   --bs-ring: 0 0 0 0 transparent;
+  transition: background-color 0.18s ease, border-color 0.18s ease,
+              color 0.18s ease, box-shadow 0.18s ease,
+              transform 0.06s ease, filter 0.15s ease;
 }
 
 .pv-btn {

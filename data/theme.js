@@ -9,7 +9,10 @@
     { id: 'tactile', name: 'Tactile' },
     { id: 'pill',    name: 'Pill' }
   ];
-  var currentHex = '';
+  // Default matches the firmware default theme (kDefaultThemeHex). Seeding it
+  // here means a style-only Apply still has a valid colour string to send even
+  // if the GET /api/theme request failed and never populated currentHex.
+  var currentHex = '#F8F7F9,#143642,#0f8b8d,#cf2700,#143642,#0f8b8d,#ffffff,#ffffff,#ffffff';
   var selectedHex = null;
   var currentStyle = 'classic';
   var selectedStyle = null;
