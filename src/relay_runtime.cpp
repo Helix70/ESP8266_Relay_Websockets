@@ -124,18 +124,21 @@ bool handlePerRelayModeToggle(uint8_t relayNum)
 
   uint8_t idx = relayNum - 1;
   uint8_t mode = relayLabels[idx].mode;
+  uint8_t group = relayLabels[idx].group;
 
-  if (mode == RELAY_MODE_PULSED && relays[idx].disabled)
+  // A relay disabled by a group peer (or by its own running pulse) ignores
+  // presses. The client also disables the button, so this is a safety net.
+  if (relays[idx].disabled)
   {
     return true;
   }
 
   if (mode == RELAY_MODE_INTERLOCKED)
   {
-    uint8_t group = relayLabels[idx].group;
     bool turningOn = !relays[idx].on;
     relays[idx].toggle();
     relays[idx].update();
+    // Switch off (but do not disable) the other interlocked relays in the group.
     if (turningOn && group > 0)
     {
       for (uint8_t j = 0; j < relayCount; j++)
@@ -161,12 +164,80 @@ bool handlePerRelayModeToggle(uint8_t relayNum)
     relays[idx].update();
     relays[idx].disabled = 1;
     pulsed_relays[idx].counter = (uint32_t)timeout * DELAY_COUNTER;
+    // Disable the other pulsed relays in the group until this pulse expires.
+    if (group > 0)
+    {
+      for (uint8_t j = 0; j < relayCount; j++)
+      {
+        if (j != idx && relayLabels[j].mode == RELAY_MODE_PULSED && relayLabels[j].group == group)
+        {
+          relays[j].disabled = 1;
+        }
+      }
+    }
     return true;
   }
 
+  if (mode == RELAY_MODE_INTERLOCKED_PULSED)
+  {
+    uint8_t timeout = relayLabels[idx].pulseTimeout;
+    if (timeout == 0 || timeout > 30)
+    {
+      timeout = 1;
+    }
+    // Switch off and disable the other interlocked-and-pulsed relays in the
+    // group; they are re-enabled when this pulse expires.
+    if (group > 0)
+    {
+      for (uint8_t j = 0; j < relayCount; j++)
+      {
+        if (j != idx && relayLabels[j].mode == RELAY_MODE_INTERLOCKED_PULSED && relayLabels[j].group == group)
+        {
+          relays[j].low();
+          relays[j].update();
+          relays[j].disabled = 1;
+          pulsed_relays[j].counter = 0;
+        }
+      }
+    }
+    relays[idx].high();
+    relays[idx].update();
+    relays[idx].disabled = 1;
+    pulsed_relays[idx].counter = (uint32_t)timeout * DELAY_COUNTER;
+    return true;
+  }
+
+  // RELAY_MODE_ONOFF (Latched), and any fallback mode.
+  bool turningOn = !relays[idx].on;
   relays[idx].toggle();
   relays[idx].update();
+  // Optional group: while this latched relay is on, the other latched relays in
+  // the group are switched off and disabled; switching it off re-enables them.
+  if (group > 0)
+  {
+    for (uint8_t j = 0; j < relayCount; j++)
+    {
+      if (j != idx && relayLabels[j].mode == RELAY_MODE_ONOFF && relayLabels[j].group == group)
+      {
+        if (turningOn)
+        {
+          relays[j].low();
+          relays[j].update();
+          relays[j].disabled = 1;
+        }
+        else
+        {
+          relays[j].disabled = 0;
+        }
+      }
+    }
+  }
   return true;
+}
+
+static bool isPulseMode(uint8_t mode)
+{
+  return mode == RELAY_MODE_PULSED || mode == RELAY_MODE_INTERLOCKED_PULSED;
 }
 
 bool processRelayTimers(uint32_t now)
@@ -176,7 +247,7 @@ bool processRelayTimers(uint32_t now)
   bool needsTimerLoop = false;
   for (uint8_t j = 0; j < relayCount; j++)
   {
-    if (relayLabels[j].mode == RELAY_MODE_PULSED && pulsed_relays[j].counter > 0)
+    if (isPulseMode(relayLabels[j].mode) && pulsed_relays[j].counter > 0)
     {
       needsTimerLoop = true;
       break;
@@ -197,7 +268,7 @@ bool processRelayTimers(uint32_t now)
 
   for (uint8_t i = 0; i < relayCount; i++)
   {
-    if (relayLabels[i].mode == RELAY_MODE_PULSED && pulsed_relays[i].counter)
+    if (isPulseMode(relayLabels[i].mode) && pulsed_relays[i].counter)
     {
       pulsed_relays[i].counter--;
       if (pulsed_relays[i].counter == 0)
@@ -205,6 +276,18 @@ bool processRelayTimers(uint32_t now)
         relays[i].low();
         relays[i].update();
         relays[i].disabled = 0;
+        // Re-enable the other relays of the same pulse mode in this group.
+        uint8_t group = relayLabels[i].group;
+        if (group > 0)
+        {
+          for (uint8_t j = 0; j < relayCount; j++)
+          {
+            if (j != i && relayLabels[j].mode == relayLabels[i].mode && relayLabels[j].group == group)
+            {
+              relays[j].disabled = 0;
+            }
+          }
+        }
         notify = true;
       }
     }

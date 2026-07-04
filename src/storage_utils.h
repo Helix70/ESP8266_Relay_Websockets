@@ -2,9 +2,16 @@
 
 #include <Arduino.h>
 
-constexpr uint8_t RELAY_MODE_ONOFF = 0;
-constexpr uint8_t RELAY_MODE_INTERLOCKED = 1;
-constexpr uint8_t RELAY_MODE_PULSED = 2;
+// Persisted as a per-relay byte (ESP32 NVS) and a letter code in templates.
+// Values 0/1/2 are unchanged from earlier firmware so existing configs and
+// templates keep working. RELAY_MODE_MOMENTARY (3) is reserved for a future
+// "on while held" mode that is not implemented yet.
+constexpr uint8_t RELAY_MODE_ONOFF = 0;        // "Latched": manual on/off
+constexpr uint8_t RELAY_MODE_INTERLOCKED = 1;  // manual on/off, group required
+constexpr uint8_t RELAY_MODE_PULSED = 2;       // on, auto-off after timeout
+constexpr uint8_t RELAY_MODE_MOMENTARY = 3;    // reserved, not implemented
+constexpr uint8_t RELAY_MODE_INTERLOCKED_PULSED = 4; // interlocked + pulsed
+constexpr uint8_t RELAY_MODE_MAX = RELAY_MODE_INTERLOCKED_PULSED;
 
 struct RelayLabel {
   String on;

@@ -251,13 +251,17 @@ function buildApiErrorMessage(body, fallback) {
 }
 
 function summarizeMode(mode, group, pulse) {
+  var groupText = group > 0 ? (' G' + group) : '';
   if (mode === 'I') {
-    return 'interlocked' + (group > 0 ? (' G' + group) : '');
+    return 'interlocked' + groupText;
   }
   if (mode === 'P') {
-    return 'pulsed' + (pulse > 0 ? (' ' + pulse + 's') : '');
+    return 'pulsed' + (pulse > 0 ? (' ' + pulse + 's') : '') + groupText;
   }
-  return 'latched';
+  if (mode === 'IP') {
+    return 'interlocked+pulsed' + (pulse > 0 ? (' ' + pulse + 's') : '') + groupText;
+  }
+  return 'latched' + groupText;
 }
 
 function getCompactLabelText(label) {
@@ -278,7 +282,7 @@ function getCompactLabelText(label) {
 
 function normalizeSummaryMode(modeValue) {
   var mode = String(modeValue || 'L');
-  if (mode !== 'I' && mode !== 'P') {
+  if (mode !== 'I' && mode !== 'P' && mode !== 'IP') {
     mode = 'L';
   }
   return mode;
@@ -307,13 +311,9 @@ function renderTemplateSummaryDoc(doc, filename) {
   header.textContent = title;
   container.appendChild(header);
 
-  var modeCounts = { L: 0, I: 0, P: 0 };
+  var modeCounts = { L: 0, I: 0, P: 0, IP: 0 };
   labels.forEach(function (label) {
-    var mode = String(label.m || 'L');
-    if (mode !== 'I' && mode !== 'P') {
-      mode = 'L';
-    }
-    modeCounts[mode] += 1;
+    modeCounts[normalizeSummaryMode(label.m)] += 1;
   });
 
   var meta = document.createElement('p');
@@ -322,7 +322,8 @@ function renderTemplateSummaryDoc(doc, filename) {
     'Relays: ' + labels.length +
     ' | Latched: ' + modeCounts.L +
     ' | Interlocked: ' + modeCounts.I +
-    ' | Pulsed: ' + modeCounts.P;
+    ' | Pulsed: ' + modeCounts.P +
+    ' | Interlocked+Pulsed: ' + modeCounts.IP;
   container.appendChild(meta);
 
   var grid = document.createElement('div');
@@ -651,7 +652,7 @@ function uploadSelectedTemplateFile() {
       var relayIndex = i + 1;
       var label = labels[i] || {};
       var mode = String(label.m || 'L');
-      if (mode !== 'I' && mode !== 'P') {
+      if (mode !== 'I' && mode !== 'P' && mode !== 'IP') {
         mode = 'L';
       }
 
@@ -665,11 +666,14 @@ function uploadSelectedTemplateFile() {
         pulse = 1;
       }
 
+      var usesPulse = (mode === 'P' || mode === 'IP');
       payload.set('relay' + relayIndex + '_on', String(label.o || ''));
       payload.set('relay' + relayIndex + '_off', String(label.f || ''));
       payload.set('relay' + relayIndex + '_mode', mode);
-      payload.set('relay' + relayIndex + '_group', String(mode === 'I' ? group : 0));
-      payload.set('relay' + relayIndex + '_pulse', String(mode === 'P' ? pulse : 0));
+      // Group is optional for Latched/Pulsed and required for Interlocked
+      // families, so preserve whatever group the template carried.
+      payload.set('relay' + relayIndex + '_group', String(group));
+      payload.set('relay' + relayIndex + '_pulse', String(usesPulse ? pulse : 0));
     }
 
     fetch('/api/templates', {

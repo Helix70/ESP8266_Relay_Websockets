@@ -18,9 +18,20 @@ Each entry in `l` is a single JSON object on one line:
 |-------|------|-------------|
 | `o` | string | Label shown when the relay is ON (max 32 chars) |
 | `f` | string | Label shown when the relay is OFF (max 32 chars). If the same as `o`, a single label is displayed |
-| `m` | string | `L` (latched), `I` (interlocked), or `P` (pulsed) |
-| `g` | number | Interlock group number. Use `0` when mode is not `I` |
-| `p` | number | Pulse duration in seconds when mode is `P`. Use `0` otherwise. Valid range: `1`–`30` |
+| `m` | string | `L` (latched), `I` (interlocked), `P` (pulsed), or `IP` (interlocked + pulsed) |
+| `g` | number | Group number. Optional (`0` = none) for `L` and `P`; required (`1`+) for `I` and `IP` |
+| `p` | number | Pulse duration in seconds for `P` and `IP`. Use `0` for `L` and `I`. Valid range: `1`–`30` |
+
+## Button modes
+
+| Mode | Code | Group | Behaviour |
+|------|------|-------|-----------|
+| Latched | `L` | optional | Manual on/off. With a group: switching on turns off **and disables** the other latched relays in the group; switching off re-enables them. |
+| Interlocked | `I` | required | Manual on/off. Switching on turns off the other interlocked relays in the group (they are **not** disabled). Switching off does nothing special. |
+| Pulsed | `P` | optional | Switch on manually; auto-off after `p` seconds. With a group: the other pulsed relays in the group are **disabled** until the pulse expires, then re-enabled. |
+| Interlocked + Pulsed | `IP` | required | Switch on manually; auto-off after `p` seconds. Switching on turns off **and disables** the other `IP` relays in the group; when the pulse expires they are re-enabled. |
+
+Group behaviour only applies between relays of the **same mode** in the **same group** (e.g. an `I` relay and an `IP` relay in group 1 do not affect each other). Mode `3` is reserved for a future Momentary mode and is not yet implemented.
 
 ## Example
 
@@ -37,5 +48,5 @@ Files must use compact JSON (no whitespace). ArduinoJson parses whitespace as to
 - Field names were compacted over several revisions to reduce LittleFS file size and ArduinoJson pool usage:
   - `title` → `t`, `labels` → `l`, `mode` → `m`, `on` → `o`, `off` → `f`
   - `relayCount` → `n`, `group` → `g`, `pulse` → `p`
-  - mode values: `latched` → `L`, `interlocked` → `I`, `pulsed` → `P`
+  - mode values: `latched` → `L`, `interlocked` → `I`, `pulsed` → `P`, `interlocked+pulsed` → `IP`
 - The firmware only accepts the current short-form field names. Old templates must be re-uploaded.

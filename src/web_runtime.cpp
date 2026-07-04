@@ -471,6 +471,7 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
             uint8_t mode = RELAY_MODE_ONOFF;
             if (modeStr == "I") mode = RELAY_MODE_INTERLOCKED;
             else if (modeStr == "P") mode = RELAY_MODE_PULSED;
+            else if (modeStr == "IP") mode = RELAY_MODE_INTERLOCKED_PULSED;
             assignRelayMode(relayNum, mode,
                             (uint8_t)(command["g"] | (uint8_t)0),
                             (uint8_t)(command["p"] | (uint8_t)1));
@@ -500,6 +501,7 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
               uint8_t mode = RELAY_MODE_ONOFF;
               if (modeStr == "I") mode = RELAY_MODE_INTERLOCKED;
               else if (modeStr == "P") mode = RELAY_MODE_PULSED;
+              else if (modeStr == "IP") mode = RELAY_MODE_INTERLOCKED_PULSED;
               assignRelayMode(relayNum, mode,
                               (uint8_t)(label["g"] | (uint8_t)0),
                               (uint8_t)(label["p"] | (uint8_t)1));
@@ -616,9 +618,10 @@ static void handleWebSocketMessage(AsyncWebSocketClient *client, void *arg, uint
       if (notifyRelaySingle)
       {
         uint8_t idx = (uint8_t)(relayNum - 1);
-        if (relayLabels[idx].mode == RELAY_MODE_INTERLOCKED)
+        if (relayLabels[idx].group > 0)
         {
-          // Interlocked toggles can switch multiple relays in the same group.
+          // Grouped modes (latched / interlocked / pulsed / interlocked+pulsed)
+          // can switch or disable several relays at once, so refresh the grid.
           notifyRelayAll = true;
           notifyRelaySingle = false;
         }

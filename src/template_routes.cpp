@@ -531,11 +531,11 @@ bool writeTemplateJson(const String &filename, const String &title, uint8_t rc, 
     off.trim();
 
     String mode = String(src["m"] | "L");
-    if (mode != "I" && mode != "P") mode = "L";
+    if (mode != "I" && mode != "P" && mode != "IP") mode = "L";
 
     uint8_t group = (uint8_t)(src["g"] | (uint8_t)0);
     uint8_t pulseTimeout = (uint8_t)(src["p"] | (uint8_t)0);
-    if (mode == "P")
+    if (mode == "P" || mode == "IP")
     {
       if (pulseTimeout == 0 || pulseTimeout > kMaxPulseTimeoutSeconds)
       {
@@ -630,11 +630,11 @@ bool writeTemplateJsonFromRequest(AsyncWebServerRequest *request, const String &
     offLabel.trim();
 
     String modeStr = routeGetBodyParam(request, (prefix + "_mode").c_str());
-    if (modeStr != "I" && modeStr != "P") modeStr = "L";
+    if (modeStr != "I" && modeStr != "P" && modeStr != "IP") modeStr = "L";
 
     uint8_t group = (uint8_t)routeGetBodyParam(request, (prefix + "_group").c_str()).toInt();
     uint8_t pt = (uint8_t)routeGetBodyParam(request, (prefix + "_pulse").c_str()).toInt();
-    if (modeStr == "P")
+    if (modeStr == "P" || modeStr == "IP")
     {
       if (pt == 0 || pt > kMaxPulseTimeoutSeconds) pt = kDefaultPulseTimeoutSeconds;
     }

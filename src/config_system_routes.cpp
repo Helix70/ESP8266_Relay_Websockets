@@ -258,10 +258,11 @@ void registerSystemConfigRoutes()
       uint8_t mode = RELAY_MODE_ONOFF;
       if (modeStr == "I") mode = RELAY_MODE_INTERLOCKED;
       else if (modeStr == "P") mode = RELAY_MODE_PULSED;
+      else if (modeStr == "IP") mode = RELAY_MODE_INTERLOCKED_PULSED;
 
       uint8_t group = (uint8_t)routeGetBodyParam(request, (prefix + "_group").c_str()).toInt();
       uint8_t timeout = (uint8_t)routeGetBodyParam(request, (prefix + "_pulse").c_str()).toInt();
-      if (mode == RELAY_MODE_PULSED)
+      if (mode == RELAY_MODE_PULSED || mode == RELAY_MODE_INTERLOCKED_PULSED)
       {
         if (timeout == 0 || timeout > kMaxPulseTimeoutSeconds) timeout = kDefaultPulseTimeoutSeconds;
       }

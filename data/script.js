@@ -237,22 +237,21 @@ function setButtonGroupDecoration(selector, mode, group) {
     return;
   }
 
-  if (mode === 1 && group > 0) {
+  // Left edge marks group membership (any grouped mode); right edge marks a
+  // pulse mode. Interlocked + Pulsed (mode 4) shows both.
+  if (group > 0) {
     button.classList.add('interlock-group');
     button.style.setProperty('--group-accent', getInterlockGroupColor(group));
-    button.classList.remove('pulse-mode');
-    return;
+  } else {
+    button.classList.remove('interlock-group');
+    button.style.removeProperty('--group-accent');
   }
 
-  button.classList.remove('interlock-group');
-  button.style.removeProperty('--group-accent');
-
-  if (mode === 2) {
+  if (mode === 2 || mode === 4) {
     button.classList.add('pulse-mode');
-    return;
+  } else {
+    button.classList.remove('pulse-mode');
   }
-
-  button.classList.remove('pulse-mode');
 }
 
 function applyBoardName(boardName) {

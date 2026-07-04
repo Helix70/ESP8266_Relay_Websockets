@@ -267,14 +267,16 @@ static const char *modeToStr(uint8_t mode)
 {
   if (mode == RELAY_MODE_INTERLOCKED) return "I";
   if (mode == RELAY_MODE_PULSED)      return "P";
+  if (mode == RELAY_MODE_INTERLOCKED_PULSED) return "IP";
   return "L";
 }
 #endif
 
 static uint8_t strToMode(const String &s)
 {
-  if (s == "I") return RELAY_MODE_INTERLOCKED;
-  if (s == "P") return RELAY_MODE_PULSED;
+  if (s == "I")  return RELAY_MODE_INTERLOCKED;
+  if (s == "P")  return RELAY_MODE_PULSED;
+  if (s == "IP") return RELAY_MODE_INTERLOCKED_PULSED;
   return RELAY_MODE_ONOFF;
 }
 
@@ -282,9 +284,15 @@ void assignRelayMode(uint8_t relayNum, uint8_t mode, uint8_t group, uint8_t puls
 {
   if (relayNum < 1 || relayNum > kMaxRelays) return;
   uint8_t idx = relayNum - 1;
-  relayLabels[idx].mode         = (mode <= RELAY_MODE_PULSED) ? mode : RELAY_MODE_ONOFF;
+  // Reserved/unknown modes fall back to Latched. RELAY_MODE_MOMENTARY (3) is
+  // reserved but not yet implemented, so it is treated as Latched too.
+  if (mode > RELAY_MODE_MAX || mode == RELAY_MODE_MOMENTARY)
+  {
+    mode = RELAY_MODE_ONOFF;
+  }
+  relayLabels[idx].mode         = mode;
   relayLabels[idx].group        = group;
-  if (relayLabels[idx].mode == RELAY_MODE_PULSED)
+  if (mode == RELAY_MODE_PULSED || mode == RELAY_MODE_INTERLOCKED_PULSED)
   {
     relayLabels[idx].pulseTimeout = (pulseTimeout >= 1 && pulseTimeout <= kMaxPulseTimeoutSeconds)
                                       ? pulseTimeout

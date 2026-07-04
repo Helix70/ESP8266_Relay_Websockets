@@ -73,7 +73,9 @@ var INTERLOCK_GROUP_COLORS = [
   '#2e8b57', '#1f6feb', '#d97706', '#7c3aed', '#0f766e', '#c2410c', '#b45309', '#4338ca'
 ];
 
-var MODES = ['L', 'I', 'P'];
+// Indexed by the numeric mode from the firmware (0=Latched, 1=Interlocked,
+// 2=Pulsed, 3=Momentary [reserved, shown as Latched], 4=Interlocked+Pulsed).
+var MODES = ['L', 'I', 'P', 'L', 'IP'];
 
 window.addEventListener('load', onLoad);
 
@@ -324,33 +326,43 @@ function getInterlockGroupColor(group) {
   return INTERLOCK_GROUP_COLORS[index];
 }
 
+function modeRequiresGroup(mode) {
+  return mode === 'I' || mode === 'IP';
+}
+
+function modeUsesPulse(mode) {
+  return mode === 'P' || mode === 'IP';
+}
+
 function updateGroupDecoration(relayId) {
   var card = document.getElementById('relayCard' + relayId);
-  var modeEl = document.getElementById('mode' + relayId);
   var groupEl = document.getElementById('group' + relayId);
-  if (!card || !modeEl) {
+  if (!card) {
     return;
   }
 
-  if (modeEl.value === 'I') {
-    var group = groupEl ? (parseInt(groupEl.value, 10) || 1) : 1;
+  var group = groupEl ? (parseInt(groupEl.value, 10) || 0) : 0;
+  if (group > 0) {
     card.classList.add('interlock-group');
     card.style.setProperty('--group-accent', getInterlockGroupColor(group));
-    return;
+  } else {
+    card.classList.remove('interlock-group');
+    card.style.removeProperty('--group-accent');
   }
-
-  card.classList.remove('interlock-group');
-  card.style.removeProperty('--group-accent');
 }
 
 function updateModeUI(relayId) {
   var modeEl = document.getElementById('mode' + relayId);
   var grpEl = document.getElementById('groupSection' + relayId);
+  var grpLbl = document.getElementById('groupLabel' + relayId);
   var pulseEl = document.getElementById('pulseSection' + relayId);
   if (!modeEl) return;
   var val = modeEl.value;
-  if (grpEl) grpEl.style.display = (val === 'I') ? 'block' : 'none';
-  if (pulseEl) pulseEl.style.display = (val === 'P') ? 'block' : 'none';
+  // Every mode can carry a group: optional for Latched/Pulsed, required for
+  // Interlocked and Interlocked+Pulsed.
+  if (grpEl) grpEl.style.display = 'block';
+  if (grpLbl) grpLbl.textContent = modeRequiresGroup(val) ? 'Group (required)' : 'Group (optional)';
+  if (pulseEl) pulseEl.style.display = modeUsesPulse(val) ? 'block' : 'none';
   updateGroupDecoration(relayId);
 }
 
@@ -413,7 +425,7 @@ function renderRelayEditor() {
     var modeSelect = document.createElement('select');
     modeSelect.id = 'mode' + relayId;
     modeSelect.className = 'relay-label-input';
-    [['L', 'Latched (On/Off)'], ['I', 'Interlocked'], ['P', 'Pulsed']].forEach(function (pair) {
+    [['L', 'Latched (On/Off)'], ['I', 'Interlocked'], ['P', 'Pulsed'], ['IP', 'Interlocked + Pulsed']].forEach(function (pair) {
       var o = document.createElement('option');
       o.value = pair[0];
       o.textContent = pair[1];
@@ -426,23 +438,28 @@ function renderRelayEditor() {
 
     var groupSection = document.createElement('div');
     groupSection.id = 'groupSection' + relayId;
-    groupSection.style.display = (modeStr === 'I') ? 'block' : 'none';
+    groupSection.style.display = 'block';
 
     var grpLbl = document.createElement('label');
     grpLbl.className = 'relay-input-label';
+    grpLbl.id = 'groupLabel' + relayId;
     grpLbl.setAttribute('for', 'group' + relayId);
-    grpLbl.textContent = 'Group';
+    grpLbl.textContent = modeRequiresGroup(modeStr) ? 'Group (required)' : 'Group (optional)';
 
     var grpSelect = document.createElement('select');
     grpSelect.id = 'group' + relayId;
     grpSelect.className = 'relay-label-input';
+    var noneOpt = document.createElement('option');
+    noneOpt.value = '0';
+    noneOpt.textContent = 'None';
+    grpSelect.appendChild(noneOpt);
     for (var g = 1; g <= numGroups; g++) {
       var go = document.createElement('option');
       go.value = String(g);
       go.textContent = 'Group ' + g;
       grpSelect.appendChild(go);
     }
-    grpSelect.value = String(relay.g || 1);
+    grpSelect.value = String(relay.g || 0);
     grpSelect.addEventListener('change', (function (id) {
       return function () { updateGroupDecoration(id); };
     })(relayId));
@@ -452,7 +469,7 @@ function renderRelayEditor() {
 
     var pulseSection = document.createElement('div');
     pulseSection.id = 'pulseSection' + relayId;
-    pulseSection.style.display = (modeStr === 'P') ? 'block' : 'none';
+    pulseSection.style.display = modeUsesPulse(modeStr) ? 'block' : 'none';
 
     var pulseLbl = document.createElement('label');
     pulseLbl.className = 'relay-input-label';
@@ -503,16 +520,21 @@ function collectRelayConfig(validate) {
 
     var modeEl = document.getElementById('mode' + relayId);
     var mode = modeEl ? modeEl.value : 'L';
-    var group = 0;
+    var groupEl = document.getElementById('group' + relayId);
+    var group = groupEl ? (parseInt(groupEl.value, 10) || 0) : 0;
     var pt = 0;
 
-    if (mode === 'I') {
-      group = parseInt((document.getElementById('group' + relayId).value || '1'), 10) || 1;
-      groupCounts[group] = (groupCounts[group] || 0) + 1;
-    } else if (mode === 'P') {
+    if (modeUsesPulse(mode)) {
       pt = parseInt((document.getElementById('pulse' + relayId).value || '1'), 10) || 1;
       if (pt < 1) pt = 1;
       if (pt > 30) pt = 30;
+    }
+
+    // Count members per (mode, group) so interlocked families can be validated
+    // for having at least one partner in the group.
+    if (modeRequiresGroup(mode) && group > 0) {
+      var key = mode + ':' + group;
+      groupCounts[key] = (groupCounts[key] || 0) + 1;
     }
 
     configs.push({ relay: relayId, o: onValue, f: offValue, m: mode, g: group, p: pt });
@@ -521,9 +543,10 @@ function collectRelayConfig(validate) {
   if (validate) {
     var converted = [];
     configs.forEach(function (cfg) {
-      if (cfg.m === 'I' && (groupCounts[cfg.g] || 0) < 2) {
+      if (modeRequiresGroup(cfg.m) && (!cfg.g || (groupCounts[cfg.m + ':' + cfg.g] || 0) < 2)) {
         cfg.m = 'L';
         cfg.g = 0;
+        cfg.p = 0;
         converted.push('Relay ' + cfg.relay);
         var modeEl = document.getElementById('mode' + cfg.relay);
         if (modeEl) {
@@ -533,7 +556,7 @@ function collectRelayConfig(validate) {
       }
     });
     if (converted.length > 0) {
-      alert('Converted to Latched (no group partner): ' + converted.join(', '));
+      alert('Converted to Latched (Interlocked and Interlocked + Pulsed need a group with at least two members): ' + converted.join(', '));
     }
   }
 

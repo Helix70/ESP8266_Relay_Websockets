@@ -200,8 +200,8 @@ body {
 .button:disabled
 {
   color: color-mix(in srgb, var(--clr-text) 40%, var(--clr-bg));
-  background-color: color-mix(in srgb, var(--clr-accent) 30%, var(--clr-bg));
-  border-color: color-mix(in srgb, var(--clr-accent) 30%, var(--clr-bg));
+  background-color: color-mix(in srgb, var(--clr-accent) 20%, var(--clr-bg));
+  border-color: color-mix(in srgb, var(--clr-accent) 20%, var(--clr-bg));
 }
 
 .button.interlock-group {
@@ -225,8 +225,19 @@ body {
 .button.on:disabled
 {
   color: color-mix(in srgb, var(--clr-text) 40%, var(--clr-bg));
-  background-color: color-mix(in srgb, var(--clr-active) 30%, var(--clr-bg));
-  border-color: color-mix(in srgb, var(--clr-active) 30%, var(--clr-bg));
+  background-color: color-mix(in srgb, var(--clr-active) 20%, var(--clr-bg));
+  border-color: color-mix(in srgb, var(--clr-active) 20%, var(--clr-bg));
+}
+
+/* A pulsed button that is on and counting down stays fully active-coloured
+   rather than showing the disabled washout, so an in-progress pulse reads as
+   "on". The pulse-mode right-edge marker is preserved. */
+.button.pulse-mode.on:disabled
+{
+  color: var(--clr-btn2-txt);
+  background-color: var(--clr-active);
+  border-color: var(--clr-active);
+  border-right-color: var(--clr-primary);
 }
 
 .labels-page {
@@ -1064,8 +1075,8 @@ body {
 
 /* Disabled: flatten every style */
 [data-btnstyle] .button:disabled {
-  background: color-mix(in srgb, var(--clr-accent) 30%, var(--clr-bg));
-  border-color: color-mix(in srgb, var(--clr-accent) 30%, var(--clr-bg));
+  background: color-mix(in srgb, var(--clr-accent) 20%, var(--clr-bg));
+  border-color: color-mix(in srgb, var(--clr-accent) 20%, var(--clr-bg));
   color: color-mix(in srgb, var(--clr-text) 40%, var(--clr-bg));
   box-shadow: none;
   transform: none;
@@ -1073,8 +1084,17 @@ body {
 }
 
 [data-btnstyle] .button.on:disabled {
-  background: color-mix(in srgb, var(--clr-active) 30%, var(--clr-bg));
-  border-color: color-mix(in srgb, var(--clr-active) 30%, var(--clr-bg));
+  background: color-mix(in srgb, var(--clr-active) 20%, var(--clr-bg));
+  border-color: color-mix(in srgb, var(--clr-active) 20%, var(--clr-bg));
+}
+
+/* Pulsed button on + timing: full active colour under every style, with the
+   pulse-mode right-edge marker preserved. */
+[data-btnstyle] .button.pulse-mode.on:disabled {
+  background: var(--clr-active);
+  border-color: var(--clr-active);
+  border-right: 12px solid var(--clr-primary);
+  color: var(--clr-btn2-txt);
 }
 
 /* ── Button style picker cards ───────────────────────── */

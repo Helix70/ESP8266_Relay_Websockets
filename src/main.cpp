@@ -76,14 +76,41 @@ static void setupOta()
                      {
     LittleFS.end();
 
+    // Quiesce the async server before the blocking flash write starves loop().
+    // The WebSocket close handshake and disconnect callbacks run in ctx: sys;
+    // if they overlap the update they can dereference freed state (Exception 28,
+    // null read in ctx: sys). Stop accepting frames, close all clients, then
+    // yield so lwIP can flush the teardown before we hand control to the updater.
     ws.enable(false);
-    ws.closeAll(); });
+    ws.closeAll();
+
+    uint32_t flushDeadline = millis() + 300;
+    while (millis() < flushDeadline)
+    {
+      ws.cleanupClients();
+      if (ws.count() == 0)
+      {
+        break;
+      }
+      delay(10);
+    }
+    delay(50); });
 
   ArduinoOTA.onEnd([]()
                    { Serial.println("\nEnd"); });
 
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total)
-                        { Serial.printf("Progress: %u%%\r", (progress / (total / 100))); });
+                        { uint32_t progressPercent = (progress / (total / 100));
+                          static uint32_t lastProgressPercent = 0;
+                          if (progressPercent != lastProgressPercent)
+                          {
+                            lastProgressPercent = progressPercent;
+                            if (progressPercent % 5 == 0) // Print progress every 5%
+                            {
+                              Serial.printf("Progress: %u%%\n", progressPercent);
+                            }
+                          }
+                        });
 
   ArduinoOTA.onError([](ota_error_t error)
                      {
@@ -146,6 +173,8 @@ void loop()
 
   if (provisioningMode)
   {
+    Serial.printf("Provisioning\n");
+    
     pollProvisioningScan();
     processSerialCommands();
     delay(2);
@@ -179,4 +208,6 @@ void loop()
   ws.cleanupClients();
   processSerialCommands();
   ArduinoOTA.handle();
+
+  delayMicroseconds(100); // JNA this seems to be required to prevent high latency.
 }
