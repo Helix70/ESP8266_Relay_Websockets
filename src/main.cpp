@@ -146,7 +146,7 @@ static void setupOta()
 void setup()
 {
   Serial.begin(115200);
-  Serial.printf("Firmware version: %s\n", FIRMWARE_VERSION);
+  Serial.printf("\nFirmware version: %s\n", FIRMWARE_VERSION);
   printSerialHelp();
 
   bool littleFsReady = initializeRuntime();
