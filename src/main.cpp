@@ -78,6 +78,10 @@ static void setupOta()
 {
   ArduinoOTA.onStart([]()
                      {
+    // Set before LittleFS.end() so any in-flight request that reaches a
+    // route/filter check after this point sees the flag and refuses to
+    // touch the filesystem, instead of racing the unmount below.
+    otaInProgress = true;
     LittleFS.end();
 
     // Quiesce the async server before the blocking flash write starves loop().
@@ -101,7 +105,10 @@ static void setupOta()
     delay(50); });
 
   ArduinoOTA.onEnd([]()
-                   { Serial.println("\nEnd"); });
+                   {
+    Serial.println("\nEnd");
+    // Device reboots immediately on success anyway, but reset defensively.
+    otaInProgress = false; });
 
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total)
                         { uint32_t progressPercent = (progress / (total / 100));
@@ -123,7 +130,14 @@ static void setupOta()
     else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
     else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
     else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-    else if (error == OTA_END_ERROR) Serial.println("End Failed"); });
+    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+
+    // Unlike onEnd (success), the device keeps running after a failed/aborted
+    // OTA — re-mount LittleFS and re-enable WS or the device would be stuck
+    // "running" with a torn-down filesystem despite otaInProgress clearing.
+    initLittleFS();
+    ws.enable(true);
+    otaInProgress = false; });
 
   // mDNS is disabled: OTA uploads target a fixed IP (platformio.ini upload_port),
   // never a .local hostname, and the OTA transfer itself runs over its own UDP
@@ -259,10 +273,16 @@ void loop()
   // pass (previously throttled only by a delayMicroseconds(100) busy-wait)
   // starved the ESP32 AsyncTCP task of that lock, causing intermittent
   // relay-toggle latency. Stale-client cleanup doesn't need per-tick freshness.
+  //
+  // maxClients=2: this UI is only ever used by 1-2 browsers at once (the
+  // library defaults to 4 on ESP8266/8 on ESP32). Capping it here means a
+  // stuck/zombie connection (e.g. a backgrounded mobile browser that never
+  // sent a clean close) can only ever hold onto at most 2 client slots'
+  // worth of buffers before the oldest gets force-closed, instead of 4-8.
   static uint32_t lastWsCleanup = 0;
   if ((elapsed - lastWsCleanup) > 250)
   {
-    ws.cleanupClients();
+    ws.cleanupClients(2);
     lastWsCleanup = elapsed;
   }
 

@@ -99,6 +99,13 @@ extern String wifiRescanStatus;
 extern bool pendingRestart;
 extern uint32_t pendingRestartAt;
 
+// True from ArduinoOTA's onStart until onEnd/onError. LittleFS is unmounted
+// during this window, so any route that touches it (serving index.html,
+// static assets, etc.) must refuse the request instead of dereferencing a
+// torn-down filesystem (observed as an Exception 28 crash when a browser tab
+// kept polling during an OTA update).
+extern volatile bool otaInProgress;
+
 // Accumulates human-readable notes about invalid/unreadable persisted data
 // (relay mode out of range, corrupt config file, etc.) found and defaulted
 // during boot, so recovery from a bad update is visible instead of silent.

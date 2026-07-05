@@ -53,6 +53,8 @@ String wifiRescanStatus = "Idle";
 bool pendingRestart = false;
 uint32_t pendingRestartAt = 0;
 
+volatile bool otaInProgress = false;
+
 String bootWarning = "";
 
 void recordBootWarning(const String &message)

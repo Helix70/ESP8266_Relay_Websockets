@@ -41,6 +41,22 @@ static volatile uint8_t pendingNotifyRelaySingleId = 0;
 static volatile bool pendingNotifyRequester = false;
 static volatile uint32_t pendingNotifyRequesterId = 0;
 
+// Shared output buffer for outgoing JSON payloads: notifyClients(),
+// notifyRelayStates(), notifyRelayState(), notifyClient() (via
+// buildRuntimeStatePayload()), and the /netinfo handler each used to have
+// their own dedicated static buffer (1024+3584+1024+128+1024 = 6784 bytes
+// total). None of these ever run concurrently with each other — on ESP8266
+// they're either called sequentially from dispatchPendingNotifications() in
+// loop(), or (both platforms) sequentially within a single WS/HTTP callback
+// invocation, which is itself a single, non-reentrant execution context (no
+// preemption mid-callback on either platform). Each function fully builds,
+// serializes, and sends its payload before returning, and ws.textAll()/
+// client->text() copy the buffer into their own internal send buffer before
+// returning (see the interrupt-context comment above), so the shared buffer
+// is safe to reuse immediately after each call. One buffer sized to the
+// largest need replaces all five, reclaiming ~3.2KB of static RAM.
+static char sharedNotifyPayload[3584];
+
 static uint32_t hashPayload(const char *data, size_t len)
 {
   // FNV-1a 32-bit hash for fast duplicate detection without retaining a full copy.
@@ -179,8 +195,28 @@ static AsyncWebServerResponse *beginResponseFromFile(AsyncWebServerRequest *requ
 }
 #endif
 
+// Rejects any request while an OTA update is in progress: LittleFS is
+// unmounted for the duration (see ArduinoOTA.onStart in main.cpp), so any
+// handler that would touch it must not run. A rejected filter falls through
+// to AsyncWebServer's catch-all (a plain 404), not a crash — verified in
+// AsyncWebServer::_attachHandler, which checks filter() before canHandle().
+static bool rejectDuringOta(AsyncWebServerRequest *request)
+{
+  (void)request;
+  return !otaInProgress;
+}
+
+// [HeapDiag] TEMPORARY: remove once the heap-decline investigation is closed out.
+static void logHeapDiag(const char *label, uint32_t before)
+{
+  Serial.printf("[HeapDiag] %s: before=%lu after=%lu\n", label, (unsigned long)before, (unsigned long)ESP.getFreeHeap());
+}
+
 static void sendMainPageAndIssueGateCookie(AsyncWebServerRequest *request)
 {
+  // [HeapDiag] TEMPORARY: remove once the heap-decline investigation is closed out.
+  uint32_t heapBeforeMainPage = ESP.getFreeHeap();
+
   ensureMainGateToken();
 
 #ifdef ESP32
@@ -193,9 +229,22 @@ static void sendMainPageAndIssueGateCookie(AsyncWebServerRequest *request)
 #else
   AsyncWebServerResponse *response = request->beginResponse(LittleFS, "/index.html", "text/html", false, nullptr);
 #endif
+  // Built into a fixed buffer instead of chained String concatenation
+  // (String(kMainGateCookieName) + "=" + mainGateToken + "...") to avoid
+  // several sequential heap reallocations for one header value on every
+  // single main-page load — cheap normally, but this is the exact call that
+  // failed (24-byte alloc) on a 16-relay ESP8266 board with heap already
+  // near zero, per a captured OOM crash in AsyncWebServerResponse::addHeader.
+  char cookieHeader[96];
+  snprintf(cookieHeader, sizeof(cookieHeader), "%s=%s; Path=/; HttpOnly; SameSite=Lax",
+           kMainGateCookieName, mainGateToken.c_str());
   response->addHeader("Cache-Control", "no-store");
-  response->addHeader("Set-Cookie", String(kMainGateCookieName) + "=" + mainGateToken + "; Path=/; HttpOnly; SameSite=Lax");
+  response->addHeader("Set-Cookie", cookieHeader);
   request->send(response);
+
+  // [HeapDiag] TEMPORARY: remove once the heap-decline investigation is closed out.
+  Serial.printf("[HeapDiag] main page serve: before=%lu after=%lu\n",
+                (unsigned long)heapBeforeMainPage, (unsigned long)ESP.getFreeHeap());
 }
 
 static bool enforceChildPageGate(AsyncWebServerRequest *request)
@@ -229,11 +278,10 @@ static void buildRuntimeStatePayload(char *payload, size_t payloadSize)
   payload[0] = '\0';
   ensureMainGateToken();
 
-  // Full state path: only called when a new client connects ("home" command).
-  // Static allocation so the 6 KB arena is claimed once and never returned to
-  // the heap pool — eliminates the repeated alloc/free that fragments the heap.
-  // Guard threshold is 3072: the static doc needs no new heap after first call;
-  // only the AsyncWebSocket frame buffer (~2600 bytes) needs contiguous space.
+  // Guard threshold is 3072: the build-once doc below needs no new heap after
+  // its first build (only per-call String field churn, see below); this just
+  // covers the AsyncWebSocket frame buffer (~2600 bytes) needing contiguous
+  // space to actually send the result.
 #ifdef ESP8266
   if (ESP.getMaxFreeBlockSize() < 3072)
   {
@@ -246,28 +294,40 @@ static void buildRuntimeStatePayload(char *payload, size_t payloadSize)
 
   // Serves the main page only: relay states, labels, and basic board info.
   // Network/WiFi/MCU/delay fields removed — config page fetches those via /netinfo.
-  // Not a hot path (once per client "home"/connect, not per toggle), so the
-  // simplicity of clear()-and-rebuild is kept even though ArduinoJson v7's
-  // clear() actually frees its pools each call (see notifyRelayStates() for
-  // the build-once alternative used on the genuinely hot broadcast paths).
-  // Capacity: 16 relays × 10 fields × 16 bytes + 16×2×33 label pool + root ≈ 3900 bytes.
+  // Build-once, mutate-in-place (same pattern as notifyRelayStates()): this
+  // was assumed to be a low-frequency path ("once per client connect"), but
+  // the client re-sends "home" on every WebSocket reconnect — on a marginal
+  // WiFi link that reconnects often, calling JSONdoc.clear() every time was
+  // a ~3900-byte pool destroy+rebuild on every reconnect (ArduinoJson v7's
+  // clear() really frees the pool, see notifyRelayStates()), which fragmented
+  // the heap badly enough to eventually trip the guard above permanently.
   static JsonDocument JSONdoc;
-  JSONdoc.clear();
+  static JsonObject buttons[APP_MAX_RELAYS];
+  static uint8_t builtCount = 255; // sentinel: forces (re)build on first call
 
-  JsonArray array = JSONdoc["buttons"].template to<JsonArray>();
+  if (builtCount != relayCount)
+  {
+    JSONdoc.clear();
+    JsonArray array = JSONdoc["buttons"].template to<JsonArray>();
+    for (uint8_t i = 0; i < relayCount; i++)
+    {
+      buttons[i] = array.add<JsonObject>();
+    }
+    builtCount = relayCount;
+  }
+
   for (int i = 0; i < relayCount; i++)
   {
-    JsonObject button = array.add<JsonObject>();
-    button["id"] = i + 1;
-    button["on"] = relays[i].on;
-    button["d"] = relays[i].disabled;
-    button["last"] = relays[i].last;
-    button["onLabel"] = relayLabels[i].on;
-    button["offLabel"] = relayLabels[i].off;
-    button["m"] = relayLabels[i].mode;
-    button["g"] = relayLabels[i].group;
-    button["p"] = relayLabels[i].pulseTimeout;
-    button["gpio"] = (relays[i].pin == 255) ? -1 : (int)relays[i].pin;
+    buttons[i]["id"] = i + 1;
+    buttons[i]["on"] = relays[i].on;
+    buttons[i]["d"] = relays[i].disabled;
+    buttons[i]["last"] = relays[i].last;
+    buttons[i]["onLabel"] = relayLabels[i].on;
+    buttons[i]["offLabel"] = relayLabels[i].off;
+    buttons[i]["m"] = relayLabels[i].mode;
+    buttons[i]["g"] = relayLabels[i].group;
+    buttons[i]["p"] = relayLabels[i].pulseTimeout;
+    buttons[i]["gpio"] = (relays[i].pin == 255) ? -1 : (int)relays[i].pin;
   }
 
   JSONdoc["boardName"] = boardName;
@@ -295,7 +355,8 @@ void notifyClients()
   // Uses char[] to avoid String realloc from interrupt context (ctx: sys).
   // Sized for 16 relays × 4 fields + 6 top-level fields: worst-case ~750 chars.
   JsonDocument JSONdoc;
-  static char payload[1024];
+  char *payload = sharedNotifyPayload;
+  size_t payloadCapacity = sizeof(sharedNotifyPayload);
   static uint32_t lastPayloadHash = 0;
   static size_t lastPayloadLen = 0;
   uint32_t buildStartUs = micros();
@@ -316,7 +377,7 @@ void notifyClients()
   JSONdoc["n"] = relayCount;
   JSONdoc["selectedRelayTemplate"] = selectedRelayTemplateFilename;
 
-  size_t payloadLen = serializeJson(JSONdoc, payload, sizeof(payload));
+  size_t payloadLen = serializeJson(JSONdoc, payload, payloadCapacity);
   uint32_t buildElapsedUs = micros() - buildStartUs;
   uint32_t payloadHash = hashPayload(payload, payloadLen);
 
@@ -353,10 +414,15 @@ static void notifyClient(AsyncWebSocketClient *client)
     return;
   }
 
-  // Static char array: sized for 16 relays × ~150 chars + ~500 chars config fields.
-  // Avoids the String realloc chain (1→2→4→...→4096 bytes) on every "home" response.
-  static char payload[3200];
-  buildRuntimeStatePayload(payload, sizeof(payload));
+  // Sized for 16 relays × ~150 chars + ~500 chars config fields, plus margin
+  // for bootWarning/firmwareVersion added after this was first sized (worst
+  // realistic case with a long board name, template filename, and one
+  // boot-warning message is ~3100 bytes — this leaves headroom instead of the
+  // ~94 bytes the original 3200 left). Shares sharedNotifyPayload (see top of
+  // file) rather than its own buffer — avoids the String realloc chain
+  // (1→2→4→...→4096 bytes) on every "home" response either way.
+  char *payload = sharedNotifyPayload;
+  buildRuntimeStatePayload(payload, sizeof(sharedNotifyPayload));
   if (payload[0] == '\0')
   {
     return;
@@ -384,13 +450,16 @@ void notifyRelayStates()
   // bool converters (ArduinoJson/Variant/ConverterImpl.hpp) call setInteger()/
   // setBoolean() directly with no pool interaction, unlike string assignment.
   //
-  // Capacity: JSON_OBJECT_SIZE(2) + JSON_ARRAY_SIZE(MAX) + MAX*JSON_OBJECT_SIZE(4)
-  // On ESP8266 (sizeof(VariantSlot)=16): 32+256+1024 = 1312 bytes minimum.
   // char[] payload avoids String realloc from interrupt context (ctx: sys).
+  // Sized for the actual serialized JSON, not the ArduinoJson pool: each
+  // button is `{"id":16,"on":false,"d":0,"last":4294967295}` (~46 bytes),
+  // so 16 relays + the "partial"/"buttons" wrapper is ~750 bytes worst case.
+  // (A prior 640-byte buffer silently truncated this on 16-relay boards —
+  // every toggle broadcast invalid JSON that only 16-relay clients ever saw.)
   static JsonDocument doc;
   static JsonObject buttons[APP_MAX_RELAYS];
   static uint8_t builtCount = 255; // sentinel: forces (re)build on first call
-  static char payload[640];
+  char *payload = sharedNotifyPayload;
 
   if (builtCount != relayCount)
   {
@@ -412,7 +481,7 @@ void notifyRelayStates()
     buttons[i]["last"] = relays[i].last;
   }
 
-  serializeJson(doc, payload, sizeof(payload));
+  serializeJson(doc, payload, sizeof(sharedNotifyPayload));
   ws.textAll(payload);
 }
 
@@ -432,7 +501,7 @@ void notifyRelayState(uint8_t relayNum)
   static JsonDocument doc;
   static JsonObject button;
   static bool built = false;
-  static char payload[128];
+  char *payload = sharedNotifyPayload;
 
   if (!built)
   {
@@ -448,12 +517,19 @@ void notifyRelayState(uint8_t relayNum)
   button["d"] = relays[idx].disabled;
   button["last"] = relays[idx].last;
 
-  serializeJson(doc, payload, sizeof(payload));
+  serializeJson(doc, payload, sizeof(sharedNotifyPayload));
   ws.textAll(payload);
 }
 
 void dispatchPendingNotifications()
 {
+  // TEMPORARY diagnostic: isolates the heap cost of a single button-press's
+  // notification dispatch (JSON build + ws.textAll()/text()) from everything
+  // else happening in loop(). Remove once the heap-decline investigation is
+  // closed out.
+  bool willDispatch = pendingNotifyAll || pendingNotifyRelayAll || pendingNotifyRelaySingle || pendingNotifyRequester;
+  uint32_t heapBeforeDispatch = willDispatch ? ESP.getFreeHeap() : 0;
+
   if (pendingNotifyAll)
   {
     pendingNotifyAll = false;
@@ -479,6 +555,15 @@ void dispatchPendingNotifications()
     {
       notifyClient(c);
     }
+  }
+
+  if (willDispatch)
+  {
+    uint32_t heapAfterDispatch = ESP.getFreeHeap();
+    Serial.printf("[HeapDiag] button dispatch: before=%lu after=%lu delta=%ld\n",
+                  (unsigned long)heapBeforeDispatch,
+                  (unsigned long)heapAfterDispatch,
+                  (long)heapBeforeDispatch - (long)heapAfterDispatch);
   }
 }
 
@@ -726,10 +811,14 @@ static void onEvent(AsyncWebSocket *serverInstance, AsyncWebSocketClient *client
     // an ACK arrives, adding 40-200ms per send for 50-byte relay state messages.
     client->client()->setNoDelay(true);
 #endif
-    Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+    // [HeapDiag] TEMPORARY: remove once the heap-decline investigation is closed out.
+    Serial.printf("WebSocket client #%u connected from %s heap=%lu\n", client->id(),
+                  client->remoteIP().toString().c_str(), (unsigned long)ESP.getFreeHeap());
     break;
   case WS_EVT_DISCONNECT:
-    Serial.printf("WebSocket client #%u disconnected\n", client->id());
+    // [HeapDiag] TEMPORARY: remove once the heap-decline investigation is closed out.
+    Serial.printf("WebSocket client #%u disconnected heap=%lu\n", client->id(),
+                  (unsigned long)ESP.getFreeHeap());
     break;
   case WS_EVT_DATA:
     handleWebSocketMessage(client, arg, data, len);
@@ -770,14 +859,42 @@ void registerRuntimeHttpRoutes()
   server.addHandler(&noDelayHandler);
 #endif
 
+  // [HeapDiag] TEMPORARY: logs every incoming request's path + heap, in
+  // request order, before it's dispatched to its real handler — same
+  // canHandle()-returns-false observer trick as noDelayHandler above. Fills
+  // the gap the per-route before/after logging can't: visibility into static
+  // asset requests (style.css, script.js, config.js, ...) that have no
+  // dedicated handler to instrument, so a full page navigation's request
+  // sequence (HTML + CSS + JS + any API calls) shows up as one clearly
+  // ordered block in the log instead of being inferred from timing. Remove
+  // once the heap-decline investigation is closed out.
+  static struct : AsyncWebHandler
+  {
+    // canHandle() is const on the ESP32 fork's AsyncWebHandler but non-const
+    // on ESP8266's older fork — match whichever this platform expects.
+#ifdef ESP32
+    bool canHandle(AsyncWebServerRequest *request) const override
+#else
+    bool canHandle(AsyncWebServerRequest *request) override
+#endif
+    {
+      Serial.printf("[PageNav] %s heap=%lu\n", request->url().c_str(), (unsigned long)ESP.getFreeHeap());
+      return false;
+    }
+    void handleRequest(AsyncWebServerRequest *) override {}
+  } pageNavLogger;
+  server.addHandler(&pageNavLogger);
+
   ensureMainGateToken();
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-            { sendMainPageAndIssueGateCookie(request); });
+            { sendMainPageAndIssueGateCookie(request); })
+      .setFilter(rejectDuringOta);
 
   server.on("/config.html", HTTP_GET, [](AsyncWebServerRequest *request)
             {
     if (!enforceChildPageGate(request)) return;
+    uint32_t heapBefore = ESP.getFreeHeap(); // [HeapDiag] TEMPORARY
 #ifdef ESP32
     AsyncWebServerResponse *r = beginResponseFromFile(request, "/config.html", "text/html");
     if (!r) { request->send(404); return; }
@@ -785,11 +902,13 @@ void registerRuntimeHttpRoutes()
 #else
     request->send(LittleFS, "/config.html", "text/html", false, nullptr);
 #endif
-  });
+    logHeapDiag("config.html serve", heapBefore); // [HeapDiag] TEMPORARY
+  }).setFilter(rejectDuringOta);
 
   server.on("/relay-config.html", HTTP_GET, [](AsyncWebServerRequest *request)
             {
     if (!enforceChildPageGate(request)) return;
+    uint32_t heapBefore = ESP.getFreeHeap(); // [HeapDiag] TEMPORARY
 #ifdef ESP32
     AsyncWebServerResponse *r = beginResponseFromFile(request, "/relay-config.html", "text/html");
     if (!r) { request->send(404); return; }
@@ -797,11 +916,13 @@ void registerRuntimeHttpRoutes()
 #else
     request->send(LittleFS, "/relay-config.html", "text/html", false, nullptr);
 #endif
-  });
+    logHeapDiag("relay-config.html serve", heapBefore); // [HeapDiag] TEMPORARY
+  }).setFilter(rejectDuringOta);
 
   server.on("/boards.html", HTTP_GET, [](AsyncWebServerRequest *request)
             {
     if (!enforceChildPageGate(request)) return;
+    uint32_t heapBefore = ESP.getFreeHeap(); // [HeapDiag] TEMPORARY
 #ifdef ESP32
     AsyncWebServerResponse *r = beginResponseFromFile(request, "/boards.html", "text/html");
     if (!r) { request->send(404); return; }
@@ -809,11 +930,13 @@ void registerRuntimeHttpRoutes()
 #else
     request->send(LittleFS, "/boards.html", "text/html", false, nullptr);
 #endif
-  });
+    logHeapDiag("boards.html serve", heapBefore); // [HeapDiag] TEMPORARY
+  }).setFilter(rejectDuringOta);
 
   server.on("/template-editor.html", HTTP_GET, [](AsyncWebServerRequest *request)
             {
     if (!enforceChildPageGate(request)) return;
+    uint32_t heapBefore = ESP.getFreeHeap(); // [HeapDiag] TEMPORARY
 #ifdef ESP32
     AsyncWebServerResponse *r = beginResponseFromFile(request, "/template-editor.html", "text/html");
     if (!r) { request->send(404); return; }
@@ -821,13 +944,15 @@ void registerRuntimeHttpRoutes()
 #else
     request->send(LittleFS, "/template-editor.html", "text/html", false, nullptr);
 #endif
-  });
+    logHeapDiag("template-editor.html serve", heapBefore); // [HeapDiag] TEMPORARY
+  }).setFilter(rejectDuringOta);
 
   server.on("/netinfo", HTTP_GET, [](AsyncWebServerRequest *request)
             {
-    // 18 fields × ~16 bytes slot overhead + ~600 bytes string data ≈ 900 bytes; 1024 for safety.
+    // 18 fields × ~16 bytes slot overhead + ~600 bytes string data ≈ 900 bytes;
+    // shares sharedNotifyPayload (3584 bytes) rather than its own buffer.
     JsonDocument doc;
-    static char payload[1024];
+    char *payload = sharedNotifyPayload;
 
     String activeIp = useStaticIp ? boardIp.toString() : WiFi.localIP().toString();
     String activeDns = useStaticIp ? boardDns.toString() : WiFi.dnsIP().toString();
@@ -871,7 +996,7 @@ void registerRuntimeHttpRoutes()
     ensureMainGateToken();
     doc["bootSessionId"] = mainGateToken;
 
-    serializeJson(doc, payload, sizeof(payload));
+    serializeJson(doc, payload, sizeof(sharedNotifyPayload));
     request->send(200, "application/json", payload); });
 
   // no-store: static assets are small and change during development/updates.
@@ -880,7 +1005,7 @@ void registerRuntimeHttpRoutes()
   // no such option), which can miss same-size content edits. no-store trades
   // browser caching for guaranteed-fresh assets without needing hand-stamped
   // ?v= query strings on every reference.
-  server.serveStatic("/", LittleFS, "/").setCacheControl("no-store");
+  server.serveStatic("/", LittleFS, "/").setCacheControl("no-store").setFilter(rejectDuringOta);
 }
 
 void startRuntimeServer()

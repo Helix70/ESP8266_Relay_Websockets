@@ -1,3 +1,4 @@
+import os
 import socket
 import subprocess
 import time
@@ -74,3 +75,43 @@ env.AddCustomTarget(
     title="Upload Firmware + Filesystem",
     description="Build and upload firmware and LittleFS image",
 )
+
+# Comprehensive hardware soak/functional test suite (scripts/tests/soak/).
+# Registered only on the 3 OTA environments that map to a real physical
+# board+COM-port pairing (see platformio.ini) -- these scripts drive both the
+# board's serial console (reset/wifi wizard) and its HTTP/WS API, so they need
+# to know which COM port and relay count go with which OTA environment.
+SOAK_TEST_SCRIPTS = {
+    "esp8266_ota_16relay": "esp8266_16relay_soak.py",
+    "esp8266_ota_8relay": "esp8266_8relay_soak.py",
+    "esp32_ota_8relay": "esp32_8relay_soak.py",
+}
+
+def run_soak_test(source, target, env):
+    script = SOAK_TEST_SCRIPTS[env["PIOENV"]]
+    script_path = os.path.join(env["PROJECT_DIR"], "scripts", "tests", "soak", script)
+    result = env.Execute('"$PYTHONEXE" "{}"'.format(script_path))
+    if result != 0:
+        env.Exit(result)
+
+def run_all_soak_tests(source, target, env):
+    script_path = os.path.join(env["PROJECT_DIR"], "scripts", "tests", "soak", "run_all_soak.py")
+    result = env.Execute('"$PYTHONEXE" "{}"'.format(script_path))
+    if result != 0:
+        env.Exit(result)
+
+if env["PIOENV"] in SOAK_TEST_SCRIPTS:
+    env.AddCustomTarget(
+        name="soaktest",
+        dependencies=None,
+        actions=[run_soak_test],
+        title="Run Soak Test",
+        description="Comprehensive hardware soak/functional test for this board (resets, reprovisions WiFi, exercises the full API, then soaks all relays for 60s+)",
+    )
+    env.AddCustomTarget(
+        name="soaktest_all",
+        dependencies=None,
+        actions=[run_all_soak_tests],
+        title="Run All Soak Tests",
+        description="Run the soak test for all 3 boards sequentially (COM6, COM4, COM3)",
+    )

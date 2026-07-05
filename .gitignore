@@ -6,3 +6,6 @@
 .vscode/ipch
 include/credentials.h
 Current Status.md
+scripts/tests/soak/reports/
+__pycache__/
+*.pyc

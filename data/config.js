@@ -22,8 +22,8 @@ var restartRedirectDelayTimer = null;
 var restartRedirectPollTimer = null;
 var suspendConfigFormHydration = false;
 // bootSessionStorageKey, forceRootRefreshAfterBootChange, clearRefreshQueryParam,
-// and trackBootSessionAndRedirectIfChanged live in theme-apply.js (loaded on
-// every page before this script).
+// and trackBootSessionAndRedirectIfChanged are inlined in this page's own
+// <head> (see config.html) rather than loaded from a shared file.
 
 var wifiSsidDisplay;
 var wifiConnectedSsidDisplay;

@@ -5,8 +5,8 @@ var templateSummaryCache = {};
 var diagnosticsLoadTimer = null;
 
 // bootSessionStorageKey, forceRootRefreshAfterBootChange, clearRefreshQueryParam,
-// and trackBootSessionAndRedirectIfChanged live in theme-apply.js (loaded on
-// every page before this script).
+// and trackBootSessionAndRedirectIfChanged are inlined in this page's own
+// <head> (see relay-config.html) rather than loaded from a shared file.
 
 window.addEventListener('load', onLoad);
 

@@ -339,24 +339,31 @@ bool parseTemplateListEntryMetadata(const String &filename, File &file, uint8_t 
 
   // Fast-path metadata extraction: only inspect a small prefix of each file.
   // This avoids parsing large label arrays/help blocks when listing templates.
-  String probe;
-  probe.reserve(640);
-  while (file.available() && probe.length() < 640)
+  // Static buffer avoids a fresh heap allocation+free per template file —
+  // writeTemplateListEntriesJson calls this once per file in /templates on
+  // every /api/templates/bootstrap request (i.e. every relay-config page
+  // load), so this was real, avoidable heap churn that scaled with how many
+  // templates are stored on the device.
+  static char probe[641];
+  size_t probeLen = 0;
+  while (file.available() && probeLen < sizeof(probe) - 1)
   {
-    probe += (char)file.read();
+    probe[probeLen++] = (char)file.read();
   }
+  probe[probeLen] = '\0';
 
-  int titleKey = probe.indexOf("\"t\"");
-  if (titleKey >= 0)
+  char *titleKey = strstr(probe, "\"t\"");
+  if (titleKey)
   {
-    int colon = probe.indexOf(':', titleKey);
-    if (colon > 0)
+    char *colon = strchr(titleKey, ':');
+    if (colon)
     {
-      int firstQuote = probe.indexOf('"', colon + 1);
-      int secondQuote = (firstQuote >= 0) ? probe.indexOf('"', firstQuote + 1) : -1;
-      if (firstQuote >= 0 && secondQuote > firstQuote)
+      char *firstQuote = strchr(colon + 1, '"');
+      char *secondQuote = firstQuote ? strchr(firstQuote + 1, '"') : nullptr;
+      if (firstQuote && secondQuote && secondQuote > firstQuote)
       {
-        String parsedTitle = probe.substring(firstQuote + 1, secondQuote);
+        String parsedTitle;
+        parsedTitle.concat(firstQuote + 1, (unsigned int)(secondQuote - firstQuote - 1));
         parsedTitle.trim();
         if (parsedTitle.length() > 0)
         {
@@ -366,27 +373,19 @@ bool parseTemplateListEntryMetadata(const String &filename, File &file, uint8_t 
     }
   }
 
-  int relayKey = probe.indexOf("\"n\"");
-  if (relayKey >= 0)
+  char *relayKey = strstr(probe, "\"n\"");
+  if (relayKey)
   {
-    int colon = probe.indexOf(':', relayKey);
-    if (colon > 0)
+    char *colon = strchr(relayKey, ':');
+    if (colon)
     {
-      String parsedNumber;
-      for (int i = colon + 1; i < (int)probe.length(); i++)
+      char *digitsStart = colon + 1;
+      while (*digitsStart && (*digitsStart < '0' || *digitsStart > '9'))
       {
-        char c = probe[i];
-        if (c >= '0' && c <= '9')
-        {
-          parsedNumber += c;
-        }
-        else if (parsedNumber.length() > 0)
-        {
-          break;
-        }
+        digitsStart++;
       }
 
-      int parsedRelayCount = parsedNumber.toInt();
+      int parsedRelayCount = atoi(digitsStart);
       if (parsedRelayCount == (int)kVariantRelayCount16)
       {
         relayCount = kVariantRelayCount16;

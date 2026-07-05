@@ -12,8 +12,8 @@ var activeLabelInput = null;
 var suppressTemplateSelectChange = false;
 var invalidTemplateFilenames = {};
 // bootSessionStorageKey, forceRootRefreshAfterBootChange, clearRefreshQueryParam,
-// and trackBootSessionAndRedirectIfChanged live in theme-apply.js (loaded on
-// every page before this script).
+// and trackBootSessionAndRedirectIfChanged are inlined in this page's own
+// <head> (see template-editor.html) rather than loaded from a shared file.
 
 function normalizeTemplateFilenameRef(value) {
   var normalized = String(value || '').trim();

@@ -129,7 +129,7 @@ Persistence and application:
 - `GET /api/theme` returns `{"h":"<9 comma-separated hex colours>","s":"<style id>"}`.
 - `POST /api/theme` accepts form fields `h` (required, 7 or 9 hex colours) and `s` (optional, must be lowercase letters only, up to 11 chars).
 - Stored in board config (`themeH`/`themeS`: ESP32 NVS, ESP8266 EEPROM JSON).
-- `data/theme-apply.js` runs in every page `<head>`, applying the theme from `localStorage` (`rly_theme`, `rly_btnstyle`) instantly and falling back to `/api/theme` on first load.
+- Theme-apply logic is inlined directly in every page's `<head>` (duplicated identically across all 6 HTML pages in `data/`, not a shared file — see `src/CLAUDE.md`), applying the theme from `localStorage` (`rly_theme`, `rly_btnstyle`) instantly and falling back to `/api/theme` on first load.
 
 ### Template System (Current Behavior)
 

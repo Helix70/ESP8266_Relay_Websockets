@@ -8,8 +8,8 @@ var renderedRelayCount = 0;
 var relayButtonUi = {};
 var relayButtonStateCache = {};
 // bootSessionStorageKey, forceRootRefreshAfterBootChange, clearRefreshQueryParam,
-// and trackBootSessionAndRedirectIfChanged live in theme-apply.js (loaded on
-// every page before this script).
+// and trackBootSessionAndRedirectIfChanged are inlined in this page's own
+// <head> (see index.html) rather than loaded from a shared file.
 
 var INTERLOCK_GROUP_COLORS = [
   '#2e8b57', '#1f6feb', '#d97706', '#7c3aed', '#0f766e', '#c2410c', '#b45309', '#4338ca'

@@ -5,8 +5,8 @@ var restartRedirectDelayTimer = null;
 var restartRedirectPollTimer = null;
 var websocketEverConnected = false;
 // bootSessionStorageKey, forceRootRefreshAfterBootChange, clearRefreshQueryParam,
-// and trackBootSessionAndRedirectIfChanged live in theme-apply.js (loaded on
-// every page before this script).
+// and trackBootSessionAndRedirectIfChanged are inlined in this page's own
+// <head> (see boards.html) rather than loaded from a shared file.
 
 var boardData = [];
 var currentEditorFilename = '';
