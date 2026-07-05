@@ -1,0 +1,17 @@
+{
+  "name": "ESP8266 8-Relay Direct GPIO",
+  "cpu": "ESP8266",
+  "relayCount": 8,
+  "ledPin": 2,
+  "outputType": "gpio",
+  "relays": [
+    { "relay": 1, "pin": 16 },
+    { "relay": 2, "pin": 14 },
+    { "relay": 3, "pin": 12 },
+    { "relay": 4, "pin": 13 },
+    { "relay": 5, "pin": 15 },
+    { "relay": 6, "pin": 0  },
+    { "relay": 7, "pin": 4  },
+    { "relay": 8, "pin": 5  }
+  ]
+}

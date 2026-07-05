@@ -2,7 +2,7 @@
 <html>
 
 <head>
-  <title>Relay Board - Main</title>
+  <title>Relay Board - Colour Scheme</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
@@ -113,34 +113,28 @@
     return false;
   }
   </script>
+  <style>body { background-color: var(--clr-bg); transition: background-color 0.25s; }</style>
 </head>
 
 <body>
   <div class="topnav">
-    <div class="topnav-inner">
-      <h1 id="pageTitle">Relay Board</h1>
-      <div class="menu-wrap">
-        <button id="menuButton" class="menu-button" aria-label="Open navigation menu" aria-haspopup="true" aria-expanded="false">
-          <span></span>
-          <span></span>
-          <span></span>
-        </button>
-        <div id="menuDropdown" class="menu-dropdown" aria-label="Navigation menu">
-          <a href="/config.html" class="menu-item">Configuration</a>
-          <a href="/relay-config.html" class="menu-item">Template Manager</a>
-          <a href="/boards.html" class="menu-item">Board Manager</a>
-          <a href="/theme.html" class="menu-item">Colour Scheme</a>
-          <hr class="menu-divider">
-          <button id="rebootMenuItem" class="menu-item">Reboot</button>
-          <div id="firmwareVersionItem" class="menu-item menu-version"></div>
-        </div>
-      </div>
-    </div>
+    <h1>Colour Scheme</h1>
   </div>
-  <div id="boot-warning" class="boot-warning-banner" style="display:none"></div>
-  <div id="setup-incomplete" class="setup-incomplete" style="display:none"></div>
-  <div id="relay-table" data-loading="true"></div>
+  <p id="themeStatus" class="config-note" style="text-align:center;padding:8px 12px;display:none"></p>
+  <div id="styleSection" class="theme-page" style="padding-bottom:0" data-loading="true">
+    <div class="theme-group-title">Button Style</div>
+    <div id="styleGrid" class="style-grid"></div>
+  </div>
+  <div class="theme-toggle-row">
+    <button id="modeBtn" class="theme-mode-btn">Switch to Dark Themes</button>
+  </div>
+  <div id="themeGrid" class="theme-page" data-loading="true"></div>
+  <div class="theme-apply-bar">
+    <button id="applyBtn" class="button" style="min-width:120px" disabled>Apply</button>
+    <button id="backBtn" class="button" style="min-width:120px">Back</button>
+  </div>
 
-  <script src="script.js"></script>
+  <script src="theme.js"></script>
 </body>
+
 </html>

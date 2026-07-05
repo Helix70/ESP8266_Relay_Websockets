@@ -2,7 +2,7 @@
 <html>
 
 <head>
-  <title>Relay Board - Main</title>
+  <title>Relay Board - Template Manager</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
@@ -117,30 +117,44 @@
 
 <body>
   <div class="topnav">
-    <div class="topnav-inner">
-      <h1 id="pageTitle">Relay Board</h1>
-      <div class="menu-wrap">
-        <button id="menuButton" class="menu-button" aria-label="Open navigation menu" aria-haspopup="true" aria-expanded="false">
-          <span></span>
-          <span></span>
-          <span></span>
-        </button>
-        <div id="menuDropdown" class="menu-dropdown" aria-label="Navigation menu">
-          <a href="/config.html" class="menu-item">Configuration</a>
-          <a href="/relay-config.html" class="menu-item">Template Manager</a>
-          <a href="/boards.html" class="menu-item">Board Manager</a>
-          <a href="/theme.html" class="menu-item">Colour Scheme</a>
-          <hr class="menu-divider">
-          <button id="rebootMenuItem" class="menu-item">Reboot</button>
-          <div id="firmwareVersionItem" class="menu-item menu-version"></div>
+    <h1>Template Manager</h1>
+  </div>
+
+  <div class="labels-page" data-loading="true">
+    <div class="template-section">
+      <h3 class="template-section-title">Templates</h3>
+      <div class="template-row template-primary-row">
+        <select id="templateSelect" class="template-select">
+          <option value="">-- Select a template --</option>
+        </select>
+        <button id="setActiveTemplateButton" class="button button-inline">Set Active</button>
+        <button id="openTemplateEditorButton" class="button button-inline">Edit</button>
+      </div>
+
+      <div class="template-file-actions">
+        <p class="template-subtitle">File Actions</p>
+        <div class="template-row template-actions-row">
+          <button id="uploadTemplateButton" class="button button-inline">Upload</button>
+          <button id="downloadTemplateButton" class="button button-inline">Download</button>
+          <button id="renameTemplateButton" class="button button-inline">Rename</button>
+          <button id="deleteTemplateButton" class="button button-inline">Remove</button>
         </div>
+        <input type="file" id="templateUploadInput" class="template-upload-input-hidden" accept="application/json,.json">
+      </div>
+      <p id="templateSelectionStatus" class="config-note">Selected template: none</p>
+      <p id="templateDiagnosticsStatus" class="config-note">Template storage: loading...</p>
+
+      <div id="templateSummary" class="template-summary" aria-live="polite">
+        <p class="template-summary-empty">Select a template to view relay summary.</p>
       </div>
     </div>
-  </div>
-  <div id="boot-warning" class="boot-warning-banner" style="display:none"></div>
-  <div id="setup-incomplete" class="setup-incomplete" style="display:none"></div>
-  <div id="relay-table" data-loading="true"></div>
 
-  <script src="script.js"></script>
+    <div class="config-buttons">
+      <p><button id="backLabelsButton" class="button">Back</button></p>
+    </div>
+  </div>
+
+  <script src="relay-config.js"></script>
 </body>
+
 </html>

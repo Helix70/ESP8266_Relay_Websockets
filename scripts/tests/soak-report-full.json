@@ -1,0 +1,643 @@
+{
+  "startedAt": "2026-06-26T15:10:55.3378759+10:00",
+  "finishedAt": "2026-06-26T15:12:47.0833668+10:00",
+  "durationSec": 111.75,
+  "mode": "Full",
+  "iterations": 5,
+  "targets": [
+    "192.168.2.154",
+    "192.168.2.195"
+  ],
+  "aggregate": {
+    "totalTests": 195,
+    "totalFailures": 0,
+    "flakeRatePct": 0.0
+  },
+  "runs": [
+    {
+      "iteration": 1,
+      "exitCode": 0,
+      "summary": {
+        "passed": 39,
+        "failed": 0,
+        "total": 39
+      },
+      "failed": null,
+      "coverage": [
+        {
+          "endpoint": "/",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/boards",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 4
+        },
+        {
+          "endpoint": "/api/boards (POST delete)",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/boards (POST rename)",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/boards (POST save)",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/boards (POST setactive)",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 4
+        },
+        {
+          "endpoint": "/api/templates",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 4
+        },
+        {
+          "endpoint": "/api/templates (POST create/save)",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/templates (POST delete)",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/templates (POST rename)",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/templates (POST setactive)",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 3
+        },
+        {
+          "endpoint": "/api/templates/diagnostics",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/boards.html",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/netinfo",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/relay-config.html",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/ws",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        }
+      ],
+      "timestamp": "2026-06-26T15:11:11.5997574+10:00"
+    },
+    {
+      "iteration": 2,
+      "exitCode": 0,
+      "summary": {
+        "passed": 39,
+        "failed": 0,
+        "total": 39
+      },
+      "failed": null,
+      "coverage": [
+        {
+          "endpoint": "/",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/boards",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 4
+        },
+        {
+          "endpoint": "/api/boards (POST delete)",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/boards (POST rename)",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/boards (POST save)",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/boards (POST setactive)",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 4
+        },
+        {
+          "endpoint": "/api/templates",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 4
+        },
+        {
+          "endpoint": "/api/templates (POST create/save)",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/templates (POST delete)",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/templates (POST rename)",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/templates (POST setactive)",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 3
+        },
+        {
+          "endpoint": "/api/templates/diagnostics",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/boards.html",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/netinfo",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/relay-config.html",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/ws",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        }
+      ],
+      "timestamp": "2026-06-26T15:11:42.5421547+10:00"
+    },
+    {
+      "iteration": 3,
+      "exitCode": 0,
+      "summary": {
+        "passed": 39,
+        "failed": 0,
+        "total": 39
+      },
+      "failed": null,
+      "coverage": [
+        {
+          "endpoint": "/",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/boards",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 4
+        },
+        {
+          "endpoint": "/api/boards (POST delete)",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/boards (POST rename)",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/boards (POST save)",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/boards (POST setactive)",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 4
+        },
+        {
+          "endpoint": "/api/templates",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 4
+        },
+        {
+          "endpoint": "/api/templates (POST create/save)",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/templates (POST delete)",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/templates (POST rename)",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/templates (POST setactive)",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 3
+        },
+        {
+          "endpoint": "/api/templates/diagnostics",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/boards.html",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/netinfo",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/relay-config.html",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/ws",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        }
+      ],
+      "timestamp": "2026-06-26T15:11:59.1332513+10:00"
+    },
+    {
+      "iteration": 4,
+      "exitCode": 0,
+      "summary": {
+        "passed": 39,
+        "failed": 0,
+        "total": 39
+      },
+      "failed": null,
+      "coverage": [
+        {
+          "endpoint": "/",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/boards",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 4
+        },
+        {
+          "endpoint": "/api/boards (POST delete)",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/boards (POST rename)",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/boards (POST save)",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/boards (POST setactive)",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 4
+        },
+        {
+          "endpoint": "/api/templates",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 4
+        },
+        {
+          "endpoint": "/api/templates (POST create/save)",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/templates (POST delete)",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/templates (POST rename)",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/templates (POST setactive)",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 3
+        },
+        {
+          "endpoint": "/api/templates/diagnostics",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/boards.html",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/netinfo",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/relay-config.html",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/ws",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        }
+      ],
+      "timestamp": "2026-06-26T15:12:27.5532491+10:00"
+    },
+    {
+      "iteration": 5,
+      "exitCode": 0,
+      "summary": {
+        "passed": 39,
+        "failed": 0,
+        "total": 39
+      },
+      "failed": null,
+      "coverage": [
+        {
+          "endpoint": "/",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/boards",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 4
+        },
+        {
+          "endpoint": "/api/boards (POST delete)",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/boards (POST rename)",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/boards (POST save)",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/boards (POST setactive)",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 4
+        },
+        {
+          "endpoint": "/api/templates",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 4
+        },
+        {
+          "endpoint": "/api/templates (POST create/save)",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/templates (POST delete)",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/templates (POST rename)",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/api/templates (POST setactive)",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 3
+        },
+        {
+          "endpoint": "/api/templates/diagnostics",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/boards.html",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/netinfo",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/relay-config.html",
+          "mode": "Smoke",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        },
+        {
+          "endpoint": "/ws",
+          "mode": "Full",
+          "executed": true,
+          "passed": true,
+          "runCount": 2
+        }
+      ],
+      "timestamp": "2026-06-26T15:12:47.0832779+10:00"
+    }
+  ]
+}

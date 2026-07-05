@@ -1,0 +1,1561 @@
+#include <ArduinoJson.h>
+#include <LittleFS.h>
+
+#include "app_state.h"
+#include "config_routes_internal.h"
+#include "config_store.h"
+#include "route_data.h"
+#include "route_utils.h"
+#include "storage_lock.h"
+#include "storage_utils.h"
+#include "web_runtime.h"
+
+namespace
+{
+constexpr size_t kTemplateWriteSafetyBytes = 512;
+String gLastTemplateWriteErrorReason;
+uint32_t gLastTemplateWriteErrorAtMs = 0;
+
+struct FsUsage
+{
+  size_t total = 0;
+  size_t used = 0;
+  size_t free = 0;
+};
+
+bool readLittleFsUsage(FsUsage &usage)
+{
+#if defined(ESP8266)
+  FSInfo info;
+  if (!LittleFS.info(info))
+  {
+    return false;
+  }
+  usage.total = (size_t)info.totalBytes;
+  usage.used = (size_t)info.usedBytes;
+#elif defined(ESP32)
+  usage.total = (size_t)LittleFS.totalBytes();
+  usage.used = (size_t)LittleFS.usedBytes();
+#else
+  usage.total = 0;
+  usage.used = 0;
+#endif
+
+  usage.free = (usage.total > usage.used) ? (usage.total - usage.used) : 0;
+  return usage.total > 0;
+}
+
+void addFsUsageToResponse(JsonDocument &response)
+{
+  FsUsage usage;
+  if (!readLittleFsUsage(usage))
+  {
+    return;
+  }
+
+  response["fsTotalBytes"] = usage.total;
+  response["fsUsedBytes"] = usage.used;
+  response["fsFreeBytes"] = usage.free;
+}
+
+void sendTemplateWriteFailure(AsyncWebServerRequest *request, const String &reason, size_t requiredBytes = 0)
+{
+  gLastTemplateWriteErrorReason = reason;
+  gLastTemplateWriteErrorAtMs = millis();
+  int status = (reason == "insufficient_space") ? 507 : 500;
+
+  JsonDocument response;
+  response["ok"] = false;
+  response["error"] = (reason == "insufficient_space") ? "insufficient storage" : "save failed";
+  response["reason"] = reason;
+  if (requiredBytes > 0)
+  {
+    response["requiredBytes"] = requiredBytes;
+  }
+  addFsUsageToResponse(response);
+
+  char payload[256];
+  serializeJson(response, payload, sizeof(payload));
+  request->send(status, "application/json", payload);
+}
+
+bool ensureTemplateWriteHeadroom(size_t requiredBytes, String &failureReason)
+{
+  FsUsage usage;
+  if (!readLittleFsUsage(usage))
+  {
+    return true;
+  }
+
+  size_t needed = requiredBytes + kTemplateWriteSafetyBytes;
+  if (usage.free < needed)
+  {
+    failureReason = "insufficient_space";
+    return false;
+  }
+
+  return true;
+}
+
+size_t estimateTemplateWriteBytesFromLabels(const String &title, uint8_t rc, const JsonArray &labels)
+{
+  size_t estimate = 192 + (size_t)title.length() * 2 + (size_t)rc * 48;
+  for (uint8_t i = 0; i < rc; i++)
+  {
+    JsonObject src = labels[i];
+    estimate += (size_t)String(src["o"] | "").length() * 2;
+    estimate += (size_t)String(src["f"] | "").length() * 2;
+    estimate += (size_t)String(src["m"] | "L").length() * 2;
+  }
+  return estimate;
+}
+
+size_t estimateTemplateWriteBytesFromRequest(AsyncWebServerRequest *request, const String &title, uint8_t rc)
+{
+  size_t estimate = 192 + (size_t)title.length() * 2 + (size_t)rc * 48;
+  for (uint8_t i = 1; i <= rc; i++)
+  {
+    String prefix = "relay" + String(i);
+    estimate += (size_t)routeGetBodyParam(request, (prefix + "_on").c_str()).length() * 2;
+    estimate += (size_t)routeGetBodyParam(request, (prefix + "_off").c_str()).length() * 2;
+    estimate += (size_t)routeGetBodyParam(request, (prefix + "_mode").c_str()).length() * 2;
+  }
+  return estimate;
+}
+
+bool openTemplateTempForWrite(const String &tempPath, File &outFile)
+{
+  outFile = LittleFS.open(tempPath, "w");
+  return (bool)outFile;
+}
+
+void computeTemplateStorageStats(size_t &templateCount, size_t &largestTemplateBytes)
+{
+  templateCount = 0;
+  largestTemplateBytes = 0;
+
+  if (!LittleFS.exists("/templates"))
+  {
+    return;
+  }
+
+#if defined(ESP8266)
+  Dir dir = LittleFS.openDir("/templates");
+  while (dir.next())
+  {
+    if (!dir.isFile()) continue;
+    String fname = dir.fileName();
+    if (!fname.endsWith(".json")) continue;
+
+    size_t sz = (size_t)dir.fileSize();
+
+    templateCount++;
+    if (sz > largestTemplateBytes) largestTemplateBytes = sz;
+  }
+#elif defined(ESP32)
+  File root = LittleFS.open("/templates");
+  if (root && root.isDirectory())
+  {
+    File f = root.openNextFile();
+    while (f)
+    {
+      if (!f.isDirectory())
+      {
+        String fname = String(f.name());
+        int slash = fname.lastIndexOf('/');
+        if (slash >= 0) fname = fname.substring(slash + 1);
+        if (fname.endsWith(".json"))
+        {
+          size_t sz = (size_t)f.size();
+          templateCount++;
+          if (sz > largestTemplateBytes) largestTemplateBytes = sz;
+        }
+      }
+      f = root.openNextFile();
+    }
+  }
+#endif
+}
+
+bool templateFileExists(const String &path)
+{
+  if (LittleFS.exists(path))
+  {
+    return true;
+  }
+
+  File probe = LittleFS.open(path, "r");
+  if (!probe)
+  {
+    return false;
+  }
+
+  probe.close();
+  return true;
+}
+
+void sendTemplateNotFoundResponse(AsyncWebServerRequest *request, const String &action,
+                                  const String &rawFilename, const String &normalizedFilename, const String &path)
+{
+  JsonDocument response;
+  response["ok"] = false;
+  response["error"] = "template not found";
+  response["reason"] = "missing_template_file";
+  response["action"] = action;
+  response["rawFilename"] = rawFilename;
+  response["normalizedFilename"] = normalizedFilename;
+  response["path"] = path;
+  response["pathExists"] = LittleFS.exists(path);
+  response["selectedTemplate"] = selectedRelayTemplateFilename;
+  response["selectedMatches"] = (selectedRelayTemplateFilename == normalizedFilename);
+
+  size_t templateCount = 0;
+  size_t largestTemplateBytes = 0;
+  computeTemplateStorageStats(templateCount, largestTemplateBytes);
+  response["templateCount"] = templateCount;
+  response["largestTemplateBytes"] = largestTemplateBytes;
+
+  addFsUsageToResponse(response);
+
+  char payload[640];
+  serializeJson(response, payload, sizeof(payload));
+  request->send(404, "application/json", payload);
+}
+
+String sanitizeTemplateSlug(const String &title)
+{
+  String out;
+  for (size_t i = 0; i < title.length() && out.length() < kMaxTemplateFilenameLength; i++)
+  {
+    char c = title[i];
+    if (isAlphaNumeric(c))
+    {
+      out += (char)tolower(c);
+    }
+    else if ((c == ' ' || c == '-' || c == '_') && out.length() > 0 && out[out.length() - 1] != '-')
+    {
+      out += '-';
+    }
+  }
+
+  while (out.length() > 0 && out[out.length() - 1] == '-')
+  {
+    out = out.substring(0, out.length() - 1);
+  }
+
+  if (out.length() == 0)
+  {
+    out = "template";
+  }
+
+  return out;
+}
+
+bool normalizeTemplateFilename(String raw, String &normalized)
+{
+  raw.trim();
+  if (raw.startsWith("/templates/"))
+  {
+    raw = raw.substring(String("/templates/").length());
+  }
+
+  if (raw.length() == 0 || raw.length() > (kMaxTemplateFilenameLength + 5))
+  {
+    return false;
+  }
+
+  if (raw.indexOf('/') >= 0 || raw.indexOf('\\') >= 0 || raw.indexOf("..") >= 0)
+  {
+    return false;
+  }
+
+  if (!raw.endsWith(".json"))
+  {
+    return false;
+  }
+
+  normalized = raw;
+  return true;
+}
+
+String buildTemplatePath(const String &filename)
+{
+  return String("/templates/") + filename;
+}
+
+void writeEscapedJsonString(Print &out, const String &value)
+{
+  out.print('"');
+  for (size_t i = 0; i < value.length(); i++)
+  {
+    uint8_t c = (uint8_t)value[i];
+    if (c == '"')
+    {
+      out.print("\\\"");
+    }
+    else if (c == '\\')
+    {
+      out.print("\\\\");
+    }
+    else if (c == '\b')
+    {
+      out.print("\\b");
+    }
+    else if (c == '\f')
+    {
+      out.print("\\f");
+    }
+    else if (c == '\n')
+    {
+      out.print("\\n");
+    }
+    else if (c == '\r')
+    {
+      out.print("\\r");
+    }
+    else if (c == '\t')
+    {
+      out.print("\\t");
+    }
+    else if (c < 0x20)
+    {
+      char hex[7];
+      snprintf(hex, sizeof(hex), "\\u%04X", c);
+      out.print(hex);
+    }
+    else
+    {
+      out.write(c);
+    }
+  }
+  out.print('"');
+}
+
+bool parseTemplateListEntryMetadata(const String &filename, File &file, uint8_t requiredRelayCount,
+                                    String &titleOut, uint8_t &relayCountOut)
+{
+  String title = filename;
+  uint8_t relayCount = (filename.indexOf("16") >= 0) ? kVariantRelayCount16 : kVariantRelayCount8;
+
+  // Fast-path metadata extraction: only inspect a small prefix of each file.
+  // This avoids parsing large label arrays/help blocks when listing templates.
+  // Static buffer avoids a fresh heap allocation+free per template file —
+  // writeTemplateListEntriesJson calls this once per file in /templates on
+  // every /api/templates/bootstrap request (i.e. every relay-config page
+  // load), so this was real, avoidable heap churn that scaled with how many
+  // templates are stored on the device.
+  static char probe[641];
+  size_t probeLen = 0;
+  while (file.available() && probeLen < sizeof(probe) - 1)
+  {
+    probe[probeLen++] = (char)file.read();
+  }
+  probe[probeLen] = '\0';
+
+  char *titleKey = strstr(probe, "\"t\"");
+  if (titleKey)
+  {
+    char *colon = strchr(titleKey, ':');
+    if (colon)
+    {
+      char *firstQuote = strchr(colon + 1, '"');
+      char *secondQuote = firstQuote ? strchr(firstQuote + 1, '"') : nullptr;
+      if (firstQuote && secondQuote && secondQuote > firstQuote)
+      {
+        String parsedTitle;
+        parsedTitle.concat(firstQuote + 1, (unsigned int)(secondQuote - firstQuote - 1));
+        parsedTitle.trim();
+        if (parsedTitle.length() > 0)
+        {
+          title = parsedTitle;
+        }
+      }
+    }
+  }
+
+  char *relayKey = strstr(probe, "\"n\"");
+  if (relayKey)
+  {
+    char *colon = strchr(relayKey, ':');
+    if (colon)
+    {
+      char *digitsStart = colon + 1;
+      while (*digitsStart && (*digitsStart < '0' || *digitsStart > '9'))
+      {
+        digitsStart++;
+      }
+
+      int parsedRelayCount = atoi(digitsStart);
+      if (parsedRelayCount == (int)kVariantRelayCount16)
+      {
+        relayCount = kVariantRelayCount16;
+      }
+      else if (parsedRelayCount == (int)kVariantRelayCount8)
+      {
+        relayCount = kVariantRelayCount8;
+      }
+    }
+  }
+
+  if (requiredRelayCount > 0 && relayCount != requiredRelayCount)
+  {
+    return false;
+  }
+
+  titleOut = title;
+  relayCountOut = relayCount;
+  return true;
+}
+
+void writeTemplateListEntriesJson(Print &out, uint8_t requiredRelayCount,
+                                  size_t &scannedFiles, size_t &openFailures, size_t &addedEntries)
+{
+  bool firstEntry = true;
+
+  if (!LittleFS.exists("/templates"))
+  {
+    return;
+  }
+
+#if defined(ESP8266)
+  Dir dir = LittleFS.openDir("/templates");
+  while (dir.next())
+  {
+    if (!dir.isFile()) continue;
+    String fname = dir.fileName();
+    if (!fname.endsWith(".json")) continue;
+    scannedFiles++;
+
+    File f = dir.openFile("r");
+    if (!f)
+    {
+      openFailures++;
+      Serial.printf("[RelayConfig][TemplateList] open failed file=%s heap=%lu\n",
+                    fname.c_str(),
+                    (unsigned long)ESP.getFreeHeap());
+      continue;
+    }
+
+    String title;
+    uint8_t entryRelayCount = 0;
+    if (parseTemplateListEntryMetadata(fname, f, requiredRelayCount, title, entryRelayCount))
+    {
+      if (!firstEntry)
+      {
+        out.print(',');
+      }
+      firstEntry = false;
+      out.print("{\"filename\":");
+      writeEscapedJsonString(out, fname);
+      out.print(",\"t\":");
+      writeEscapedJsonString(out, title);
+      out.print(",\"n\":");
+      out.print(entryRelayCount);
+      out.print('}');
+      addedEntries++;
+    }
+    f.close();
+  }
+#elif defined(ESP32)
+  File root = LittleFS.open("/templates");
+  if (root && root.isDirectory())
+  {
+    File f = root.openNextFile();
+    while (f)
+    {
+      if (!f.isDirectory())
+      {
+        String fname = String(f.name());
+        int slash = fname.lastIndexOf('/');
+        if (slash >= 0) fname = fname.substring(slash + 1);
+        if (fname.endsWith(".json"))
+        {
+          scannedFiles++;
+          String title;
+          uint8_t entryRelayCount = 0;
+          if (parseTemplateListEntryMetadata(fname, f, requiredRelayCount, title, entryRelayCount))
+          {
+            if (!firstEntry)
+            {
+              out.print(',');
+            }
+            firstEntry = false;
+            out.print("{\"filename\":");
+            writeEscapedJsonString(out, fname);
+            out.print(",\"t\":");
+            writeEscapedJsonString(out, title);
+            out.print(",\"n\":");
+            out.print(entryRelayCount);
+            out.print('}');
+            addedEntries++;
+          }
+        }
+      }
+      f = root.openNextFile();
+    }
+  }
+#endif
+}
+
+bool writeTemplateJson(const String &filename, const String &title, uint8_t rc, const JsonArray &labels, String *failureReason = nullptr)
+{
+  String finalPath = buildTemplatePath(filename);
+  String tempPath = finalPath.substring(0, finalPath.length() - 5) + ".jt";
+
+  File f;
+  if (!openTemplateTempForWrite(tempPath, f))
+  {
+    if (failureReason) *failureReason = "temp_open_failed";
+    return false;
+  }
+
+  bool ok = true;
+
+  f.println("{");
+  f.print("  \"t\": ");
+  writeEscapedJsonString(f, title);
+  f.println(",");
+  f.print("  \"n\": ");
+  f.print(rc);
+  f.println(",");
+  f.println("  \"l\": [");
+
+  for (uint8_t i = 0; i < rc; i++)
+  {
+    JsonObject src = labels[i];
+
+    String on = String(src["o"] | "");
+    String off = String(src["f"] | "");
+    on.trim();
+    off.trim();
+
+    String mode = String(src["m"] | "L");
+    if (mode != "I" && mode != "P") mode = "L";
+
+    uint8_t group = (uint8_t)(src["g"] | (uint8_t)0);
+    uint8_t pulseTimeout = (uint8_t)(src["p"] | (uint8_t)0);
+    if (mode == "P")
+    {
+      if (pulseTimeout == 0 || pulseTimeout > kMaxPulseTimeoutSeconds)
+      {
+        pulseTimeout = kDefaultPulseTimeoutSeconds;
+      }
+    }
+    else
+    {
+      pulseTimeout = 0;
+    }
+
+    f.print("    {\"o\": ");
+    writeEscapedJsonString(f, on);
+    f.print(", \"f\": ");
+    writeEscapedJsonString(f, off);
+    f.print(", \"m\": ");
+    writeEscapedJsonString(f, mode);
+    f.print(", \"g\": ");
+    f.print(group);
+    f.print(", \"p\": ");
+    f.print(pulseTimeout);
+    f.print("}");
+    if (i + 1 < rc)
+    {
+      f.print(",");
+    }
+    f.println();
+  }
+
+  f.println("  ]");
+  f.println("}");
+
+  if (!f)
+  {
+    ok = false;
+  }
+  f.close();
+
+  if (!ok)
+  {
+    if (failureReason) *failureReason = "temp_write_failed";
+    LittleFS.remove(tempPath);
+    return false;
+  }
+
+  if (LittleFS.exists(finalPath) && !LittleFS.remove(finalPath))
+  {
+    if (failureReason) *failureReason = "remove_existing_failed";
+    LittleFS.remove(tempPath);
+    return false;
+  }
+
+  if (!LittleFS.rename(tempPath, finalPath))
+  {
+    if (failureReason) *failureReason = "rename_tmp_failed";
+    LittleFS.remove(tempPath);
+    return false;
+  }
+
+  return true;
+}
+
+bool writeTemplateJsonFromRequest(AsyncWebServerRequest *request, const String &filename, const String &title, uint8_t rc, String *failureReason = nullptr)
+{
+  String finalPath = buildTemplatePath(filename);
+  String tempPath = finalPath.substring(0, finalPath.length() - 5) + ".jt";
+
+  File f;
+  if (!openTemplateTempForWrite(tempPath, f))
+  {
+    if (failureReason) *failureReason = "temp_open_failed";
+    return false;
+  }
+
+  bool ok = true;
+
+  f.println("{");
+  f.print("  \"t\": ");
+  writeEscapedJsonString(f, title);
+  f.println(",");
+  f.print("  \"n\": ");
+  f.print(rc);
+  f.println(",");
+  f.println("  \"l\": [");
+
+  for (uint8_t i = 1; i <= rc; i++)
+  {
+    String prefix = "relay" + String(i);
+    String onLabel = routeGetBodyParam(request, (prefix + "_on").c_str());
+    String offLabel = routeGetBodyParam(request, (prefix + "_off").c_str());
+    onLabel.trim();
+    offLabel.trim();
+
+    String modeStr = routeGetBodyParam(request, (prefix + "_mode").c_str());
+    if (modeStr != "I" && modeStr != "P") modeStr = "L";
+
+    uint8_t group = (uint8_t)routeGetBodyParam(request, (prefix + "_group").c_str()).toInt();
+    uint8_t pt = (uint8_t)routeGetBodyParam(request, (prefix + "_pulse").c_str()).toInt();
+    if (modeStr == "P")
+    {
+      if (pt == 0 || pt > kMaxPulseTimeoutSeconds) pt = kDefaultPulseTimeoutSeconds;
+    }
+    else
+    {
+      pt = 0;
+    }
+
+    f.print("    {\"o\": ");
+    writeEscapedJsonString(f, onLabel);
+    f.print(", \"f\": ");
+    writeEscapedJsonString(f, offLabel);
+    f.print(", \"m\": ");
+    writeEscapedJsonString(f, modeStr);
+    f.print(", \"g\": ");
+    f.print(group);
+    f.print(", \"p\": ");
+    f.print(pt);
+    f.print("}");
+    if (i < rc)
+    {
+      f.print(",");
+    }
+    f.println();
+  }
+
+  f.println("  ]");
+  f.println("}");
+
+  if (!f)
+  {
+    ok = false;
+  }
+  f.close();
+
+  if (!ok)
+  {
+    if (failureReason) *failureReason = "temp_write_failed";
+    LittleFS.remove(tempPath);
+    return false;
+  }
+
+  if (LittleFS.exists(finalPath) && !LittleFS.remove(finalPath))
+  {
+    if (failureReason) *failureReason = "remove_existing_failed";
+    LittleFS.remove(tempPath);
+    return false;
+  }
+
+  if (!LittleFS.rename(tempPath, finalPath))
+  {
+    if (failureReason) *failureReason = "rename_tmp_failed";
+    LittleFS.remove(tempPath);
+    return false;
+  }
+
+  return true;
+}
+}
+
+void registerTemplateRoutes()
+{
+  server.on("/api/templates/bootstrap", HTTP_GET, [](AsyncWebServerRequest *request) {
+    Serial.printf("[RelayConfig][Bootstrap] start ip=%s heap=%lu selected=%s relayCount=%u\n",
+                  request->client()->remoteIP().toString().c_str(),
+                  (unsigned long)ESP.getFreeHeap(),
+                  selectedRelayTemplateFilename.c_str(),
+                  (unsigned)relayCount);
+
+    AsyncResponseStream *response = request->beginResponseStream("application/json");
+    response->print('{');
+    response->print("\"boardName\":");
+    writeEscapedJsonString(*response, boardName);
+    response->print(",\"n\":");
+    response->print(relayCount);
+    response->print(",\"selectedTemplate\":");
+    writeEscapedJsonString(*response, selectedRelayTemplateFilename);
+    response->print(",\"bootSessionId\":");
+    writeEscapedJsonString(*response, getBootSessionToken());
+    response->print(",\"templates\":[");
+
+    size_t scannedFiles = 0;
+    size_t openFailures = 0;
+    size_t addedEntries = 0;
+    writeTemplateListEntriesJson(*response, relayCount, scannedFiles, openFailures, addedEntries);
+    response->print("]}");
+
+    Serial.printf("[RelayConfig][Bootstrap] done ip=%s heap=%lu scanned=%u added=%u openFailures=%u\n",
+                  request->client()->remoteIP().toString().c_str(),
+                  (unsigned long)ESP.getFreeHeap(),
+                  (unsigned)scannedFiles,
+                  (unsigned)addedEntries,
+                  (unsigned)openFailures);
+    request->send(response);
+  });
+
+  server.on("/api/templates/diagnostics", HTTP_GET, [](AsyncWebServerRequest *request) {
+    Serial.printf("[RelayConfig][Diagnostics] start ip=%s heap=%lu selected=%s\n",
+                  request->client()->remoteIP().toString().c_str(),
+                  (unsigned long)ESP.getFreeHeap(),
+                  selectedRelayTemplateFilename.c_str());
+
+    JsonDocument doc;
+    doc["selectedTemplate"] = selectedRelayTemplateFilename;
+
+    size_t templateCount = 0;
+    size_t largestTemplateBytes = 0;
+    computeTemplateStorageStats(templateCount, largestTemplateBytes);
+    doc["templateCount"] = templateCount;
+    doc["largestTemplateBytes"] = largestTemplateBytes;
+
+    addFsUsageToResponse(doc);
+    doc["lastWriteErrorReason"] = gLastTemplateWriteErrorReason;
+    doc["lastWriteErrorAtMs"] = gLastTemplateWriteErrorAtMs;
+
+    char payload[448];
+    serializeJson(doc, payload, sizeof(payload));
+    Serial.printf("[RelayConfig][Diagnostics] done ip=%s heap=%lu templates=%u largest=%u payload=%u\n",
+                  request->client()->remoteIP().toString().c_str(),
+                  (unsigned long)ESP.getFreeHeap(),
+                  (unsigned)templateCount,
+                  (unsigned)largestTemplateBytes,
+                  (unsigned)strlen(payload));
+    request->send(200, "application/json", payload);
+  });
+
+  server.on("/api/templates", HTTP_GET, [](AsyncWebServerRequest *request) {
+    Serial.printf("[RelayConfig][TemplateList] start ip=%s heap=%lu selected=%s relayCount=%u\n",
+                  request->client()->remoteIP().toString().c_str(),
+                  (unsigned long)ESP.getFreeHeap(),
+                  selectedRelayTemplateFilename.c_str(),
+                  (unsigned)relayCount);
+
+    AsyncResponseStream *response = request->beginResponseStream("application/json");
+    response->print('{');
+    response->print("\"selectedTemplate\":");
+    writeEscapedJsonString(*response, selectedRelayTemplateFilename);
+    response->print(",\"templates\":[");
+
+    size_t scannedFiles = 0;
+    size_t openFailures = 0;
+    size_t addedEntries = 0;
+    writeTemplateListEntriesJson(*response, relayCount, scannedFiles, openFailures, addedEntries);
+
+  response->print("]}");
+    Serial.printf("[RelayConfig][TemplateList] done ip=%s heap=%lu scanned=%u added=%u openFailures=%u payload=%u\n",
+                  request->client()->remoteIP().toString().c_str(),
+                  (unsigned long)ESP.getFreeHeap(),
+                  (unsigned)scannedFiles,
+                  (unsigned)addedEntries,
+                  (unsigned)openFailures,
+                  0u);
+  request->send(response);
+  });
+
+  server.on("/api/templates", HTTP_POST, [](AsyncWebServerRequest *request) {
+    StorageWriteLockGuard fsGuard;
+    if (!fsGuard.acquired())
+    {
+      request->send(503, "application/json", "{\"ok\":false,\"error\":\"storage busy\",\"reason\":\"storage_write_lock\",\"retryAfterMs\":250}");
+      return;
+    }
+
+    String action = routeGetBodyParam(request, "action");
+    action.trim();
+    action.toLowerCase();
+
+    if (action.length() == 0)
+    {
+      action = "save";
+    }
+
+    if (action == "upload")
+    {
+      Serial.printf("[RelayConfig][Upload] start ip=%s heap=%lu title=%s filename=%s\n",
+                    request->client()->remoteIP().toString().c_str(),
+                    (unsigned long)ESP.getFreeHeap(),
+                    routeGetBodyParam(request, "title").c_str(),
+                    routeGetBodyParam(request, "filename").c_str());
+
+      String rawContent = routeGetBodyParam(request, "content");
+      if (rawContent.length() == 0)
+      {
+        uint8_t rc = (uint8_t)routeGetBodyParam(request, "n").toInt();
+        if (rc == 0 || rc > APP_MAX_RELAYS)
+        {
+          Serial.printf("[RelayConfig][Upload] reject ip=%s reason=content_required heap=%lu\n",
+                        request->client()->remoteIP().toString().c_str(),
+                        (unsigned long)ESP.getFreeHeap());
+          request->send(400, "application/json", "{\"ok\":false,\"error\":\"content required\"}");
+          return;
+        }
+
+        if (rc != relayCount)
+        {
+          Serial.printf("[RelayConfig][Upload] reject ip=%s reason=relay_count_mismatch_fields heap=%lu formRc=%u activeRc=%u\n",
+                        request->client()->remoteIP().toString().c_str(),
+                        (unsigned long)ESP.getFreeHeap(),
+                        (unsigned)rc,
+                        (unsigned)relayCount);
+          request->send(400, "application/json", "{\"ok\":false,\"error\":\"template relay count does not match active board\",\"reason\":\"relay_count_mismatch\"}");
+          return;
+        }
+
+        String title = routeGetBodyParam(request, "title");
+        title.trim();
+        if (title.length() == 0)
+        {
+          title = "Imported Template";
+        }
+        if (title.length() > kMaxTemplateTitleLength)
+        {
+          title = title.substring(0, kMaxTemplateTitleLength);
+        }
+
+        String filename = routeGetBodyParam(request, "filename");
+        String normalizedFilename;
+        if (filename.length() > 0)
+        {
+          if (!normalizeTemplateFilename(filename, normalizedFilename))
+          {
+            Serial.printf("[RelayConfig][Upload] reject ip=%s reason=invalid_filename heap=%lu filename=%s\n",
+                          request->client()->remoteIP().toString().c_str(),
+                          (unsigned long)ESP.getFreeHeap(),
+                          filename.c_str());
+            request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid filename\"}");
+            return;
+          }
+        }
+        else
+        {
+          normalizedFilename = sanitizeTemplateSlug(title) + ".json";
+        }
+
+        if (!LittleFS.exists("/templates"))
+        {
+          LittleFS.mkdir("/templates");
+        }
+
+        size_t estimatedBytes = estimateTemplateWriteBytesFromRequest(request, title, relayCount);
+        String failureReason;
+        if (!ensureTemplateWriteHeadroom(estimatedBytes, failureReason))
+        {
+          Serial.printf("[RelayConfig][Upload] reject ip=%s reason=%s heap=%lu estimatedBytes=%u\n",
+                        request->client()->remoteIP().toString().c_str(),
+                        failureReason.c_str(),
+                        (unsigned long)ESP.getFreeHeap(),
+                        (unsigned)estimatedBytes);
+          sendTemplateWriteFailure(request, failureReason, estimatedBytes);
+          return;
+        }
+
+        if (!writeTemplateJsonFromRequest(request, normalizedFilename, title, relayCount, &failureReason))
+        {
+          Serial.printf("[RelayConfig][Upload] reject ip=%s reason=%s heap=%lu estimatedBytes=%u filename=%s\n",
+                        request->client()->remoteIP().toString().c_str(),
+                        failureReason.length() ? failureReason.c_str() : "save_failed",
+                        (unsigned long)ESP.getFreeHeap(),
+                        (unsigned)estimatedBytes,
+                        normalizedFilename.c_str());
+          sendTemplateWriteFailure(request, failureReason.length() ? failureReason : String("save_failed"), estimatedBytes);
+          return;
+        }
+
+        Serial.printf("[RelayConfig][Upload] done ip=%s heap=%lu filename=%s relayCount=%u mode=form_fields\n",
+                      request->client()->remoteIP().toString().c_str(),
+                      (unsigned long)ESP.getFreeHeap(),
+                      normalizedFilename.c_str(),
+                      (unsigned)relayCount);
+
+        JsonDocument response;
+        response["ok"] = true;
+        response["filename"] = normalizedFilename;
+        char payload[128];
+        serializeJson(response, payload, sizeof(payload));
+        request->send(200, "application/json", payload);
+        return;
+      }
+
+      JsonDocument inDoc;
+      DeserializationError uploadParseError = deserializeJson(inDoc, rawContent);
+      if (uploadParseError != DeserializationError::Ok)
+      {
+        Serial.printf("[RelayConfig][Upload] reject ip=%s reason=invalid_template_json heap=%lu error=%s\n",
+                      request->client()->remoteIP().toString().c_str(),
+                      (unsigned long)ESP.getFreeHeap(),
+                      uploadParseError.c_str());
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid template json\"}");
+        return;
+      }
+
+      JsonArray labels = inDoc["l"].as<JsonArray>();
+      if (labels.isNull() || labels.size() == 0)
+      {
+        Serial.printf("[RelayConfig][Upload] reject ip=%s reason=labels_missing heap=%lu\n",
+                      request->client()->remoteIP().toString().c_str(),
+                      (unsigned long)ESP.getFreeHeap());
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"labels missing\"}");
+        return;
+      }
+
+      uint8_t rc = (uint8_t)(inDoc["n"] | (uint8_t)labels.size());
+      if (rc == 0 || rc > APP_MAX_RELAYS)
+      {
+        Serial.printf("[RelayConfig][Upload] reject ip=%s reason=invalid_relay_count heap=%lu rc=%u labels=%u\n",
+                      request->client()->remoteIP().toString().c_str(),
+                      (unsigned long)ESP.getFreeHeap(),
+                      (unsigned)rc,
+                      (unsigned)labels.size());
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid relay count\"}");
+        return;
+      }
+
+      if (rc != relayCount || labels.size() != relayCount)
+      {
+        Serial.printf("[RelayConfig][Upload] reject ip=%s reason=relay_count_mismatch heap=%lu templateRc=%u labels=%u activeRc=%u\n",
+                      request->client()->remoteIP().toString().c_str(),
+                      (unsigned long)ESP.getFreeHeap(),
+                      (unsigned)rc,
+                      (unsigned)labels.size(),
+                      (unsigned)relayCount);
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"template relay count does not match active board\",\"reason\":\"relay_count_mismatch\"}");
+        return;
+      }
+
+      String title = routeGetBodyParam(request, "title");
+      title.trim();
+      if (title.length() == 0)
+      {
+        title = String(inDoc["t"] | "");
+        title.trim();
+      }
+      if (title.length() == 0)
+      {
+        title = "Imported Template";
+      }
+      if (title.length() > kMaxTemplateTitleLength)
+      {
+        title = title.substring(0, kMaxTemplateTitleLength);
+      }
+
+      String filename = routeGetBodyParam(request, "filename");
+      String normalizedFilename;
+      if (filename.length() > 0)
+      {
+        if (!normalizeTemplateFilename(filename, normalizedFilename))
+        {
+          Serial.printf("[RelayConfig][Upload] reject ip=%s reason=invalid_filename heap=%lu filename=%s\n",
+                        request->client()->remoteIP().toString().c_str(),
+                        (unsigned long)ESP.getFreeHeap(),
+                        filename.c_str());
+          request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid filename\"}");
+          return;
+        }
+      }
+      else
+      {
+        normalizedFilename = sanitizeTemplateSlug(title) + ".json";
+      }
+
+      if (!LittleFS.exists("/templates"))
+      {
+        LittleFS.mkdir("/templates");
+      }
+
+      size_t estimatedBytes = estimateTemplateWriteBytesFromLabels(title, relayCount, labels);
+      String failureReason;
+      if (!ensureTemplateWriteHeadroom(estimatedBytes, failureReason))
+      {
+        Serial.printf("[RelayConfig][Upload] reject ip=%s reason=%s heap=%lu estimatedBytes=%u\n",
+                      request->client()->remoteIP().toString().c_str(),
+                      failureReason.c_str(),
+                      (unsigned long)ESP.getFreeHeap(),
+                      (unsigned)estimatedBytes);
+        sendTemplateWriteFailure(request, failureReason, estimatedBytes);
+        return;
+      }
+
+      if (!writeTemplateJson(normalizedFilename, title, relayCount, labels, &failureReason))
+      {
+        Serial.printf("[RelayConfig][Upload] reject ip=%s reason=%s heap=%lu estimatedBytes=%u filename=%s\n",
+                      request->client()->remoteIP().toString().c_str(),
+                      failureReason.length() ? failureReason.c_str() : "save_failed",
+                      (unsigned long)ESP.getFreeHeap(),
+                      (unsigned)estimatedBytes,
+                      normalizedFilename.c_str());
+        sendTemplateWriteFailure(request, failureReason.length() ? failureReason : String("save_failed"), estimatedBytes);
+        return;
+      }
+
+      Serial.printf("[RelayConfig][Upload] done ip=%s heap=%lu filename=%s relayCount=%u payloadBytes=%u\n",
+                    request->client()->remoteIP().toString().c_str(),
+                    (unsigned long)ESP.getFreeHeap(),
+                    normalizedFilename.c_str(),
+                    (unsigned)relayCount,
+                    (unsigned)rawContent.length());
+
+      JsonDocument response;
+      response["ok"] = true;
+      response["filename"] = normalizedFilename;
+      char payload[128];
+      serializeJson(response, payload, sizeof(payload));
+      request->send(200, "application/json", payload);
+      return;
+    }
+
+    if (action == "select" || action == "setactive")
+    {
+      String filename = routeGetBodyParam(request, "filename");
+      filename.trim();
+
+      if (filename.length() == 0)
+      {
+        selectedRelayTemplateFilename = "";
+        if (!saveBoardConfig())
+        {
+          request->send(500, "application/json", "{\"ok\":false,\"error\":\"save failed\"}");
+          return;
+        }
+        notifyClients();
+        request->send(200, "application/json", "{\"ok\":true,\"selectedTemplate\":\"\"}");
+        return;
+      }
+
+      String normalizedFilename;
+      if (!normalizeTemplateFilename(filename, normalizedFilename))
+      {
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid filename\"}");
+        return;
+      }
+
+      String path = buildTemplatePath(normalizedFilename);
+      if (!templateFileExists(path))
+      {
+        sendTemplateNotFoundResponse(request, "setactive", filename, normalizedFilename, path);
+        return;
+      }
+
+      String applyFailureReason;
+      if (!loadLabelsFromTemplateFile(normalizedFilename, relayCount, &applyFailureReason))
+      {
+        JsonDocument response;
+        response["ok"] = false;
+        response["error"] = "template incompatible or invalid";
+        if (applyFailureReason.length() > 0)
+        {
+          response["reason"] = applyFailureReason;
+        }
+        char payload[128];
+        serializeJson(response, payload, sizeof(payload));
+        request->send(400, "application/json", payload);
+        return;
+      }
+
+      if (!saveRelayLabels())
+      {
+        request->send(500, "application/json", "{\"ok\":false,\"error\":\"failed to save relay labels\"}");
+        return;
+      }
+
+      selectedRelayTemplateFilename = normalizedFilename;
+      if (!saveBoardConfig())
+      {
+        request->send(500, "application/json", "{\"ok\":false,\"error\":\"failed to save selection\"}");
+        return;
+      }
+
+      notifyClients();
+
+      JsonDocument response;
+      response["ok"] = true;
+      response["selectedTemplate"] = selectedRelayTemplateFilename;
+      char payload[128];
+      serializeJson(response, payload, sizeof(payload));
+      request->send(200, "application/json", payload);
+      return;
+    }
+
+    if (action == "delete")
+    {
+      String filename = routeGetBodyParam(request, "filename");
+      String normalizedFilename;
+      if (!normalizeTemplateFilename(filename, normalizedFilename))
+      {
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid filename\"}");
+        return;
+      }
+
+      String path = buildTemplatePath(normalizedFilename);
+      if (!templateFileExists(path))
+      {
+        sendTemplateNotFoundResponse(request, "delete", filename, normalizedFilename, path);
+        return;
+      }
+
+      if (!LittleFS.remove(path))
+      {
+        request->send(500, "application/json", "{\"ok\":false,\"error\":\"remove failed\"}");
+        return;
+      }
+
+      if (selectedRelayTemplateFilename == normalizedFilename)
+      {
+        selectedRelayTemplateFilename = "";
+        if (!saveBoardConfig())
+        {
+          request->send(500, "application/json", "{\"ok\":false,\"error\":\"failed to save selection\"}");
+          return;
+        }
+        notifyClients();
+      }
+
+      request->send(200, "application/json", "{\"ok\":true}");
+      return;
+    }
+
+    if (action == "rename")
+    {
+      String filename = routeGetBodyParam(request, "filename");
+      String normalizedFilename;
+      if (!normalizeTemplateFilename(filename, normalizedFilename))
+      {
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid filename\"}");
+        return;
+      }
+
+      String title = routeGetBodyParam(request, "title");
+      title.trim();
+      if (title.length() == 0)
+      {
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"title required\"}");
+        return;
+      }
+      if (title.length() > kMaxTemplateTitleLength)
+      {
+        title = title.substring(0, kMaxTemplateTitleLength);
+      }
+
+      String oldPath = buildTemplatePath(normalizedFilename);
+      if (!templateFileExists(oldPath))
+      {
+        sendTemplateNotFoundResponse(request, "rename", filename, normalizedFilename, oldPath);
+        return;
+      }
+
+      String newFilename = sanitizeTemplateSlug(title) + ".json";
+      String newPath = buildTemplatePath(newFilename);
+      if (newFilename != normalizedFilename && LittleFS.exists(newPath))
+      {
+        request->send(409, "application/json", "{\"ok\":false,\"error\":\"template already exists\"}");
+        return;
+      }
+
+      bool removeOldFile = false;
+      {
+        File inFile = LittleFS.open(oldPath, "r");
+        if (!inFile)
+        {
+          request->send(500, "application/json", "{\"ok\":false,\"error\":\"open failed\"}");
+          return;
+        }
+
+        JsonDocument inDoc;
+        DeserializationError inErr = deserializeJson(inDoc, inFile);
+        inFile.close();
+        if (inErr != DeserializationError::Ok)
+        {
+          request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid template json\"}");
+          return;
+        }
+
+        JsonArray labels = inDoc["l"].as<JsonArray>();
+        if (labels.isNull() || labels.size() == 0)
+        {
+          request->send(400, "application/json", "{\"ok\":false,\"error\":\"labels missing\"}");
+          return;
+        }
+
+        uint8_t rc = (uint8_t)(inDoc["n"] | (uint8_t)labels.size());
+        if (rc == 0 || rc > APP_MAX_RELAYS)
+        {
+          request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid relay count\"}");
+          return;
+        }
+
+        String existingTitle = String(inDoc["t"] | "");
+        existingTitle.trim();
+
+        if (newFilename == normalizedFilename && existingTitle == title)
+        {
+          JsonDocument response;
+          response["ok"] = true;
+          response["filename"] = newFilename;
+          char payload[128];
+          serializeJson(response, payload, sizeof(payload));
+          request->send(200, "application/json", payload);
+          return;
+        }
+
+        if (newFilename != normalizedFilename && existingTitle == title)
+        {
+          if (!LittleFS.rename(oldPath, newPath))
+          {
+            sendTemplateWriteFailure(request, "direct_rename_failed");
+            return;
+          }
+
+          if (selectedRelayTemplateFilename == normalizedFilename)
+          {
+            selectedRelayTemplateFilename = newFilename;
+            if (!saveBoardConfig())
+            {
+              request->send(500, "application/json", "{\"ok\":false,\"error\":\"failed to save selection\"}");
+              return;
+            }
+            notifyClients();
+          }
+
+          JsonDocument response;
+          response["ok"] = true;
+          response["filename"] = newFilename;
+          char payload[128];
+          serializeJson(response, payload, sizeof(payload));
+          request->send(200, "application/json", payload);
+          return;
+        }
+
+        size_t estimatedBytes = estimateTemplateWriteBytesFromLabels(title, rc, labels);
+        String failureReason;
+        if (!ensureTemplateWriteHeadroom(estimatedBytes, failureReason))
+        {
+          sendTemplateWriteFailure(request, failureReason, estimatedBytes);
+          return;
+        }
+
+        if (!writeTemplateJson(newFilename, title, rc, labels, &failureReason))
+        {
+          sendTemplateWriteFailure(request, failureReason.length() ? failureReason : String("save_failed"), estimatedBytes);
+          return;
+        }
+
+        removeOldFile = (newFilename != normalizedFilename);
+      }
+
+      if (removeOldFile)
+      {
+        if (!LittleFS.remove(oldPath))
+        {
+          request->send(500, "application/json", "{\"ok\":false,\"error\":\"remove old file failed\"}");
+          return;
+        }
+      }
+
+      if (selectedRelayTemplateFilename == normalizedFilename)
+      {
+        selectedRelayTemplateFilename = newFilename;
+        if (!saveBoardConfig())
+        {
+          request->send(500, "application/json", "{\"ok\":false,\"error\":\"failed to save selection\"}");
+          return;
+        }
+        notifyClients();
+      }
+
+      JsonDocument response;
+      response["ok"] = true;
+      response["filename"] = newFilename;
+      char payload[128];
+      serializeJson(response, payload, sizeof(payload));
+      request->send(200, "application/json", payload);
+      return;
+    }
+
+    String title = routeGetBodyParam(request, "title");
+    title.trim();
+    if (title.length() == 0) {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"title required\"}");
+      return;
+    }
+    if (title.length() > kMaxTemplateTitleLength) title = title.substring(0, kMaxTemplateTitleLength);
+
+    int rc = (int)relayCount;
+
+    String filename = sanitizeTemplateSlug(title) + ".json";
+
+    if (!LittleFS.exists("/templates")) {
+      LittleFS.mkdir("/templates");
+    }
+
+    size_t estimatedBytes = estimateTemplateWriteBytesFromRequest(request, title, (uint8_t)rc);
+    String failureReason;
+    if (!ensureTemplateWriteHeadroom(estimatedBytes, failureReason))
+    {
+      sendTemplateWriteFailure(request, failureReason, estimatedBytes);
+      return;
+    }
+
+    if (!writeTemplateJsonFromRequest(request, filename, title, (uint8_t)rc, &failureReason)) {
+      sendTemplateWriteFailure(request, failureReason.length() ? failureReason : String("save_failed"), estimatedBytes);
+      return;
+    }
+
+    JsonDocument response;
+    response["ok"] = true;
+    response["filename"] = filename;
+    char payload[128];
+    serializeJson(response, payload, sizeof(payload));
+    request->send(200, "application/json", payload);
+  });
+
+  server.on("/api/templates/upload", HTTP_POST, [](AsyncWebServerRequest *request) {
+    StorageWriteLockGuard fsGuard;
+    if (!fsGuard.acquired())
+    {
+      request->send(503, "application/json", "{\"ok\":false,\"error\":\"storage busy\",\"reason\":\"storage_write_lock\",\"retryAfterMs\":250}");
+      return;
+    }
+
+    String rawContent = routeGetBodyParam(request, "content");
+    if (rawContent.length() == 0)
+    {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"content required\"}");
+      return;
+    }
+
+    JsonDocument inDoc;
+    if (deserializeJson(inDoc, rawContent) != DeserializationError::Ok)
+    {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid template json\"}");
+      return;
+    }
+
+    JsonArray labels = inDoc["l"].as<JsonArray>();
+    if (labels.isNull() || labels.size() == 0)
+    {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"labels missing\"}");
+      return;
+    }
+
+    uint8_t rc = (uint8_t)(inDoc["n"] | (uint8_t)labels.size());
+    if (rc == 0 || rc > APP_MAX_RELAYS)
+    {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid relay count\"}");
+      return;
+    }
+
+    if (rc != relayCount || labels.size() != relayCount)
+    {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"template relay count does not match active board\",\"reason\":\"relay_count_mismatch\"}");
+      return;
+    }
+
+    String title = routeGetBodyParam(request, "title");
+    title.trim();
+    if (title.length() == 0)
+    {
+      title = String(inDoc["t"] | "");
+      title.trim();
+    }
+    if (title.length() == 0)
+    {
+      title = "Imported Template";
+    }
+    if (title.length() > kMaxTemplateTitleLength)
+    {
+      title = title.substring(0, kMaxTemplateTitleLength);
+    }
+
+    String filename = routeGetBodyParam(request, "filename");
+    String normalizedFilename;
+    if (filename.length() > 0)
+    {
+      if (!normalizeTemplateFilename(filename, normalizedFilename))
+      {
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid filename\"}");
+        return;
+      }
+    }
+    else
+    {
+      normalizedFilename = sanitizeTemplateSlug(title) + ".json";
+    }
+
+    if (!LittleFS.exists("/templates"))
+    {
+      LittleFS.mkdir("/templates");
+    }
+
+    size_t estimatedBytes = estimateTemplateWriteBytesFromLabels(title, relayCount, labels);
+    String failureReason;
+    if (!ensureTemplateWriteHeadroom(estimatedBytes, failureReason))
+    {
+      sendTemplateWriteFailure(request, failureReason, estimatedBytes);
+      return;
+    }
+
+    if (!writeTemplateJson(normalizedFilename, title, relayCount, labels, &failureReason))
+    {
+      sendTemplateWriteFailure(request, failureReason.length() ? failureReason : String("save_failed"), estimatedBytes);
+      return;
+    }
+
+    JsonDocument response;
+    response["ok"] = true;
+    response["filename"] = normalizedFilename;
+    char payload[128];
+    serializeJson(response, payload, sizeof(payload));
+    request->send(200, "application/json", payload);
+  });
+
+  server.on("/api/templates/select", HTTP_POST, [](AsyncWebServerRequest *request) {
+    StorageWriteLockGuard fsGuard;
+    if (!fsGuard.acquired())
+    {
+      request->send(503, "application/json", "{\"ok\":false,\"error\":\"storage busy\",\"reason\":\"storage_write_lock\",\"retryAfterMs\":250}");
+      return;
+    }
+
+    String filename = routeGetBodyParam(request, "filename");
+    filename.trim();
+
+    if (filename.length() == 0)
+    {
+      selectedRelayTemplateFilename = "";
+      if (!saveBoardConfig())
+      {
+        request->send(500, "application/json", "{\"ok\":false,\"error\":\"save failed\"}");
+        return;
+      }
+      notifyClients();
+      request->send(200, "application/json", "{\"ok\":true,\"selectedTemplate\":\"\"}");
+      return;
+    }
+
+    String normalizedFilename;
+    if (!normalizeTemplateFilename(filename, normalizedFilename))
+    {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid filename\"}");
+      return;
+    }
+
+    if (!LittleFS.exists(buildTemplatePath(normalizedFilename)))
+    {
+      request->send(404, "application/json", "{\"ok\":false,\"error\":\"template not found\"}");
+      return;
+    }
+
+    if (!loadLabelsFromTemplateFile(normalizedFilename, relayCount))
+    {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"template incompatible or invalid\"}");
+      return;
+    }
+
+    if (!saveRelayLabels())
+    {
+      request->send(500, "application/json", "{\"ok\":false,\"error\":\"failed to save relay labels\"}");
+      return;
+    }
+
+    selectedRelayTemplateFilename = normalizedFilename;
+    if (!saveBoardConfig())
+    {
+      request->send(500, "application/json", "{\"ok\":false,\"error\":\"failed to save selection\"}");
+      return;
+    }
+
+    notifyClients();
+
+    JsonDocument response;
+    response["ok"] = true;
+    response["selectedTemplate"] = selectedRelayTemplateFilename;
+    char payload[128];
+    serializeJson(response, payload, sizeof(payload));
+    request->send(200, "application/json", payload);
+  });
+
+  server.on("/api/templates", HTTP_DELETE, [](AsyncWebServerRequest *request) {
+    StorageWriteLockGuard fsGuard;
+    if (!fsGuard.acquired())
+    {
+      request->send(503, "application/json", "{\"ok\":false,\"error\":\"storage busy\",\"reason\":\"storage_write_lock\",\"retryAfterMs\":250}");
+      return;
+    }
+
+    if (!request->hasParam("filename"))
+    {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"filename required\"}");
+      return;
+    }
+
+    String filename = request->getParam("filename")->value();
+    String normalizedFilename;
+    if (!normalizeTemplateFilename(filename, normalizedFilename))
+    {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid filename\"}");
+      return;
+    }
+
+    String path = buildTemplatePath(normalizedFilename);
+    if (!LittleFS.exists(path))
+    {
+      request->send(404, "application/json", "{\"ok\":false,\"error\":\"template not found\"}");
+      return;
+    }
+
+    if (!LittleFS.remove(path))
+    {
+      request->send(500, "application/json", "{\"ok\":false,\"error\":\"remove failed\"}");
+      return;
+    }
+
+    if (selectedRelayTemplateFilename == normalizedFilename)
+    {
+      selectedRelayTemplateFilename = "";
+      if (!saveBoardConfig())
+      {
+        request->send(500, "application/json", "{\"ok\":false,\"error\":\"failed to save selection\"}");
+        return;
+      }
+      notifyClients();
+    }
+
+    request->send(200, "application/json", "{\"ok\":true}");
+  });
+}

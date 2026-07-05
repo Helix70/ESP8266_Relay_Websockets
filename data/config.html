@@ -1,0 +1,212 @@
+<!DOCTYPE HTML>
+<html>
+
+<head>
+  <title>Relay Board - Configuration</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <script>
+  // Inlined from theme-apply.js: was a separate static-file request that cost
+  // ~1500-2300 bytes of ESP8266 heap not recovered by the next request (see
+  // src/CLAUDE.md). Duplicated identically across all 6 HTML pages in data/ --
+  // if you edit this logic, update every copy (grep "Inlined from theme-apply.js").
+  (function () {
+    var LS = 'rly_theme';
+    var LS_STYLE = 'rly_btnstyle';
+    function apply(h) {
+      var s = document.documentElement.style;
+      s.setProperty('--clr-bg',      h[0]);
+      s.setProperty('--clr-primary', h[1]);
+      s.setProperty('--clr-accent',  h[2]);
+      s.setProperty('--clr-active',  h[3]);
+      s.setProperty('--clr-text',       h[4] || h[1]);
+      s.setProperty('--clr-banner',     h[5] || h[2]);
+      s.setProperty('--clr-banner-txt', h[6] || '#ffffff');
+      s.setProperty('--clr-btn1-txt',   h[7] || '#ffffff');
+      s.setProperty('--clr-btn2-txt',   h[8] || '#ffffff');
+    }
+    function applyStyle(styleId) {
+      if (styleId && styleId !== 'classic') {
+        document.documentElement.setAttribute('data-btnstyle', styleId);
+      } else {
+        document.documentElement.removeAttribute('data-btnstyle');
+      }
+    }
+    var cachedColors = null;
+    var cachedStyle = null;
+    try {
+      var c = localStorage.getItem(LS);
+      if (c) { cachedColors = JSON.parse(c); apply(cachedColors); }
+      cachedStyle = localStorage.getItem(LS_STYLE);
+      if (cachedStyle) applyStyle(cachedStyle);
+      if (cachedColors && cachedStyle) return;
+    } catch (e) {}
+    var x = new XMLHttpRequest();
+    x.open('GET', '/api/theme', true);
+    x.onload = function () {
+      if (x.status !== 200) return;
+      try {
+        var d = JSON.parse(x.responseText);
+        if (d.h && !cachedColors) {
+          var colors = d.h.split(',');
+          if (colors.length >= 4) {
+            apply(colors);
+            try { localStorage.setItem(LS, JSON.stringify(colors)); } catch (e) {}
+          }
+        }
+        if (!cachedStyle) {
+          var styleId = d.s || 'classic';
+          applyStyle(styleId);
+          try { localStorage.setItem(LS_STYLE, styleId); } catch (e) {}
+        }
+      } catch (e) {}
+    };
+    x.send();
+  }());
+
+  var bootSessionStorageKey = 'relayBootSessionId:' + window.location.hostname;
+
+  function forceRootRefreshAfterBootChange() {
+    var cacheBuster = Date.now();
+    window.location.replace('/?refresh=' + cacheBuster);
+  }
+
+  function clearRefreshQueryParam() {
+    if (!window.history || typeof window.history.replaceState !== 'function') {
+      return;
+    }
+
+    if (window.location.search.indexOf('refresh=') === -1) {
+      return;
+    }
+
+    window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+  }
+
+  function trackBootSessionAndRedirectIfChanged(payload) {
+    if (!payload || !payload.bootSessionId) {
+      return false;
+    }
+
+    var incomingBootSessionId = String(payload.bootSessionId);
+    var previousBootSessionId = '';
+
+    try {
+      previousBootSessionId = window.localStorage.getItem(bootSessionStorageKey) || '';
+    } catch (e) {
+      previousBootSessionId = '';
+    }
+
+    try {
+      window.localStorage.setItem(bootSessionStorageKey, incomingBootSessionId);
+    } catch (e) {
+      // Ignore storage failures; the page still works without boot tracking.
+    }
+
+    if (previousBootSessionId && previousBootSessionId !== incomingBootSessionId) {
+      forceRootRefreshAfterBootChange();
+      return true;
+    }
+
+    return false;
+  }
+  </script>
+</head>
+
+<body>
+  <div class="topnav">
+    <h1>Configuration</h1>
+  </div>
+
+  <div class="config-page" data-loading="true">
+    <div class="config-card">
+      <h3>Board Name</h3>
+      <label for="boardNameInput" class="config-input-label">Enter board name:</label>
+      <input type="text" id="boardNameInput" class="config-input" maxlength="64" placeholder="Relay Board">
+      <p class="config-note">The board name will appear at the top of the main page and in the browser tab.</p>
+    </div>
+
+    <div class="config-card">
+      <h3>Startup Behavior</h3>
+
+      <label class="config-checkbox-label">
+        <input type="checkbox" id="doDelayCheckbox" class="config-checkbox">
+        Enable Startup Delay
+      </label>
+
+      <div class="delay-section">
+        <label for="delaySecondsInput" class="config-input-label">Startup delay (seconds):</label>
+        <input type="number" id="delaySecondsInput" class="config-input" min="0" max="300" step="1" value="60">
+      </div>
+
+      <p class="config-note">If enabled, the board will delay for the selected number of seconds on startup before beginning relay operations, up to 5 minutes.</p>
+
+      <label class="config-checkbox-label">
+        <input type="checkbox" id="connectStrongestCheckbox" class="config-checkbox">
+        Connect to strongest matching SSID on startup
+      </label>
+      <p class="config-note">When enabled, startup performs a Wi-Fi scan and attempts to connect to the strongest AP matching your configured SSID. If disabled, startup uses normal connect behavior.</p>
+    </div>
+
+    <div class="config-card">
+      <h3>Wi-Fi Status</h3>
+
+      <label for="wifiSsidDisplay" class="config-input-label">Configured SSID:</label>
+      <input type="text" id="wifiSsidDisplay" class="config-input" readonly value="(not configured)">
+
+      <label for="wifiConnectedSsidDisplay" class="config-input-label">Connected SSID:</label>
+      <input type="text" id="wifiConnectedSsidDisplay" class="config-input" readonly value="-">
+
+      <label for="wifiStatusDisplay" class="config-input-label">Connection Status:</label>
+      <input type="text" id="wifiStatusDisplay" class="config-input" readonly value="Unknown">
+
+      <label for="wifiRssiDisplay" class="config-input-label">Current RSSI:</label>
+      <input type="text" id="wifiRssiDisplay" class="config-input" readonly value="-">
+
+      <label for="wifiRescanStatusDisplay" class="config-input-label">Rescan Status:</label>
+      <input type="text" id="wifiRescanStatusDisplay" class="config-input" readonly value="Idle">
+
+      <div class="config-inline-action">
+        <button id="rescanWifiButton" class="button">Rescan & Refresh Strongest AP</button>
+        <button id="clearWifiButton" class="button">Clear Wi-Fi Credentials</button>
+      </div>
+      <p class="config-note">Clearing credentials restarts into provisioning mode.</p>
+    </div>
+
+    <div class="config-card">
+      <h3>Network Configuration</h3>
+
+      <label class="config-checkbox-label">
+        <input type="checkbox" id="useDhcpCheckbox" class="config-checkbox" checked>
+        Use DHCP (automatic IP)
+      </label>
+
+      <div id="staticIpFields" class="static-ip-section">
+        <label for="ipInput" class="config-input-label">IP Address:</label>
+        <input type="text" id="ipInput" class="config-input" placeholder="" maxlength="15">
+
+        <label for="dnsInput" class="config-input-label">DNS:</label>
+        <input type="text" id="dnsInput" class="config-input" placeholder="" maxlength="15">
+
+        <label for="gatewayInput" class="config-input-label">Gateway:</label>
+        <input type="text" id="gatewayInput" class="config-input" placeholder="" maxlength="15">
+
+        <label for="subnetInput" class="config-input-label">Subnet Mask:</label>
+        <input type="text" id="subnetInput" class="config-input" placeholder="" maxlength="15">
+      </div>
+
+      <p class="config-note">If no static IP is specified, DHCP is used automatically. Network Configuration changes require reboot.</p>
+    </div>
+
+    <div class="config-buttons">
+      <p><button id="saveConfig" class="button">Save</button></p>
+      <p><button id="backButton" class="button">Back</button></p>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+</body>
+
+</html>

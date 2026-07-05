@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>18 Premium Web UI Color Frameworks</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; transition: background 0.25s, color 0.25s, border-color 0.25s; }
+        body { padding: 40px 20px; background-color: #f3f4f6; color: #111827; text-align: center; }
+        body.dark-mode { background-color: #0b0f19; color: #f9fafb; }
+        h1 { font-size: 2.2rem; font-weight: 800; letter-spacing: -0.5px; }
+        p.subtitle { margin-top: 5px; font-size: 1.05rem; opacity: 0.7; }
+        
+        #theme-toggle { padding: 12px 30px; font-size: 1rem; font-weight: 700; border: none; border-radius: 30px; cursor: pointer; background-color: #000; color: #fff; margin: 20px 0 40px; box-shadow: 0 4px 14px rgba(0,0,0,0.1); }
+        body.dark-mode #theme-toggle { background-color: #fff; color: #000; }
+        
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 35px; max-width: 1440px; margin: 0 auto; text-align: left; }
+        .section-title { font-size: 1.4rem; font-weight: 800; width: 100%; margin: 50px 0 15px 0; padding-bottom: 10px; border-bottom: 2px solid #e5e7eb; grid-column: 1 / -1; text-transform: uppercase; letter-spacing: 0.5px; }
+        body.dark-mode .section-title { border-bottom-color: #242b3d; }
+        
+        /* Layout Grid Cards */
+        .card-container { display: flex; flex-direction: column; gap: 8px; }
+        .scheme-info { font-size: 0.9rem; font-weight: 700; opacity: 0.8; padding-left: 2px; }
+        .card { border-radius: 16px; border: 2px solid transparent; display: flex; flex-direction: column; min-height: 380px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); overflow: hidden; }
+        
+        /* Contained Header Banners */
+        .header-banner { padding: 20px; font-size: 1.1rem; font-weight: 700; text-align: center; border-bottom: 1px solid rgba(0,0,0,0.05); }
+        
+        /* Inner Component Content spacing */
+        .card-content { padding: 24px; display: flex; flex-direction: column; gap: 18px; flex-grow: 1; }
+        .card p { font-size: 0.9rem; line-height: 1.45; opacity: 0.85; }
+        
+        /* Input & Form controls */
+        .edit-box-wrapper { display: flex; flex-direction: column; gap: 5px; }
+        .edit-box-wrapper label { font-size: 0.75rem; font-weight: 700; opacity: 0.8; text-transform: uppercase; }
+        .input-box { width: 100%; padding: 10px 14px; border-radius: 8px; font-size: 0.9rem; border: 2px solid; font-weight: 500; outline: none; background: transparent; }
+        
+        /* Buttons Group alignment */
+        .btn-group { display: flex; gap: 12px; margin-top: auto; }
+        .cta-btn { padding: 10px 18px; border-radius: 8px; font-weight: 700; border: none; cursor: pointer; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.5px; flex-grow: 1; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <h1>Component Color Frameworks</h1>
+    <p class="subtitle">Live layout validation detailing 18 distinct theme variations and contrasts.</p>
+    <button id="theme-toggle" onclick="toggleTheme()">🔄 Switch to Dark Themes</button>
+
+    <main class="grid" id="main-grid"></main>
+
+    <script>
+        const schemes = [
+            // ====== CALM & MINIMAL (Health, Corporate, Editorial) ======
+            { id: 1, name: "Neutral Iced Matcha", type: "Calm & Minimal", 
+              light: { bg: "#F7F4EF", border: "#AEB8A0", text: "#2C2A29", bannerBg: "#6C7A58", bannerTxt: "#F7F4EF", btn1Bg: "#6C7A58", btn1Txt: "#FFFFFF", btn2Bg: "#E6A886", btn2Txt: "#2C2A29" }, 
+              dark: { bg: "#1E251A", border: "#2E3A28", text: "#AEB8A0", bannerBg: "#AEB8A0", bannerTxt: "#1E251A", btn1Bg: "#6C7A58", btn1Txt: "#1E251A", btn2Bg: "#E6A886", btn2Txt: "#1E251A" } },
+              
+            { id: 2, name: "Serene Slate & White", type: "Calm & Minimal", 
+              light: { bg: "#FAFAFA", border: "#4A6FA5", text: "#333333", bannerBg: "#4A6FA5", bannerTxt: "#FAFAFA", btn1Bg: "#82B2D6", btn1Txt: "#ffffff", btn2Bg: "#E0A96D", btn2Txt: "#333333" }, 
+              dark: { bg: "#0F1B29", border: "#1f354f", text: "#FFFFFF", bannerBg: "#82B2D6", bannerTxt: "#0F1B29", btn1Bg: "#82B2D6", btn1Txt: "#0F1B29", btn2Bg: "#E0A96D", btn2Txt: "#0F1B29" } },
+              
+            { id: 3, name: "Calm Nest", type: "Calm & Minimal", 
+              light: { bg: "#FDFBF7", border: "#9CB2A2", text: "#3E4440", bannerBg: "#3E4440", bannerTxt: "#FDFBF7", btn1Bg: "#E6A886", btn1Txt: "#ffffff", btn2Bg: "#7B9EA8", btn2Txt: "#ffffff" }, 
+              dark: { bg: "#2C352F", border: "#414e45", text: "#FDFBF7", bannerBg: "#E6A886", bannerTxt: "#2C352F", btn1Bg: "#E6A886", btn1Txt: "#2C352F", btn2Bg: "#7B9EA8", btn2Txt: "#ffffff" } },
+              
+            { id: 4, name: "B2B Trust & Purity", type: "Calm & Minimal", 
+              light: { bg: "#E0FBFC", border: "#98C1D9", text: "#293241", bannerBg: "#293241", bannerTxt: "#E0FBFC", btn1Bg: "#3D5A80", btn1Txt: "#ffffff", btn2Bg: "#EE6C4D", btn2Txt: "#ffffff" }, 
+              dark: { bg: "#293241", border: "#3D5A80", text: "#E0FBFC", bannerBg: "#EE6C4D", bannerTxt: "#293241", btn1Bg: "#98C1D9", btn1Txt: "#293241", btn2Bg: "#EE6C4D", btn2Txt: "#ffffff" } },
+              
+            { id: 5, name: "Warm Naturals", type: "Calm & Minimal", 
+              light: { bg: "#F5F0EB", border: "#6B8262", text: "#45362B", bannerBg: "#45362B", bannerTxt: "#F5F0EB", btn1Bg: "#D9AB55", btn1Txt: "#ffffff", btn2Bg: "#7E9A9F", btn2Txt: "#ffffff" }, 
+              dark: { bg: "#362A22", border: "#544235", text: "#F5F0EB", bannerBg: "#D9AB55", bannerTxt: "#362A22", btn1Bg: "#D9AB55", btn1Txt: "#362A22", btn2Bg: "#7E9A9F", btn2Txt: "#362A22" } },
+
+            { id: 6, name: "Cashmere & Teal", type: "Calm & Minimal", 
+              light: { bg: "#F4EFEB", border: "#2F4F4F", text: "#2E2521", bannerBg: "#2F4F4F", bannerTxt: "#F4EFEB", btn1Bg: "#D4A373", btn1Txt: "#ffffff", btn2Bg: "#A3C1AD", btn2Txt: "#2E2521" }, 
+              dark: { bg: "#1A3030", border: "#2F4F4F", text: "#D4A373", bannerBg: "#D4A373", bannerTxt: "#1A3030", btn1Bg: "#F4EFEB", btn1Txt: "#1A3030", btn2Bg: "#A3C1AD", btn2Txt: "#1A3030" } },
+
+            { id: 7, name: "Cloud Gray & Mint", type: "Calm & Minimal", 
+              light: { bg: "#F5F7F8", border: "#A3D9C9", text: "#3A3A3A", bannerBg: "#3A3A3A", bannerTxt: "#A3D9C9", btn1Bg: "#4CA68F", btn1Txt: "#ffffff", btn2Bg: "#EFA7A7", btn2Txt: "#3A3A3A" }, 
+              dark: { bg: "#222222", border: "#333333", text: "#A3D9C9", bannerBg: "#4CA68F", bannerTxt: "#222222", btn1Bg: "#4CA68F", btn1Txt: "#222222", btn2Bg: "#EFA7A7", btn2Txt: "#222222" } },
+
+            { id: 8, name: "Sand Beige & Mist", type: "Calm & Minimal", 
+              light: { bg: "#E8DCC4", border: "#8FB9AA", text: "#2B3A41", bannerBg: "#2B3A41", bannerTxt: "#E8DCC4", btn1Bg: "#2B3A41", btn1Txt: "#E8DCC4", btn2Bg: "#D98880", btn2Txt: "#2B3A41" }, 
+              dark: { bg: "#2B3A41", border: "#394d57", text: "#E8DCC4", bannerBg: "#8FB9AA", bannerTxt: "#2B3A41", btn1Bg: "#8FB9AA", btn1Txt: "#2B3A41", btn2Bg: "#D98880", btn2Txt: "#2B3A41" } },
+
+            { id: 9, name: "Warm Taupe & Lavender", type: "Calm & Minimal", 
+              light: { bg: "#EBE5DF", border: "#FFFFFF", text: "#6D6270", bannerBg: "#6D6270", bannerTxt: "#EBE5DF", btn1Bg: "#CBB3BA", btn1Txt: "#ffffff", btn2Bg: "#8AA399", btn2Txt: "#ffffff" }, 
+              dark: { bg: "#342B38", border: "#4a3e50", text: "#EBE5DF", bannerBg: "#CBB3BA", bannerTxt: "#342B38", btn1Bg: "#CBB3BA", btn1Txt: "#342B38", btn2Bg: "#8AA399", btn2Txt: "#ffffff" } },
+            // ====== PREMIUM & MODERN (Tech, Luxury, Fashion, Creative) ======
+            { id: 10, name: "Sunset Persimmon", type: "Premium & Modern", 
+              light: { bg: "#FAFAFA", border: "#B23A2A", text: "#2B2B2B", bannerBg: "#FF4B3A", bannerTxt: "#FAFAFA", btn1Bg: "#FF4B3A", btn1Txt: "#ffffff", btn2Bg: "#2EC4B6", btn2Txt: "#ffffff" }, 
+              dark: { bg: "#3A1C1C", border: "#592b2b", text: "#FFFFFF", bannerBg: "#FFFFFF", bannerTxt: "#3A1C1C", btn1Bg: "#FF4B3A", btn1Txt: "#ffffff", btn2Bg: "#2EC4B6", btn2Txt: "#3A1C1C" } },
+              
+            { id: 11, name: "Midnight Neon Blue", type: "Premium & Modern", 
+              light: { bg: "#F0F4F8", border: "#1E2A38", text: "#1E2A38", bannerBg: "#1E2A38", bannerTxt: "#00F5D4", btn1Bg: "#FF2E93", btn1Txt: "#ffffff", btn2Bg: "#00F5D4", btn2Txt: "#1E2A38" }, 
+              dark: { bg: "#0A0E17", border: "#162033", text: "#ffffff", bannerBg: "#FF2E93", bannerTxt: "#ffffff", btn1Bg: "#FF2E93", btn1Txt: "#ffffff", btn2Bg: "#00F5D4", btn2Txt: "#0A0E17" } },
+              
+            { id: 12, name: "Plum Noir & Velvet", type: "Premium & Modern", 
+              light: { bg: "#F5E6E8", border: "#523A40", text: "#351E28", bannerBg: "#351E28", bannerTxt: "#F5E6E8", btn1Bg: "#CBA135", btn1Txt: "#ffffff", btn2Bg: "#4A7C59", btn2Txt: "#ffffff" }, 
+              dark: { bg: "#351E28", border: "#4f2d3c", text: "#F5E6E8", bannerBg: "#CBA135", bannerTxt: "#351E28", btn1Bg: "#CBA135", btn1Txt: "#ffffff", btn2Bg: "#4A7C59", btn2Txt: "#ffffff" } },
+              
+            { id: 13, name: "Black & Gold Elite", type: "Premium & Modern", 
+              light: { bg: "#FFFFFF", border: "#000000", text: "#000000", bannerBg: "#000000", bannerTxt: "#D4AF37", btn1Bg: "#D4AF37", btn1Txt: "#fff", btn2Bg: "#707070", btn2Txt: "#fff" }, 
+              dark: { bg: "#050505", border: "#1a1a1a", text: "#ffffff", bannerBg: "#D4AF37", bannerTxt: "#050505", btn1Bg: "#D4AF37", btn1Txt: "#050505", btn2Bg: "#444444", btn2Txt: "#fff" } },
+              
+            { id: 14, name: "Teal & Bronze", type: "Premium & Modern", 
+              light: { bg: "#F3EFE0", border: "#006D77", text: "#835332", bannerBg: "#006D77", bannerTxt: "#F3EFE0", btn1Bg: "#83C5BE", btn1Txt: "#006D77", btn2Bg: "#D62246", btn2Txt: "#ffffff" }, 
+              dark: { bg: "#004D54", border: "#006d75", text: "#F3EFE0", bannerBg: "#D62246", bannerTxt: "#ffffff", btn1Bg: "#83C5BE", btn1Txt: "#004D54", btn2Bg: "#D62246", btn2Txt: "#ffffff" } },
+
+            { id: 15, name: "Cool Blue & Frost", type: "Premium & Modern", 
+              light: { bg: "#D7EFFF", border: "#A2D2FF", text: "#0A2240", bannerBg: "#0A2240", bannerTxt: "#D7EFFF", btn1Bg: "#0077B6", btn1Txt: "#ffffff", btn2Bg: "#FFB703", btn2Txt: "#0A2240" }, 
+              dark: { bg: "#0A2240", border: "#12345c", text: "#A2D2FF", bannerBg: "#A2D2FF", bannerTxt: "#0A2240", btn1Bg: "#0077B6", btn1Txt: "#ffffff", btn2Bg: "#FFB703", btn2Txt: "#0A2240" } },
+
+            { id: 16, name: "Emerald & Gold", type: "Premium & Modern", 
+              light: { bg: "#FFFFFF", border: "#042917", text: "#0D5C3A", bannerBg: "#042917", bannerTxt: "#C69214", btn1Bg: "#C69214", btn1Txt: "#ffffff", btn2Bg: "#A43A83", btn2Txt: "#ffffff" }, 
+              dark: { bg: "#042917", border: "#0b4729", text: "#ffffff", bannerBg: "#C69214", bannerTxt: "#042917", btn1Bg: "#C69214", btn1Txt: "#042917", btn2Bg: "#A43A83", btn2Txt: "#ffffff" } },
+
+            { id: 17, name: "Purple Rain", type: "Premium & Modern", 
+              light: { bg: "#EBE8F5", border: "#8B72A8", text: "#2B1F3D", bannerBg: "#2B1F3D", bannerTxt: "#EBE8F5", btn1Bg: "#D8315B", btn1Txt: "#ffffff", btn2Bg: "#00b4d8", btn2Txt: "#ffffff" }, 
+              dark: { bg: "#2B1F3D", border: "#41305c", text: "#8B72A8", bannerBg: "#8B72A8", bannerTxt: "#2B1F3D", btn1Bg: "#D8315B", btn1Txt: "#ffffff", btn2Bg: "#00b4d8", btn2Txt: "#2B1F3D" } },
+
+            { id: 18, name: "Warm Suede Luxury", type: "Premium & Modern", 
+              light: { bg: "#F3EBE5", border: "#7A5C4A", text: "#382B22", bannerBg: "#382B22", bannerTxt: "#F3EBE5", btn1Bg: "#C8A165", btn1Txt: "#ffffff", btn2Bg: "#466060", btn2Txt: "#ffffff" }, 
+              dark: { bg: "#382B22", border: "#544033", text: "#F3EBE5", bannerBg: "#C8A165", bannerTxt: "#382B22", btn1Bg: "#C8A165", btn1Txt: "#382B22", btn2Bg: "#466060", btn2Txt: "#ffffff" } }
+        ];
+        let isDarkMode = false;
+
+        function renderCards() {
+            const grid = document.getElementById('main-grid');
+            grid.innerHTML = '';
+            let currentSection = "";
+
+            schemes.forEach(scheme => {
+                if (scheme.type !== currentSection) {
+                    currentSection = scheme.type;
+                    const header = document.createElement('div');
+                    header.className = 'section-title';
+                    header.innerText = currentSection;
+                    grid.appendChild(header);
+                }
+
+                const data = isDarkMode ? scheme.dark : scheme.light;
+                const container = document.createElement('div');
+                container.className = 'card-container';
+                
+                container.innerHTML = `
+                    <div class="scheme-info">Scheme ${scheme.id}: ${scheme.name}</div>
+                    <div class="card" style="background-color: ${data.bg}; border-color: ${data.border}; color: ${data.text}">
+                        
+                        <div class="header-banner" style="background-color: ${data.bannerBg}; color: ${data.bannerTxt}">
+                            High Contrast Header Banner
+                        </div>
+
+                        <div class="card-content">
+                            <p>This layout visualises the theme architecture. The card body base style displays deep input edit spaces and active button pairings cleanly.</p>
+                            
+                            <div class="edit-box-wrapper">
+                                <label>Form Input Field</label>
+                                <input type="text" class="input-box" placeholder="Enter text here..." 
+                                    style="border-color: ${data.border}; color: ${data.text};">
+                            </div>
+
+                            <div class="btn-group">
+                                <button class="cta-btn" style="background-color: ${data.btn1Bg}; color: ${data.btn1Txt}">Primary Action</button>
+                                <button class="cta-btn" style="background-color: ${data.btn2Bg}; color: ${data.btn2Txt}">Secondary State</button>
+                            </div>
+                        </div>
+
+                    </div>
+                `;
+                grid.appendChild(container);
+            });
+        }
+
+        function toggleTheme() {
+            isDarkMode = !isDarkMode;
+            document.body.classList.toggle('dark-mode', isDarkMode);
+            document.getElementById('theme-toggle').innerText = isDarkMode ? "🔄 Switch to Light Themes" : "🔄 Switch to Dark Themes";
+            renderCards();
+        }
+
+        renderCards();
+    </script>
+</body>
+</html>
