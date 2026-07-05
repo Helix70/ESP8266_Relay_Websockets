@@ -42,7 +42,7 @@ flowchart LR
     REL[relay_runtime\nrelay state/timers]
     STO[storage_utils\nrelay labels/templates]
     CST[config_store\nboard + Wi-Fi + selected template]
-    SER[serial_commands\nreset_all/reset_hardware/reset_wifi/help]
+    SER[serial_commands\nhelp/reboot/reset/wifi]
   end
 
   MAIN --> NET
@@ -185,7 +185,8 @@ On ESP32, callbacks run in a FreeRTOS task where `malloc` is safe, so notificati
 
 1. Flash firmware + filesystem.
 2. If Wi-Fi is not configured, device enters provisioning mode.
-3. Configure Wi-Fi via provisioning page or serial command `reset_wifi`.
+3. Configure Wi-Fi via the provisioning page, or the serial `wifi` command.
+4. After first connecting, select the matching hardware variant on `/boards.html` (or `/api/boards` `action=setactive`) if it isn't already set — a factory-reset or brand-new board starts with no active hardware selected.
 
 ### 2. Configure Board
 
@@ -222,26 +223,31 @@ On `/relay-config.html` Template Management:
 
 - VS Code + PlatformIO extension (recommended)
 - Or PlatformIO Core CLI (`platformio`)
-- USB serial access to board (example uses `COM40` in `platformio.ini`)
+- USB serial access to board (COM ports below are examples from `platformio.ini`; adjust to your machine)
 
 ## PlatformIO Environments
 
-Defined in `platformio.ini`:
-- `esp8266_serial`
-- `esp8266_ota`
-- `esp32_serial`
-- `esp32_ota`
+Defined in `platformio.ini` — one serial + one OTA environment per physical board:
+
+| Board | Serial env (COM port) | OTA env (IP) |
+|---|---|---|
+| ESP8266 8-relay | `esp8266_serial_8relay` (`COM4`) | `esp8266_ota_8relay` |
+| ESP8266 16-relay | `esp8266_serial_16relay` (`COM6`) | `esp8266_ota_16relay` |
+| ESP32 8-relay | `esp32_serial_8relay` (`COM3`) | `esp32_ota_8relay` |
+
+There is no `esp32_*_16relay` environment — the ESP32 board only exists in the 8-relay variant (though `data/boards/esp32-16relay.json` exists and can still be selected manually via `/boards.html` if you wire up more relays on that MCU yourself).
 
 ## Build Commands
 
-- Build ESP32 serial:
+- Build ESP32 serial (8-relay):
 ```bash
-platformio run -e esp32_serial
+platformio run -e esp32_serial_8relay
 ```
 
-- Build ESP8266 serial:
+- Build ESP8266 serial (8-relay or 16-relay):
 ```bash
-platformio run -e esp8266_serial
+platformio run -e esp8266_serial_8relay
+platformio run -e esp8266_serial_16relay
 ```
 
 ## One-Command Validation (Preferred)
@@ -260,33 +266,33 @@ pwsh ./scripts/ai/Run-AI-ReleaseGate.ps1 -Esp8266 <ESP8266_IP> -Esp32 <ESP32_IP>
 
 - ESP32 serial firmware:
 ```bash
-platformio run -e esp32_serial -t upload
+platformio run -e esp32_serial_8relay -t upload
 ```
 
 - ESP32 filesystem:
 ```bash
-platformio run -e esp32_serial -t uploadfs
+platformio run -e esp32_serial_8relay -t uploadfs
 ```
 
-- ESP32 combined firmware + filesystem (custom target):
+- Combined firmware + filesystem (custom target, any environment):
 ```bash
-platformio run -e esp32_serial -t upload_all
+platformio run -e esp32_serial_8relay -t upload_all
 ```
 
-- ESP8266 serial firmware:
+- ESP8266 serial firmware (pick the matching relay-count environment):
 ```bash
-platformio run -e esp8266_serial -t upload
+platformio run -e esp8266_serial_16relay -t upload
 ```
 
 - ESP8266 filesystem:
 ```bash
-platformio run -e esp8266_serial -t uploadfs
+platformio run -e esp8266_serial_16relay -t uploadfs
 ```
 
-- OTA examples:
+- OTA examples (upload over the network instead of USB — see the environment table above for each board's OTA IP):
 ```bash
-platformio run -e esp32_ota -t upload
-platformio run -e esp8266_ota -t upload
+platformio run -e esp32_ota_8relay -t upload
+platformio run -e esp8266_ota_16relay -t upload
 ```
 
 ## Serial Monitor
@@ -314,53 +320,37 @@ Hardware file controls:
 
 ## Serial Command Reference
 
-Implemented in `src/serial_commands.cpp`. Help is printed automatically at startup.
-
-- `reset_all`
-  - Asks for a single confirmation.
-  - Runs the hardware setup wizard, then clears Wi-Fi credentials and runs the Wi-Fi wizard.
-  - Schedules restart on completion (even if Wi-Fi wizard is skipped/cancelled — hardware config is preserved).
-
-- `reset_hardware`
-  - Asks for confirmation.
-  - Runs the hardware setup wizard: prompts for relay count (8 or 16), sets the platform-appropriate board file, saves config.
-  - On success, schedules restart.
-
-- `reset_wifi`
-  - Asks for confirmation.
-  - Clears saved Wi-Fi credentials.
-  - Starts serial Wi-Fi provisioning wizard.
-  - On success, schedules restart.
-
-- `wifi_rescan`
-  - Triggers Wi-Fi scan and reconnect attempt to the strongest AP matching the configured SSID.
-  - Uses the same strongest-SSID logic as the web rescan action.
-
-- `wifi_strongest`
-  - Alias of `wifi_rescan`.
+Implemented in `src/serial_commands.cpp`. Help is printed automatically at startup and via the `help` command. Board/hardware-variant selection is **not** a serial-console flow — it's done via `/api/boards` (`action=setactive`) or the `/boards.html` UI, since it doesn't require reprovisioning anything.
 
 - `help`
-  - Prints available commands.
+  - Prints the command list. No state change.
 
-Serial wizard behavior (`src/serial_provision.cpp`):
+- `reboot`
+  - Reboots immediately. No confirmation needed, no settings changed.
 
-Hardware wizard:
-- Shows platform (ESP8266 / ESP32)
-- Prompts for relay count (8 or 16)
-- Sets `hardwareVariant` and `activeBoardHardwareFilename` to the platform-appropriate default board file
-- Saves to config store
+- `reset`
+  - Asks for confirmation (`y`/`yes`).
+  - Erases all stored board config (Wi-Fi credentials, board name, theme, selected template, hardware variant) — the filesystem itself (templates, board definitions) is untouched.
+  - Reboots into the SoftAP + HTTP provisioning portal, since Wi-Fi credentials are gone.
+  - The board's hardware variant will read as unconfigured (`relayCount=0`) until re-selected via `/api/boards` after reconnecting.
 
-Wi-Fi wizard:
+- `wifi`
+  - Asks for confirmation (`y`/`yes`).
+  - Clears saved Wi-Fi credentials, then immediately runs the serial Wi-Fi provisioning wizard (works whether or not the device is currently in provisioning mode — this is the fastest way to get a board back onto the network after a `reset`, without needing to join its temporary AP).
+  - Reboots on completion.
+
+Wi-Fi wizard (`src/serial_provision.cpp`):
 - Scans SSIDs
 - Lets user choose by index or type SSID directly
 - Prompts for password
+- Prompts DHCP vs static IP
 - Saves credentials to config store
 
 ## Notes and Troubleshooting
 
 - If template upload/apply fails, verify JSON format includes `labels` and valid relay count.
 - If UI appears stale after updates, hard-refresh browser and verify `uploadfs` completed.
-- If device is unreachable after network change, reconnect via serial and use `reset_wifi`.
+- If device is unreachable after a network change, reconnect via serial and use the `wifi` command to reprovision.
 - Child pages auto-redirect to main page when device restarts and comes back online.
 - After a reboot is detected through WebSocket state (`bootSessionId` change), clients force-return to `/?refresh=...` to ensure a fresh main-page load.
 - `/netinfo` now includes Wi-Fi and hardware summary fields (`wifiConnected`, SSID/status, `mcuType`, `hardwareVariant`, `relayCount`, board hardware name/file) so the configuration page can render read-only status even if WebSocket state is delayed.
