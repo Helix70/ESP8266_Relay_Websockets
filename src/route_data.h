@@ -15,7 +15,7 @@ constexpr uint8_t kDefaultShiftRegisterDataPin = 14;
 constexpr uint8_t kDefaultShiftRegisterOePin = 5;
 
 constexpr uint16_t kMaxStartupDelaySeconds = 300;
-constexpr uint8_t kMaxPulseTimeoutSeconds = 30;
+constexpr uint8_t kMaxPulseTimeoutSeconds = 60;
 constexpr uint8_t kDefaultPulseTimeoutSeconds = 1;
 constexpr size_t kMaxTemplateTitleLength = 40;
 // LFS_NAME_MAX = 32 on ESP8266; temp file is slug+".jt" (3 bytes), final is

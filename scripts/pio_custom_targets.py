@@ -86,19 +86,29 @@ SOAK_TEST_SCRIPTS = {
     "esp8266_ota_8relay": "esp8266_8relay_soak.py",
     "esp32_ota_8relay": "esp32_8relay_soak.py",
 }
+LONG_SOAK_TEST_SCRIPTS = {
+    "esp8266_ota_16relay": "esp8266_16relay_long_soak.py",
+    "esp8266_ota_8relay": "esp8266_8relay_long_soak.py",
+    "esp32_ota_8relay": "esp32_8relay_long_soak.py",
+}
+
+def _run_script(env, filename):
+    script_path = os.path.join(env["PROJECT_DIR"], "scripts", "tests", "soak", filename)
+    result = env.Execute('"$PYTHONEXE" "{}"'.format(script_path))
+    if result != 0:
+        env.Exit(result)
 
 def run_soak_test(source, target, env):
-    script = SOAK_TEST_SCRIPTS[env["PIOENV"]]
-    script_path = os.path.join(env["PROJECT_DIR"], "scripts", "tests", "soak", script)
-    result = env.Execute('"$PYTHONEXE" "{}"'.format(script_path))
-    if result != 0:
-        env.Exit(result)
+    _run_script(env, SOAK_TEST_SCRIPTS[env["PIOENV"]])
 
 def run_all_soak_tests(source, target, env):
-    script_path = os.path.join(env["PROJECT_DIR"], "scripts", "tests", "soak", "run_all_soak.py")
-    result = env.Execute('"$PYTHONEXE" "{}"'.format(script_path))
-    if result != 0:
-        env.Exit(result)
+    _run_script(env, "run_all_soak.py")
+
+def run_long_soak_test(source, target, env):
+    _run_script(env, LONG_SOAK_TEST_SCRIPTS[env["PIOENV"]])
+
+def run_all_long_soak_tests(source, target, env):
+    _run_script(env, "run_all_long_soak.py")
 
 if env["PIOENV"] in SOAK_TEST_SCRIPTS:
     env.AddCustomTarget(
@@ -114,4 +124,18 @@ if env["PIOENV"] in SOAK_TEST_SCRIPTS:
         actions=[run_all_soak_tests],
         title="Run All Soak Tests",
         description="Run the soak test for all 3 boards sequentially (COM6, COM4, COM3)",
+    )
+    env.AddCustomTarget(
+        name="soaktest_long",
+        dependencies=None,
+        actions=[run_long_soak_test],
+        title="Run Long Soak Test",
+        description="Same as Run Soak Test, but the relay-combination phase runs for hours (default 4h, SOAK_LONG_DURATION_S to override) -- catches slow heap fragmentation a short burst can hide",
+    )
+    env.AddCustomTarget(
+        name="soaktest_long_all",
+        dependencies=None,
+        actions=[run_all_long_soak_tests],
+        title="Run All Long Soak Tests",
+        description="Run the long soak test for all 3 boards sequentially (default 4h each, 12h total)",
     )

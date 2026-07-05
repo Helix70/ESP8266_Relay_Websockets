@@ -65,4 +65,23 @@ python scripts/tests/soak/run_all_soak.py
 
 Or via PlatformIO's Tasks sidebar (VSCode): each of the three OTA environments (`esp8266_ota_16relay`, `esp8266_ota_8relay`, `esp32_ota_8relay`) has a "Run Soak Test" (this board only) and "Run All Soak Tests" (all three) custom target.
 
-Requires an explicit typed `YES` confirmation before touching any relay (set `SOAK_SKIP_CONFIRM=1` to skip when iterating on fixes in the same session). WiFi credentials for re-provisioning come from `SOAK_WIFI_SSID`/`SOAK_WIFI_PASSWORD` env vars, or an interactive prompt if unset. Reports (pass/fail + latency/heap benchmarks) are written to `scripts/tests/soak/reports/<board>/<timestamp>.json` (gitignored).
+Requires an explicit typed `YES` confirmation before touching any relay (set `SOAK_SKIP_CONFIRM=1` to skip when iterating on fixes in the same session). WiFi credentials for re-provisioning come from `SOAK_WIFI_SSID`/`SOAK_WIFI_PASSWORD` env vars, or an interactive prompt if unset. Reports (pass/fail + latency/heap benchmarks + estimated behavioral coverage + template/board-edit specifics) are written to `scripts/tests/soak/reports/<board>/<timestamp>.json` (gitignored).
+
+### Long-duration soak
+
+A separate, longer-running variant of the same suite: identical reset/reprovision/functional-coverage flow, but the relay-combination phase runs for hours instead of ~60s (default 4h, override with `SOAK_LONG_DURATION_S`), with page navigation, theme changes, and progress checkpoints firing periodically throughout the run instead of once near the start -- built to surface slow heap fragmentation a short burst can hide.
+
+```powershell
+# One board at a time
+python scripts/tests/soak/esp8266_16relay_long_soak.py
+python scripts/tests/soak/esp8266_8relay_long_soak.py
+python scripts/tests/soak/esp32_8relay_long_soak.py
+
+# All three, sequentially (default 4h each, 12h total)
+python scripts/tests/soak/run_all_long_soak.py
+
+# Quick check that the long-soak entry point itself works, without committing to a full run
+SOAK_LONG_DURATION_S=120 python scripts/tests/soak/esp8266_16relay_long_soak.py
+```
+
+Or via PlatformIO's Tasks sidebar: "Run Long Soak Test" (this board only) and "Run All Long Soak Tests" (all three), on the same three OTA environments.

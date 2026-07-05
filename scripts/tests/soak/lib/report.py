@@ -10,6 +10,8 @@ import statistics
 import time
 from pathlib import Path
 
+import coverage as coverage_module
+
 
 class Report:
     def __init__(self, board_name, target):
@@ -18,6 +20,15 @@ class Report:
         self.started_at = time.time()
         self.finished_at = None
         self.results = []
+        self.specifics = {}
+
+    def add_specific(self, name, data):
+        """Record a full, non-flattened blob of what a particular test step
+        actually did -- e.g. the complete relay-by-relay content of the
+        purpose-built L/I/P/group template, or a new board config's full
+        field set -- alongside the pass/fail results, since those don't fit
+        the flat add() schema."""
+        self.specifics[name] = data
 
     def add(self, suite, test, passed, endpoint="", details="", latency_ms=None,
             heap_before=None, heap_after=None):
@@ -82,6 +93,8 @@ class Report:
             "durationSec": round(self.finished_at - self.started_at, 1),
             "summary": self.summary(),
             "benchmarks": self._benchmarks(),
+            "coverage": coverage_module.summary(),
+            "specifics": self.specifics,
             "results": self.results,
         }
         out_path = Path(out_path)

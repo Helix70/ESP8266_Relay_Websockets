@@ -2,6 +2,7 @@
 
 #include "app_state.h"
 #include "board_hardware.h"
+#include "route_data.h"
 
 void applyHardwareVariantPinsAndModes()
 {
@@ -156,9 +157,9 @@ bool handlePerRelayModeToggle(uint8_t relayNum)
   if (mode == RELAY_MODE_PULSED)
   {
     uint8_t timeout = relayLabels[idx].pulseTimeout;
-    if (timeout == 0 || timeout > 30)
+    if (timeout == 0 || timeout > kMaxPulseTimeoutSeconds)
     {
-      timeout = 1;
+      timeout = kDefaultPulseTimeoutSeconds;
     }
     relays[idx].high();
     relays[idx].update();

@@ -811,6 +811,19 @@ static void onEvent(AsyncWebSocket *serverInstance, AsyncWebSocketClient *client
     // an ACK arrives, adding 40-200ms per send for 50-byte relay state messages.
     client->client()->setNoDelay(true);
 #endif
+    // Both the ESP8266 (me-no-dev/ESPAsyncTCP) and ESP32 (esp32async/AsyncTCP)
+    // forks default AsyncClient's ack_timeout to 5000ms (ASYNC_MAX_ACK_TIME /
+    // CONFIG_ASYNC_TCP_MAX_ACK_TIME, both hardcoded to 5000) -- if a sent WS
+    // frame doesn't get TCP-acked within that window, the library assumes the
+    // peer is dead and force-closes the connection. Observed directly during
+    // hardware soak testing on all three boards (including ESP32, ruling out
+    // heap exhaustion as the cause): roughly 1 in 60-100 relay-toggle round
+    // trips saw the client's WS connection forcibly reset, most plausibly
+    // from an occasional real WiFi-level ACK delay under the combined load of
+    // continuous toggling + concurrent page fetches, not a firmware or
+    // library defect. 15s gives real transient WiFi delays enough headroom
+    // without meaningfully slowing detection of a genuinely dead client.
+    client->client()->setAckTimeout(15000);
     // [HeapDiag] TEMPORARY: remove once the heap-decline investigation is closed out.
     Serial.printf("WebSocket client #%u connected from %s heap=%lu\n", client->id(),
                   client->remoteIP().toString().c_str(), (unsigned long)ESP.getFreeHeap());
