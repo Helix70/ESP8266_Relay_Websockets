@@ -23,6 +23,18 @@ def long_board_name_example():
     return "Soak Test Board Name That Is Deliberately Far Too Long For The Sixty Four Character Field Limit"
 
 
+def invalid_static_ip_examples():
+    """Each is missing/malformed in a different field; /api/config requires
+    all four (ip/dns/gateway/subnet) to parse as valid IPAddress when
+    useDhcp=false, else 400 'invalid ip config'."""
+    return [
+        {"ip": "not-an-ip", "dns": "192.168.2.1", "gateway": "192.168.2.1", "subnet": "255.255.255.0"},
+        {"ip": "192.168.2.154", "dns": "", "gateway": "192.168.2.1", "subnet": "255.255.255.0"},
+        {"ip": "192.168.2.154", "dns": "192.168.2.1", "gateway": "999.999.999.999", "subnet": "255.255.255.0"},
+        {"ip": "192.168.2.154", "dns": "192.168.2.1", "gateway": "192.168.2.1", "subnet": "not-a-mask"},
+    ]
+
+
 def clear_wifi(http, confirm=True):
     fields = {}
     if confirm:

@@ -27,6 +27,13 @@ def list_templates(http):
     return http.get("/api/templates")
 
 
+def diagnostics(http):
+    """GET /api/templates/diagnostics: selectedTemplate, templateCount,
+    largestTemplateBytes, fsTotalBytes/fsUsedBytes/fsFreeBytes,
+    lastWriteErrorReason/lastWriteErrorAtMs."""
+    return http.get("/api/templates/diagnostics")
+
+
 def create_form(http, title, relay_specs):
     """action=save (default) path: relayCount comes from the server's active
     relayCount, filename is always auto-derived from title (any filename

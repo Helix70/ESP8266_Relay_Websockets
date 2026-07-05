@@ -188,6 +188,24 @@ class SerialClient:
         self.wait_for("Available commands:", timeout=5, since_ts=since)
         self.wait_for(LOOP_STARTED_RE, timeout=timeout, since_ts=since)
 
+    def run_help(self, timeout=5):
+        """Send 'help', confirm the unconditional command list reprints (no
+        confirmation prompt, no state change) -- exercises printSerialHelp()
+        via the command dispatcher specifically, distinct from the identical
+        text that also prints once automatically at every boot."""
+        since = time.time()
+        self.send_line("help")
+        self.wait_for("Available commands:", timeout=timeout, since_ts=since)
+
+    def run_reboot_command(self, timeout=20):
+        """Send the serial 'reboot' text command itself (no confirmation
+        required) and wait for the device to come back up -- distinct from
+        ensure_clean_state()'s hardware RTS pulse, which never actually
+        exercises this command's own code path in serial_commands.cpp."""
+        since = time.time()
+        self.send_line("reboot")
+        self.wait_for(LOOP_STARTED_RE, timeout=timeout, since_ts=since)
+
     def run_reset(self, timeout=20):
         """Send 'reset', confirm, wait for the device to reboot and enter
         provisioning (since this always wipes WiFi credentials too)."""

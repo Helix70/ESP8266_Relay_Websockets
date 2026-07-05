@@ -274,15 +274,30 @@ void loop()
   // starved the ESP32 AsyncTCP task of that lock, causing intermittent
   // relay-toggle latency. Stale-client cleanup doesn't need per-tick freshness.
   //
-  // maxClients=2: this UI is only ever used by 1-2 browsers at once (the
-  // library defaults to 4 on ESP8266/8 on ESP32). Capping it here means a
-  // stuck/zombie connection (e.g. a backgrounded mobile browser that never
-  // sent a clean close) can only ever hold onto at most 2 client slots'
-  // worth of buffers before the oldest gets force-closed, instead of 4-8.
+  // maxClients is platform-specific, not a shared blanket value:
+  //   ESP8266: 2. Heap-constrained (~80KB total; this session's soak testing
+  //   found a comfortable operating floor around 7-8KB free under heavy
+  //   combined load), and this UI is only ever used by 1-2 browsers at once
+  //   here, so capping tightly means a stuck/zombie connection (e.g. a
+  //   backgrounded mobile browser that never sent a clean close) can only
+  //   ever hold onto at most 2 client slots' worth of buffers, instead of
+  //   the library's own default of 4.
+  //   ESP32: 8 (the library's own default, restored rather than reduced).
+  //   This session's soak testing measured a ~197KB heap floor on ESP32
+  //   under the same heavy combined load where ESP8266 sat at 7-8KB, so the
+  //   tight ESP8266-motivated cap was needlessly restrictive here. 8 slots
+  //   comfortably covers real concurrent use (1-2 UI browsers) plus the
+  //   automated soak test's own connection plus a live monitoring/dashboard
+  //   view open at the same time, without being unbounded.
+#ifdef ESP32
+  static const uint16_t kWsMaxClients = 8;
+#else
+  static const uint16_t kWsMaxClients = 2;
+#endif
   static uint32_t lastWsCleanup = 0;
   if ((elapsed - lastWsCleanup) > 250)
   {
-    ws.cleanupClients(2);
+    ws.cleanupClients(kWsMaxClients);
     lastWsCleanup = elapsed;
   }
 

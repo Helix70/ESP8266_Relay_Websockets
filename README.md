@@ -137,7 +137,7 @@ Templates contain full relay configuration per channel:
 - `on`, `off`
 - `mode` (`latched`, `interlocked`, `pulsed`)
 - `group`
-- `pulseTimeout` (`0` when mode is not `pulsed`, otherwise `1-30` seconds)
+- `pulseTimeout` (`0` when mode is not `pulsed`, otherwise `1-60` seconds)
 
 Available operations:
 - List templates: `GET /api/templates`

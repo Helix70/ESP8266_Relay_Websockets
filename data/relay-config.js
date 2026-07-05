@@ -617,7 +617,7 @@ function uploadSelectedTemplateFile() {
       }
 
       var pulse = parseInt(label.p, 10);
-      if (!pulse || pulse < 1 || pulse > 30) {
+      if (!pulse || pulse < 1 || pulse > 60) {
         pulse = 1;
       }
 

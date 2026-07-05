@@ -527,14 +527,14 @@ function renderRelayEditor() {
     var pulseLbl = document.createElement('label');
     pulseLbl.className = 'relay-input-label';
     pulseLbl.setAttribute('for', 'pulse' + relayId);
-    pulseLbl.textContent = 'Duration (1-30 seconds)';
+    pulseLbl.textContent = 'Duration (1-60 seconds)';
 
     var ptInput = document.createElement('input');
     ptInput.type = 'number';
     ptInput.id = 'pulse' + relayId;
     ptInput.className = 'relay-label-input';
     ptInput.min = '1';
-    ptInput.max = '30';
+    ptInput.max = '60';
     ptInput.value = String(relay.p || 1);
 
     pulseSection.appendChild(pulseLbl);
@@ -580,7 +580,7 @@ function collectRelayConfig(validate) {
     if (modeUsesPulse(mode)) {
       pt = parseInt((document.getElementById('pulse' + relayId).value || '1'), 10) || 1;
       if (pt < 1) pt = 1;
-      if (pt > 30) pt = 30;
+      if (pt > 60) pt = 60;
     }
 
     // Count members per (mode, group) so interlocked families can be validated
