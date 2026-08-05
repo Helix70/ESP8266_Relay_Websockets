@@ -37,8 +37,10 @@ def get_firmware_version():
             stderr=subprocess.DEVNULL,
             cwd=env["PROJECT_DIR"],
         ).decode().strip()
+        # Local upload-port edits in platformio.ini are expected per device,
+        # so they should not taint firmware version metadata as "dirty".
         dirty_status = subprocess.check_output(
-            ["git", "status", "--porcelain"],
+            ["git", "status", "--porcelain", "--", ".", ":(exclude)platformio.ini"],
             stderr=subprocess.DEVNULL,
             cwd=env["PROJECT_DIR"],
         ).decode().strip()
